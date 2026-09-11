@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, setIsAiDrawerOpen, tickets, devices } = useApp();
+  const { activeTab, setActiveTab, setIsAiDrawerOpen, tickets, devices, whiteLabel } = useApp();
 
   const openTicketsCount = tickets.filter(t => t.status === 'new' || t.status === 'in_progress').length;
   const criticalDevicesCount = devices.filter(d => d.health === 'critical' || d.health === 'warning').length;
@@ -40,10 +40,10 @@ export const Sidebar: React.FC = () => {
       <div className="p-4 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-lg bg-gradient-to-tr from-sky-500 to-emerald-500 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-sky-500/20">
-            A
+            {whiteLabel.companyName.charAt(0).toUpperCase()}
           </div>
           <div>
-            <h1 className="font-bold text-slate-100 text-base leading-tight tracking-tight">ApexMSP</h1>
+            <h1 className="font-bold text-slate-100 text-base leading-tight tracking-tight">{whiteLabel.companyName.split(' ')[0]}</h1>
             <p className="text-[11px] text-slate-400 font-medium">Enterprise PSA & RMM</p>
           </div>
         </div>

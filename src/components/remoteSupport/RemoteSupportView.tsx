@@ -28,8 +28,20 @@ export const RemoteSupportView: React.FC = () => {
     devices,
     launchRustDeskSession,
     toggleDeviceEncryption,
-    remoteWipeDevice
+    remoteWipeDevice,
+    selectedClientId
   } = useApp();
+
+  const filteredDevices = selectedClientId === 'all'
+    ? devices
+    : devices.filter(d => d.clientId === selectedClientId);
+
+  const filteredSessions = selectedClientId === 'all'
+    ? activeSessions
+    : activeSessions.filter(s => {
+        const device = devices.find(d => d.id === s.deviceId);
+        return device && device.clientId === selectedClientId;
+      });
 
   const [activeTab, setActiveTab] = useState<'sessions' | 'relay-config' | 'mdm-keys'>('sessions');
   const [quickConnectId, setQuickConnectId] = useState('');
@@ -43,7 +55,11 @@ export const RemoteSupportView: React.FC = () => {
   const handleLaunchQuickConnect = (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickConnectId.trim()) return;
-    const matched = devices.find(d => d.rustDeskId === quickConnectId) || devices[0];
+    const matched = devices.find(d => d.rustDeskId === quickConnectId);
+    if (!matched) {
+      alert(`No device found with RustDesk ID: ${quickConnectId}`);
+      return;
+    }
     launchRustDeskSession(matched.id);
     setQuickConnectId('');
   };
@@ -81,7 +97,7 @@ export const RemoteSupportView: React.FC = () => {
           onClick={() => setActiveTab('sessions')}
           className={`pb-3 border-b-2 transition ${activeTab === 'sessions' ? 'border-emerald-500 text-emerald-400' : 'border-transparent hover:text-slate-200'}`}
         >
-          Active Remote Desktop Sessions ({activeSessions.length})
+          Active Remote Desktop Sessions ({filteredSessions.length})
         </button>
         <button
           onClick={() => setActiveTab('mdm-keys')}
@@ -120,7 +136,7 @@ export const RemoteSupportView: React.FC = () => {
 
           {/* Active Sessions List */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {activeSessions.map(session => (
+            {filteredSessions.map(session => (
               <div key={session.id} className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 hover:border-slate-700 transition">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -153,7 +169,7 @@ export const RemoteSupportView: React.FC = () => {
               </div>
             ))}
 
-            {activeSessions.length === 0 && (
+            {filteredSessions.length === 0 && (
               <div className="p-12 text-center text-slate-500 text-xs font-medium col-span-2">
                 No active RustDesk remote support sessions currently running.
               </div>
@@ -173,7 +189,7 @@ export const RemoteSupportView: React.FC = () => {
           </div>
 
           <div className="space-y-3">
-            {devices.map(device => (
+            {filteredDevices.map(device => (
               <div key={device.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-slate-900">

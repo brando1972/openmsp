@@ -23,6 +23,8 @@ export const DashboardView: React.FC = () => {
     tickets,
     vaultItems,
     patches,
+    automations,
+    selectedClientId,
     setActiveTab,
     setSelectedDeviceId,
     setSelectedTicketId,
@@ -30,19 +32,40 @@ export const DashboardView: React.FC = () => {
     triggerAutomationRuleDryRun
   } = useApp();
 
-  const totalEndpoints = devices.length;
-  const criticalCount = devices.filter(d => d.health === 'critical').length;
-  const warningCount = devices.filter(d => d.health === 'warning').length;
-  const healthyCount = devices.filter(d => d.health === 'healthy').length;
+  const filteredDevices = selectedClientId === 'all' 
+    ? devices 
+    : devices.filter(d => d.clientId === selectedClientId);
+  
+  const filteredTickets = selectedClientId === 'all'
+    ? tickets
+    : tickets.filter(t => t.clientId === selectedClientId);
 
-  const openTickets = tickets.filter(t => t.status === 'new' || t.status === 'in_progress');
-  const urgentTickets = tickets.filter(t => t.priority === 'urgent');
+  const filteredVaultItems = selectedClientId === 'all'
+    ? vaultItems
+    : vaultItems.filter(v => v.clientId === selectedClientId);
+
+  const findMatchingRule = (deviceId: string) => {
+    const device = devices.find(d => d.id === deviceId);
+    if (!device) return null;
+    const deviceOs = device.os === 'windows' ? 'windows' : device.os === 'macos' ? 'macos' : device.os;
+    return automations.find(rule => 
+      rule.enabled && (rule.osTarget === 'all' || rule.osTarget === deviceOs)
+    );
+  };
+
+  const totalEndpoints = filteredDevices.length;
+  const criticalCount = filteredDevices.filter(d => d.health === 'critical').length;
+  const warningCount = filteredDevices.filter(d => d.health === 'warning').length;
+  const healthyCount = filteredDevices.filter(d => d.health === 'healthy').length;
+
+  const openTickets = filteredTickets.filter(t => t.status === 'new' || t.status === 'in_progress');
+  const urgentTickets = filteredTickets.filter(t => t.priority === 'urgent');
 
   const pendingPatches = patches.filter(p => !p.approved || p.installedDevicesCount < p.affectedDevicesCount);
 
   // Compute fleet security score
-  const avgPatchCompliance = Math.round(devices.reduce((acc, d) => acc + d.patchCompliance, 0) / (devices.length || 1));
-  const avgVaultStrength = Math.round(vaultItems.reduce((acc, v) => acc + v.strengthScore, 0) / (vaultItems.length || 1));
+  const avgPatchCompliance = Math.round(filteredDevices.reduce((acc, d) => acc + d.patchCompliance, 0) / (filteredDevices.length || 1));
+  const avgVaultStrength = Math.round(filteredVaultItems.reduce((acc, v) => acc + v.strengthScore, 0) / (filteredVaultItems.length || 1));
 
   return (
     <div className="flex-1 p-6 overflow-y-auto space-y-6 custom-scrollbar bg-slate-950 text-slate-100">
@@ -171,7 +194,7 @@ export const DashboardView: React.FC = () => {
           </div>
 
           <div className="mt-4 space-y-3 flex-1">
-            {devices.filter(d => d.health === 'critical' || d.health === 'warning').map(device => (
+            {filteredDevices.filter(d => d.health === 'critical' || d.health === 'warning').map(device => (
               <div
                 key={device.id}
                 className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between gap-4 hover:border-slate-700 transition"
@@ -195,7 +218,14 @@ export const DashboardView: React.FC = () => {
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => triggerAutomationRuleDryRun('rule-1', device.id)}
+                    onClick={() => {
+                      const matchingRule = findMatchingRule(device.id);
+                      if (matchingRule) {
+                        triggerAutomationRuleDryRun(matchingRule.id, device.id);
+                      } else {
+                        alert(`No compatible auto-heal rule found for ${device.name} (${device.os})`);
+                      }
+                    }}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-400 font-bold text-[11px] hover:bg-sky-500/20 transition"
                   >
                     <Zap className="w-3.5 h-3.5" /> Auto-Heal
@@ -213,7 +243,7 @@ export const DashboardView: React.FC = () => {
               </div>
             ))}
 
-            {devices.filter(d => d.health === 'critical' || d.health === 'warning').length === 0 && (
+            {filteredDevices.filter(d => d.health === 'critical' || d.health === 'warning').length === 0 && (
               <div className="p-8 text-center text-slate-500 font-medium text-xs">
                 All managed endpoints are currently healthy.
               </div>
@@ -237,7 +267,7 @@ export const DashboardView: React.FC = () => {
           </div>
 
           <div className="mt-4 space-y-3 flex-1">
-            {tickets.map(ticket => (
+            {filteredTickets.map(ticket => (
               <div
                 key={ticket.id}
                 onClick={() => {

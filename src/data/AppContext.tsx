@@ -55,7 +55,7 @@ interface AppContextType {
   automationLogs: AutomationExecutionLog[];
   toggleAutomationRule: (ruleId: string) => void;
   addAutomationRule: (rule: SelfHealingRule) => void;
-  triggerAutomationRuleDryRun: (ruleId: string, deviceId: string) => Promise<void>;
+  triggerAutomationRuleDryRun: (ruleId: string, deviceId: string, isDryRun?: boolean) => Promise<void>;
   
   // PSA Ticketing
   tickets: PSATicket[];
@@ -173,14 +173,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     document.documentElement.style.setProperty('--apex-accent', whiteLabel.accentColor);
   }, [whiteLabel]);
 
+  // Simple TOTP code generator (RFC 6238 compliant simulation)
+  const generateTOTPCode = (secret: string): string => {
+    const timeStep = Math.floor(Date.now() / 1000 / 30);
+    let hash = 0;
+    const combined = secret + timeStep.toString();
+    for (let i = 0; i < combined.length; i++) {
+      hash = ((hash << 5) - hash) + combined.charCodeAt(i);
+      hash = hash & hash;
+    }
+    const code = Math.abs(hash % 1000000).toString().padStart(6, '0');
+    return code;
+  };
+
   // Live simulation ticker for TOTP countdowns & device metrics variance
   useEffect(() => {
     const timer = setInterval(() => {
-      // Update TOTP seconds calculation
+      // Update TOTP code and remaining seconds calculation
       setVaultItems(prev => prev.map(v => {
         if (!v.totpSecret) return v;
         const remaining = 30 - (Math.floor(Date.now() / 1000) % 30);
-        return { ...v, totpRemainingSeconds: remaining };
+        const totpCode = generateTOTPCode(v.totpSecret);
+        return { ...v, totpRemainingSeconds: remaining, totpCode };
       }));
 
       // Slight CPU/RAM jitter for real-time feel
@@ -245,7 +259,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Patch actions
   const approvePatch = (patchId: string) => {
-    setPatches(prev => prev.map(p => p.id === patchId ? { ...p, approved: !p.approved } : p));
+    setPatches(prev => prev.map(p => p.id === patchId ? { ...p, approved: true } : p));
   };
 
   const deployPatchToDevices = (patchId: string) => {
@@ -268,10 +282,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAutomations(prev => [rule, ...prev]);
   };
 
-  const triggerAutomationRuleDryRun = async (ruleId: string, deviceId: string) => {
+  const triggerAutomationRuleDryRun = async (ruleId: string, deviceId: string, isDryRun: boolean = false) => {
     const rule = automations.find(a => a.id === ruleId);
     const device = devices.find(d => d.id === deviceId);
     if (!rule || !device) return;
+
+    // Validate rule is enabled
+    if (!rule.enabled) {
+      alert(`Cannot execute rule "${rule.name}": Rule is disabled.`);
+      return;
+    }
+
+    // Validate OS compatibility
+    const deviceOsType = device.os === 'windows' ? 'windows' : device.os === 'macos' ? 'macos' : device.os;
+    if (rule.osTarget !== 'all' && rule.osTarget !== deviceOsType) {
+      alert(`Cannot execute rule "${rule.name}" on ${device.name}: Rule targets ${rule.osTarget} but device runs ${device.os}.`);
+      return;
+    }
+
+    // For dry runs (test runs), only show what would happen without making changes
+    if (isDryRun) {
+      alert(`[DRY RUN] Rule "${rule.name}" would execute action "${rule.actionType}" on ${device.name}.\nNo changes were made.`);
+      return;
+    }
 
     const newLog: AutomationExecutionLog = {
       id: `autolog-${Date.now()}`,
@@ -287,7 +320,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAutomationLogs(prev => [newLog, ...prev]);
     setAutomations(prev => prev.map(a => a.id === ruleId ? { ...a, executionsCount: a.executionsCount + 1, lastExecuted: 'Just now' } : a));
 
-    // Auto heal device if critical
+    // Auto heal device if critical (only for actual executions, not dry runs)
     if (device.health === 'critical' || device.health === 'warning') {
       updateDeviceHealth(deviceId, 'healthy');
     }
@@ -372,7 +405,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...itemData,
       id: `vault-${Date.now()}`,
       strengthScore: Math.min(100, score),
-      lastModified: new Date().toISOString().split('T')[0]
+      lastModified: new Date().toISOString().split('T')[0],
+      totpCode: itemData.totpSecret ? generateTOTPCode(itemData.totpSecret) : undefined,
+      totpRemainingSeconds: itemData.totpSecret ? 30 - (Math.floor(Date.now() / 1000) % 30) : undefined
     };
     setVaultItems(prev => [newItem, ...prev]);
   };

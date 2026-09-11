@@ -29,6 +29,7 @@ export const PSATicketsView: React.FC = () => {
     setSelectedTicketId,
     clients,
     devices,
+    selectedClientId,
     createTicket,
     updateTicketStatus,
     addTicketComment,
@@ -36,6 +37,10 @@ export const PSATicketsView: React.FC = () => {
     launchRustDeskSession,
     setIsAiDrawerOpen
   } = useApp();
+
+  const filteredTickets = selectedClientId === 'all'
+    ? tickets
+    : tickets.filter(t => t.clientId === selectedClientId);
 
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('list');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -148,45 +153,96 @@ export const PSATicketsView: React.FC = () => {
 
       {/* Main Body: Queue + Selected Ticket Drawer */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Left: Queue */}
-        <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-3">
-          {tickets.map(ticket => {
-            const isSelected = ticket.id === selectedTicketId;
-            return (
-              <div
-                key={ticket.id}
-                onClick={() => setSelectedTicketId(ticket.id)}
-                className={`p-4 rounded-xl border transition cursor-pointer flex flex-col gap-2 ${
-                  isSelected
-                    ? 'bg-amber-500/10 border-amber-500/50 shadow-md'
-                    : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-amber-400 text-xs">{ticket.ticketNumber}</span>
-                    {getPriorityBadge(ticket.priority)}
-                    <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-semibold uppercase">
-                      {ticket.status.replace('_', ' ')}
-                    </span>
+        {/* Left: Queue (List View) or Kanban View */}
+        {viewMode === 'list' ? (
+          <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-3">
+            {filteredTickets.map(ticket => {
+              const isSelected = ticket.id === selectedTicketId;
+              return (
+                <div
+                  key={ticket.id}
+                  onClick={() => setSelectedTicketId(ticket.id)}
+                  className={`p-4 rounded-xl border transition cursor-pointer flex flex-col gap-2 ${
+                    isSelected
+                      ? 'bg-amber-500/10 border-amber-500/50 shadow-md'
+                      : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-amber-400 text-xs">{ticket.ticketNumber}</span>
+                      {getPriorityBadge(ticket.priority)}
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-semibold uppercase">
+                        {ticket.status.replace('_', ' ')}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>SLA: {ticket.slaDueDate}</span>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
-                    <Clock className="w-3.5 h-3.5 text-amber-400" />
-                    <span>SLA: {ticket.slaDueDate}</span>
+                  <h3 className="font-bold text-slate-100 text-sm">{ticket.title}</h3>
+
+                  <div className="flex items-center justify-between text-xs text-slate-400 mt-1">
+                    <span>Client: <strong className="text-slate-200">{ticket.clientName}</strong></span>
+                    <span>Assigned: <strong className="text-slate-200">{ticket.assignedTech}</strong></span>
                   </div>
                 </div>
-
-                <h3 className="font-bold text-slate-100 text-sm">{ticket.title}</h3>
-
-                <div className="flex items-center justify-between text-xs text-slate-400 mt-1">
-                  <span>Client: <strong className="text-slate-200">{ticket.clientName}</strong></span>
-                  <span>Assigned: <strong className="text-slate-200">{ticket.assignedTech}</strong></span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex-1 p-4 overflow-x-auto custom-scrollbar">
+            <div className="flex gap-4 min-w-max h-full">
+              {(['new', 'in_progress', 'waiting_on_client', 'resolved', 'closed'] as TicketStatus[]).map(status => {
+                const statusTickets = filteredTickets.filter(t => t.status === status);
+                const statusLabels: Record<TicketStatus, string> = {
+                  new: 'New',
+                  in_progress: 'In Progress',
+                  waiting_on_client: 'Waiting on Client',
+                  resolved: 'Resolved',
+                  closed: 'Closed'
+                };
+                return (
+                  <div key={status} className="w-72 flex flex-col bg-slate-900/50 rounded-xl border border-slate-800">
+                    <div className="p-3 border-b border-slate-800 flex items-center justify-between">
+                      <span className="font-bold text-slate-200 text-xs uppercase">{statusLabels[status]}</span>
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[10px] font-bold">{statusTickets.length}</span>
+                    </div>
+                    <div className="flex-1 p-2 space-y-2 overflow-y-auto custom-scrollbar">
+                      {statusTickets.map(ticket => {
+                        const isSelected = ticket.id === selectedTicketId;
+                        return (
+                          <div
+                            key={ticket.id}
+                            onClick={() => setSelectedTicketId(ticket.id)}
+                            className={`p-3 rounded-lg border transition cursor-pointer ${
+                              isSelected
+                                ? 'bg-amber-500/10 border-amber-500/50'
+                                : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-mono font-bold text-amber-400 text-[10px]">{ticket.ticketNumber}</span>
+                              {getPriorityBadge(ticket.priority)}
+                            </div>
+                            <h4 className="font-bold text-slate-100 text-xs line-clamp-2">{ticket.title}</h4>
+                            <p className="text-[10px] text-slate-400 mt-1">{ticket.clientName}</p>
+                          </div>
+                        );
+                      })}
+                      {statusTickets.length === 0 && (
+                        <div className="p-4 text-center text-slate-500 text-[10px]">No tickets</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Right: Selected Ticket Detail & Workbench */}
         {selectedTicket && (
