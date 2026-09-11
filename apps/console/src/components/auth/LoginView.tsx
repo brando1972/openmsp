@@ -23,7 +23,12 @@ export const LoginView: React.FC = () => {
     try {
       await login(email, password);
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Authentication failed. Please check your credentials.');
+      const msg = err?.message || '';
+      if (msg.includes('fetch') || msg.includes('Failed')) {
+        setErrorMessage('Unable to reach backend API. Use the pre-filled demo credentials below to sign in directly.');
+      } else {
+        setErrorMessage(msg || 'Authentication failed. Please check your credentials.');
+      }
     } finally {
       setIsLoading(false);
     }
