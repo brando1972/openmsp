@@ -281,25 +281,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           api.remote.getRemoteHealth()
         ]);
 
-        if (fetchedClients.status === 'fulfilled' && fetchedClients.value.length > 0) {
+        if (fetchedClients.status === 'fulfilled' && Array.isArray(fetchedClients.value) && fetchedClients.value.length > 0) {
           setClients(fetchedClients.value);
         }
-        if (fetchedDevices.status === 'fulfilled' && fetchedDevices.value.length > 0) {
+        if (fetchedDevices.status === 'fulfilled' && Array.isArray(fetchedDevices.value) && fetchedDevices.value.length > 0) {
           setDevices(fetchedDevices.value);
         }
-        if (fetchedTickets.status === 'fulfilled' && fetchedTickets.value.length > 0) {
+        if (fetchedTickets.status === 'fulfilled' && Array.isArray(fetchedTickets.value) && fetchedTickets.value.length > 0) {
           setTickets(fetchedTickets.value);
         }
-        if (fetchedPatches.status === 'fulfilled' && fetchedPatches.value.length > 0) {
+        if (fetchedPatches.status === 'fulfilled' && Array.isArray(fetchedPatches.value) && fetchedPatches.value.length > 0) {
           setPatches(fetchedPatches.value);
         }
-        if (fetchedAutomations.status === 'fulfilled' && fetchedAutomations.value.length > 0) {
+        if (fetchedAutomations.status === 'fulfilled' && Array.isArray(fetchedAutomations.value) && fetchedAutomations.value.length > 0) {
           setAutomations(fetchedAutomations.value);
         }
-        if (fetchedLogs.status === 'fulfilled' && fetchedLogs.value.length > 0) {
+        if (fetchedLogs.status === 'fulfilled' && Array.isArray(fetchedLogs.value) && fetchedLogs.value.length > 0) {
           setAutomationLogs(fetchedLogs.value);
         }
-        if (fetchedVault.status === 'fulfilled' && fetchedVault.value.length > 0) {
+        if (fetchedVault.status === 'fulfilled' && Array.isArray(fetchedVault.value) && fetchedVault.value.length > 0) {
           setVaultItems(fetchedVault.value);
         }
         if (fetchedRemoteConfig.status === 'fulfilled' && fetchedRemoteConfig.value) {

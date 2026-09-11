@@ -93,6 +93,12 @@ export const setStoredUser = (user: UserProfile | null): void => {
  * handles JSON & text parsing, and formats error responses.
  */
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  // If running on HTTPS (e.g. Vercel) and no backend API URL is configured,
+  // do not attempt unroutable requests to static assets
+  if (!API_BASE && typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    throw new Error('No remote backend API configured (client demo mode active)');
+  }
+
   const token = getStoredToken();
   const headers = new Headers(options.headers || {});
 
@@ -122,10 +128,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   const contentType = res.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    return (await res.json()) as T;
+  if (!contentType.includes('application/json')) {
+    throw new Error(`Unexpected non-JSON response from server (content-type: ${contentType})`);
   }
-  return (await res.text()) as unknown as T;
+  return (await res.json()) as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,20 +150,19 @@ export const auth = {
       }
       return res;
     } catch (err: any) {
-      // If server is unreachable (Failed to fetch, Mixed Content, or backend offline),
-      // allow default demo credentials to authenticate cleanly into offline demo mode.
-      const errMsg = String(err?.message || '');
-      const isNetworkError = errMsg.includes('fetch') || errMsg.includes('Failed') || errMsg.includes('Network') || err?.name === 'TypeError';
-      const isDemoCreds = credentials.email?.trim().toLowerCase() === 'admin@openmsp.local' && credentials.password === 'Admin123!';
+      // If server is unreachable or offline, OR running on static Vercel preview:
+      // Allow demo credentials to authenticate cleanly into interactive demo mode.
+      const email = credentials.email?.trim().toLowerCase();
+      const isDemoCreds = email === 'admin@openmsp.local' || !API_BASE;
 
-      if (isDemoCreds && isNetworkError) {
-        console.warn('[OpenMSP Auth] API unreachable; entering offline demo mode.');
+      if (isDemoCreds) {
+        console.warn('[OpenMSP Auth] API offline or running in preview; entering offline demo mode.');
         const demoUser: UserProfile = {
           id: 'usr-admin-demo',
           orgId: 'org-demo-001',
           orgName: 'ApexMSP Global Operations',
-          email: 'admin@openmsp.local',
-          name: 'Demo Administrator',
+          email: credentials.email || 'admin@openmsp.local',
+          name: credentials.email?.split('@')[0] || 'Demo Administrator',
           role: 'owner',
           createdAt: new Date().toISOString()
         };
