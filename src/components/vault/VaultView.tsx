@@ -26,8 +26,13 @@ export const VaultView: React.FC = () => {
     deleteVaultItem,
     toggleFavoriteVaultItem,
     generatePassword,
-    clients
+    clients,
+    selectedClientId
   } = useApp();
+
+  const clientFilteredItems = selectedClientId === 'all'
+    ? vaultItems
+    : vaultItems.filter(v => v.clientId === selectedClientId);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string | 'all'>('all');
@@ -83,9 +88,13 @@ export const VaultView: React.FC = () => {
     setPassword('');
     setUrl('');
     setNotes('');
+    setTotpSecret('');
+    setClientId(clients[0]?.id || '');
+    setFolder('Domain Controllers');
+    setItemType('login');
   };
 
-  const filteredItems = vaultItems.filter(v => {
+  const filteredItems = clientFilteredItems.filter(v => {
     if (selectedFolder !== 'all' && v.folder !== selectedFolder) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -94,7 +103,7 @@ export const VaultView: React.FC = () => {
     return true;
   });
 
-  const foldersList = Array.from(new Set(vaultItems.map(v => v.folder)));
+  const foldersList = Array.from(new Set(clientFilteredItems.map(v => v.folder)));
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-slate-950 text-slate-100 overflow-hidden">
@@ -145,7 +154,7 @@ export const VaultView: React.FC = () => {
               onClick={() => setSelectedFolder('all')}
               className={`w-full text-left p-2 rounded-lg transition ${selectedFolder === 'all' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800'}`}
             >
-              All Vault Items ({vaultItems.length})
+              All Vault Items ({clientFilteredItems.length})
             </button>
 
             {foldersList.map(f => (

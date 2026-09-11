@@ -131,7 +131,17 @@ export const AutomationsView: React.FC = () => {
               </div>
 
               <button
-                onClick={() => triggerAutomationRuleDryRun(rule.id, devices[0]?.id || 'dev-101')}
+                onClick={() => {
+                  const targetDevice = devices.find(d => {
+                    const deviceOs = d.os === 'windows' ? 'windows' : d.os === 'macos' ? 'macos' : d.os;
+                    return rule.osTarget === 'all' || rule.osTarget === deviceOs;
+                  });
+                  if (targetDevice) {
+                    triggerAutomationRuleDryRun(rule.id, targetDevice.id, true);
+                  } else {
+                    alert(`No compatible device found for rule "${rule.name}" (targets ${rule.osTarget})`);
+                  }
+                }}
                 className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center gap-1.5 transition"
               >
                 <Play className="w-3.5 h-3.5" /> Test Run Rule

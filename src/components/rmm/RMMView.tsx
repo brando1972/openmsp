@@ -42,8 +42,18 @@ export const RMMView: React.FC = () => {
     toggleDeviceEncryption,
     remoteWipeDevice,
     launchRustDeskSession,
-    triggerAutomationRuleDryRun
+    triggerAutomationRuleDryRun,
+    automations
   } = useApp();
+
+  const findMatchingRule = (deviceId: string) => {
+    const device = devices.find(d => d.id === deviceId);
+    if (!device) return null;
+    const deviceOs = device.os === 'windows' ? 'windows' : device.os === 'macos' ? 'macos' : device.os;
+    return automations.find(rule => 
+      rule.enabled && (rule.osTarget === 'all' || rule.osTarget === deviceOs)
+    );
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterOS, setFilterOS] = useState<DeviceOS | 'all'>('all');
@@ -295,7 +305,14 @@ echo "ApexMSP macOS Agent Daemon installed."`;
                 <Radio className="w-3.5 h-3.5" /> RustDesk
               </button>
               <button
-                onClick={() => triggerAutomationRuleDryRun('rule-1', selectedDevice.id)}
+                onClick={() => {
+                  const matchingRule = findMatchingRule(selectedDevice.id);
+                  if (matchingRule) {
+                    triggerAutomationRuleDryRun(matchingRule.id, selectedDevice.id);
+                  } else {
+                    alert(`No compatible auto-heal rule found for ${selectedDevice.name} (${selectedDevice.os})`);
+                  }
+                }}
                 className="flex-1 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold flex items-center justify-center gap-1.5 transition"
               >
                 <Zap className="w-3.5 h-3.5" /> Auto-Heal
@@ -420,7 +437,11 @@ echo "ApexMSP macOS Agent Daemon installed."`;
                       Issue emergency cryptographic remote wipe or force zero-trust device lock.
                     </p>
                     <button
-                      onClick={() => remoteWipeDevice(selectedDevice.id)}
+                      onClick={() => {
+                        if (window.confirm(`⚠️ EMERGENCY REMOTE WIPE\n\nThis will permanently wipe device "${selectedDevice.name}" and mark it offline.\n\nThis action cannot be undone.\n\nAre you absolutely sure you want to proceed?`)) {
+                          remoteWipeDevice(selectedDevice.id);
+                        }
+                      }}
                       className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-extrabold transition flex items-center justify-center gap-1.5"
                     >
                       <Trash2 className="w-3.5 h-3.5" /> Emergency Remote Wipe Device
