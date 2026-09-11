@@ -1,0 +1,7 @@
+node_modules
+.git
+apps/console
+apps/agent
+infra
+docs
+.DS_Store

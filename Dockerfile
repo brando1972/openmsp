@@ -1,0 +1,42 @@
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+RUN npm install -g pnpm
+
+COPY package.json pnpm-workspace.yaml ./
+COPY packages/api-types/package.json ./packages/api-types/
+COPY apps/api/package.json ./apps/api/
+
+RUN pnpm install --frozen-lockfile=false
+
+COPY packages/api-types ./packages/api-types
+COPY apps/api ./apps/api
+
+RUN pnpm --filter @openmsp/api-types run build
+RUN pnpm --filter @openmsp/api run build
+
+FROM node:22-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=8080
+
+RUN npm install -g pnpm
+
+COPY package.json pnpm-workspace.yaml ./
+COPY packages/api-types/package.json ./packages/api-types/
+COPY apps/api/package.json ./apps/api/
+
+RUN pnpm install --prod --frozen-lockfile=false
+
+COPY --from=builder /app/packages/api-types/dist ./packages/api-types/dist
+COPY --from=builder /app/packages/api-types/package.json ./packages/api-types/
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+
+WORKDIR /app/apps/api
+
+EXPOSE 8080
+
+CMD ["node", "dist/server.js"]
