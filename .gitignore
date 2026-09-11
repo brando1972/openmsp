@@ -32,6 +32,14 @@ yarn-debug.log*
 yarn-error.log*
 dev_server.log
 
-# TypeScript
+# TypeScript & Build
 *.tsbuildinfo
 .vercel
+apps/**/dist/
+packages/**/dist/
+
+# Agent binaries & configs
+apps/agent/bin/
+apps/agent/*.json
+apps/agent/openmsp-agent
+

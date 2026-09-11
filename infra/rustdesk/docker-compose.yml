@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  hbbs:
+    image: rustdesk/rustdesk-server:latest
+    container_name: openmsp-rustdesk-hbbs
+    command: hbbs -r relay.openmsp.local:21117 -k _
+    volumes:
+      - ./data:/root
+    network_mode: "host"
+    restart: unless-stopped
+
+  hbbr:
+    image: rustdesk/rustdesk-server:latest
+    container_name: openmsp-rustdesk-hbbr
+    command: hbbr -k _
+    volumes:
+      - ./data:/root
+    network_mode: "host"
+    restart: unless-stopped

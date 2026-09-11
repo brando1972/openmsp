@@ -1,0 +1,609 @@
+openapi: 3.0.3
+info:
+  title: OpenMSP / ApexMSP Control Plane API
+  version: 1.0.0
+  description: Multi-tenant MSP RMM and PSA Control Plane API specification.
+servers:
+  - url: /api/v1
+    description: Control Plane v1 API
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, tech, readonly]
+        orgId:
+          type: string
+          format: uuid
+        orgName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/UserProfile'
+
+    ClientTenant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        domain:
+          type: string
+        contactName:
+          type: string
+        contactEmail:
+          type: string
+        contactPhone:
+          type: string
+        sites:
+          type: array
+          items:
+            type: string
+        activeContract:
+          type: string
+        monthlySlaTier:
+          type: string
+          enum: ['Gold 24/7', 'Silver 8/5', 'Bronze Best Effort']
+        totalDevices:
+          type: integer
+        openTickets:
+          type: integer
+
+    ManagedDevice:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        hostname:
+          type: string
+        clientId:
+          type: string
+        clientName:
+          type: string
+        siteName:
+          type: string
+        os:
+          type: string
+          enum: [windows, macos, linux, network]
+        osVersion:
+          type: string
+        serialNumber:
+          type: string
+        ipAddress:
+          type: string
+        publicIp:
+          type: string
+        macAddress:
+          type: string
+        health:
+          type: string
+          enum: [healthy, warning, critical, offline]
+        metrics:
+          type: object
+          properties:
+            cpuUsage:
+              type: number
+            ramUsage:
+              type: number
+            diskUsage:
+              type: number
+            uptimeDays:
+              type: number
+            lastSeen:
+              type: string
+        rustDeskId:
+          type: string
+        rustDeskOnline:
+          type: boolean
+        mdmEnrolled:
+          type: boolean
+        encryptionStatus:
+          type: string
+          enum: [encrypted, decrypted, pending]
+        patchCompliance:
+          type: number
+        pendingPatchesCount:
+          type: integer
+        installedApps:
+          type: array
+          items:
+            type: object
+        services:
+          type: array
+          items:
+            type: object
+        eventLogs:
+          type: array
+          items:
+            type: object
+        tags:
+          type: array
+          items:
+            type: string
+
+    DeviceCommand:
+      type: object
+      properties:
+        id:
+          type: string
+        deviceId:
+          type: string
+        commandType:
+          type: string
+          enum: [run_script, restart_service, collect_inventory, install_approved_patches, remote_wipe]
+        payload:
+          type: object
+        status:
+          type: string
+          enum: [pending, dispatched, running, completed, failed]
+        output:
+          type: string
+        createdAt:
+          type: string
+        completedAt:
+          type: string
+
+    AgentEnrollRequest:
+      type: object
+      required: [token, hostname, os, osVersion, serialNumber, macAddress, ipAddress]
+      properties:
+        token:
+          type: string
+        hostname:
+          type: string
+        os:
+          type: string
+        osVersion:
+          type: string
+        arch:
+          type: string
+        serialNumber:
+          type: string
+        macAddress:
+          type: string
+        ipAddress:
+          type: string
+
+    AgentEnrollResponse:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        orgId:
+          type: string
+        clientId:
+          type: string
+        siteId:
+          type: string
+        deviceSecret:
+          type: string
+        heartbeatIntervalSeconds:
+          type: integer
+
+    AgentHeartbeatRequest:
+      type: object
+      required: [deviceId, deviceSecret, metrics, network]
+      properties:
+        deviceId:
+          type: string
+        deviceSecret:
+          type: string
+        metrics:
+          type: object
+        network:
+          type: object
+        installedApps:
+          type: array
+          items:
+            type: object
+        services:
+          type: array
+          items:
+            type: object
+        eventLogs:
+          type: array
+          items:
+            type: object
+        rustDeskId:
+          type: string
+
+    AgentHeartbeatResponse:
+      type: object
+      properties:
+        acknowledged:
+          type: boolean
+        serverTime:
+          type: string
+        pendingCommands:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceCommand'
+
+    PSATicket:
+      type: object
+      properties:
+        id:
+          type: string
+        ticketNumber:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        clientId:
+          type: string
+        clientName:
+          type: string
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        status:
+          type: string
+          enum: [new, in_progress, waiting_on_client, resolved, closed]
+        category:
+          type: string
+        assignedTech:
+          type: string
+        createdAt:
+          type: string
+        slaDueDate:
+          type: string
+        slaBreached:
+          type: boolean
+        comments:
+          type: array
+          items:
+            type: object
+        timeEntries:
+          type: array
+          items:
+            type: object
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        actorName:
+          type: string
+        action:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: string
+        details:
+          type: object
+        createdAt:
+          type: string
+
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      summary: User logout
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logout successful
+
+  /me:
+    get:
+      summary: Get current authenticated user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+
+  /clients:
+    get:
+      summary: List client tenants
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: clientId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClientTenant'
+    post:
+      summary: Create client tenant
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Client created
+
+  /clients/{id}:
+    get:
+      summary: Get client details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Client details
+
+  /devices:
+    get:
+      summary: List managed devices
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: clientId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ManagedDevice'
+
+  /devices/{id}:
+    get:
+      summary: Get device details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device details
+    patch:
+      summary: Update device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Device updated
+
+  /devices/{id}/commands:
+    post:
+      summary: Queue a command for a device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Command queued
+    get:
+      summary: List commands for device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of commands
+
+  /agents/enroll:
+    post:
+      summary: Enroll a new device agent with a token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentEnrollRequest'
+      responses:
+        '201':
+          description: Device enrolled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentEnrollResponse'
+
+  /agents/heartbeat:
+    post:
+      summary: Device agent heartbeat snapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentHeartbeatRequest'
+      responses:
+        '200':
+          description: Heartbeat acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentHeartbeatResponse'
+
+  /tickets:
+    get:
+      summary: List PSA tickets
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: clientId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of tickets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PSATicket'
+    post:
+      summary: Create ticket
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Ticket created
+
+  /tickets/{id}:
+    get:
+      summary: Get ticket details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ticket details
+    patch:
+      summary: Update ticket status or fields
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ticket updated
+
+  /tickets/{id}/comments:
+    post:
+      summary: Add comment to ticket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Comment added
+
+  /tickets/{id}/time:
+    post:
+      summary: Add time entry to ticket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Time entry added
+
+  /audit:
+    get:
+      summary: Get audit logs
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEvent'
