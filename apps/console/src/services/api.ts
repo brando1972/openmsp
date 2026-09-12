@@ -28,9 +28,9 @@ const getApiBase = (): string => {
     return import.meta.env.VITE_API_URL.replace(/\/$/, '');
   }
   if (typeof window !== 'undefined') {
-    // On HTTPS (e.g. deployed to Vercel), do not attempt unencrypted http://localhost
+    // On HTTPS (e.g. deployed to Vercel), point to the live Google Cloud Run backend
     if (window.location.protocol === 'https:') {
-      return '';
+      return 'https://openmsp-api-358737891339.us-central1.run.app';
     }
   }
   return 'http://localhost:3001';
