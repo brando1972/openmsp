@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "pnpm --parallel run dev",
     "build": "pnpm --recursive run build",
+    "build:agent": "cd apps/agent && go build -o bin/openmsp-agent cmd/agent/main.go",
     "lint": "pnpm --recursive run lint",
     "typecheck": "pnpm --recursive run typecheck",
     "test": "pnpm --recursive run test"
