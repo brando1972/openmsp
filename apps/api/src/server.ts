@@ -24,6 +24,7 @@ const server = http.createServer(app);
 wsManager.init(server);
 
 // Middleware
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
 

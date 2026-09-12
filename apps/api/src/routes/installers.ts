@@ -91,7 +91,8 @@ router.get('/download', (req, res) => {
 // GET /api/v1/installers/script?token=...&os=windows|macos
 router.get('/script', (req, res) => {
   const { token, os } = req.query;
-  const serverUrl = `${req.protocol}://${req.get('host')}`;
+  const proto = req.get('x-forwarded-proto') || req.protocol;
+  const serverUrl = `${proto}://${req.get('host')}`;
   const relayHost = store.rustDeskConfig.relayServer.split(':')[0] || 'relay.openmsp.local';
 
   if (os === 'macos') {
