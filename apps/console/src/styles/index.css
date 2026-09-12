@@ -31,19 +31,60 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   margin: 0;
   padding: 0;
-  background-color: #f1f5f9;
-  color: #0f172a;
+  background-color: #f4f6f8;
+  color: #1a1a24;
   -webkit-tap-highlight-color: transparent;
 }
 
+:root {
+  --so-rail-bg: #0a0b10;
+  --so-subrail-bg: #f7f7fd;
+  --so-canvas-bg: #f4f6f8;
+  --so-border: #e5e7eb;
+  --so-border-subtle: #f0f0f4;
+  --so-link: #011fff;
+  --so-pink: #ff0055;
+  --so-green-btn: #48ac3d;
+  --so-dark-btn: #090113;
+}
+
+/* SuperOps Pills & Badges */
+.so-pill-online {
+  background-color: #c8e6c5;
+  color: #1c4419;
+}
+.so-pill-offline {
+  background-color: #ececec;
+  color: #444444;
+}
+.so-pill-periwinkle {
+  background-color: #e3edff;
+  color: #212b36;
+}
+.so-badge-urgent {
+  background-color: #f7c1c1;
+  color: #7f1d1d;
+}
+.so-badge-high {
+  background-color: #fadcbf;
+  color: #7c2d12;
+}
+.so-badge-medium {
+  background-color: #fde9b3;
+  color: #78350f;
+}
+.so-badge-neutral {
+  background-color: #f1f1f5;
+  color: #4b5563;
+}
 
 /* Custom scrollbars */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;

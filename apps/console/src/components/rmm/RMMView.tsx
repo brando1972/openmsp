@@ -28,7 +28,8 @@ import {
   Lock,
   Unlock,
   AlertTriangle,
-  Flame
+  Flame,
+  ChevronDown
 } from 'lucide-react';
 import { createEnrollmentToken, API_BASE } from '../../services/api';
 
@@ -147,177 +148,203 @@ export const RMMView: React.FC = () => {
   const binaryCommand = `./openmsp-agent --server=${apiBase} --token=${enrollToken}`;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 bg-slate-950 text-slate-100 overflow-hidden">
-      {/* RMM Bar Header */}
-      <div className="p-4 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-sky-500/10 text-sky-400">
-            <Monitor className="w-5 h-5" />
+    <div className="flex-1 flex flex-col min-w-0 bg-[#f4f6f8] text-[#1a1a24] overflow-hidden">
+      {/* SuperOps Action Toolbar */}
+      <div className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-4 shrink-0 shadow-sm">
+        {/* Left: Title + Scope */}
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded border border-slate-200 flex items-center justify-center text-slate-500 bg-slate-50">
+            <Monitor className="w-4 h-4" />
           </div>
-          <div>
-            <h1 className="font-bold text-slate-100 text-base">RMM Managed Endpoints</h1>
-            <p className="text-slate-400 text-xs">Real-time telemetry, remote PowerShell execution & self-healing</p>
-          </div>
+          <h1 className="text-lg font-bold text-[#212b36] tracking-tight flex items-center gap-1.5">
+            <span>Endpoints</span>
+            <span className="text-slate-400 text-sm font-normal">🌐</span>
+          </h1>
+          <span className="text-xs text-slate-500 font-medium ml-1">
+            ({filteredDevices.length} assets)
+          </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Right: Action Buttons (SuperOps Toolbar) */}
+        <div className="flex items-center gap-2.5">
+          {/* Import / Export Dropdown */}
+          <button
+            onClick={() => alert('Exporting endpoints as CSV report...')}
+            className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Import / Export</span>
+            <ChevronDown className="w-3 h-3 text-slate-400" />
+          </button>
+
+          {/* Download Agent Button */}
           <button
             onClick={handleOpenEnrollModal}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs transition shadow-md shadow-sky-600/20"
+            className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition"
           >
-            <UserPlus className="w-4 h-4" />
-            <span>Enroll New Agent</span>
+            <Download className="w-3.5 h-3.5 text-pink-600" />
+            <span>Download Agent</span>
           </button>
-        </div>
-      </div>
 
-      {/* RMM Filter Controls */}
-      <div className="p-4 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-3 flex-1 max-w-md">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+          {/* Columns Selector */}
+          <button
+            onClick={() => alert('Customize table columns')}
+            className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition"
+          >
+            <Filter className="w-3.5 h-3.5 text-slate-500" />
+            <span>Columns</span>
+          </button>
+
+          {/* Filter Trigger */}
+          <div className="relative">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by endpoint name, hostname or IP..."
-              className="w-full bg-slate-900 border border-slate-800 focus:border-sky-500 text-slate-100 placeholder-slate-500 pl-9 pr-4 py-2 rounded-xl text-xs outline-none"
+              placeholder="Filter..."
+              className="border border-slate-200 bg-white text-slate-800 placeholder-slate-400 text-xs px-2.5 py-1.5 rounded w-36 focus:w-48 transition-all outline-none"
             />
           </div>
-        </div>
 
-        <div className="flex items-center gap-3 text-xs font-medium text-slate-400">
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl">
-            <Filter className="w-3.5 h-3.5 text-sky-400" />
-            <span>OS:</span>
-            <select
-              value={filterOS}
-              onChange={(e) => setFilterOS(e.target.value as DeviceOS | 'all')}
-              className="bg-transparent text-slate-200 font-bold outline-none cursor-pointer"
-            >
-              <option value="all" className="bg-slate-900">All OS</option>
-              <option value="windows" className="bg-slate-900">Windows</option>
-              <option value="macos" className="bg-slate-900">macOS</option>
-              <option value="linux" className="bg-slate-900">Linux</option>
-              <option value="network" className="bg-slate-900">Network / SNMP</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl">
-            <span>Health:</span>
-            <select
-              value={filterHealth}
-              onChange={(e) => setFilterHealth(e.target.value as DeviceHealth | 'all')}
-              className="bg-transparent text-slate-200 font-bold outline-none cursor-pointer"
-            >
-              <option value="all" className="bg-slate-900">All Status</option>
-              <option value="healthy" className="bg-slate-900">Healthy</option>
-              <option value="warning" className="bg-slate-900">Warning</option>
-              <option value="critical" className="bg-slate-900">Critical</option>
-              <option value="offline" className="bg-slate-900">Offline</option>
-            </select>
-          </div>
+          {/* SuperOps Primary Dark Action Button */}
+          <button
+            onClick={handleOpenEnrollModal}
+            className="bg-[#090113] hover:bg-black text-white text-xs font-semibold px-3.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>New asset</span>
+          </button>
         </div>
       </div>
 
-      {/* Main RMM Body: Device Grid & Detail Drawer */}
+      {/* Main RMM Body: SuperOps Table & Detail Drawer */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Left: Device List */}
-        <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-2">
-          {filteredDevices.map(device => {
-            const isSelected = device.id === selectedDeviceId;
-            return (
-              <div
-                key={device.id}
-                onClick={() => setSelectedDeviceId(device.id)}
-                className={`p-4 rounded-xl border transition cursor-pointer flex items-center justify-between gap-4 ${
-                  isSelected
-                    ? 'bg-sky-500/10 border-sky-500/50 shadow-md'
-                    : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
-                    {getOsIcon(device.os)}
-                  </div>
-                  <div>
-                    <div className="font-bold text-slate-100 text-sm flex items-center gap-2">
-                      <span>{device.name}</span>
-                      {getHealthBadge(device.health)}
-                    </div>
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      {device.clientName} • <span className="font-mono text-slate-300">{device.ipAddress}</span>
-                    </div>
-                  </div>
-                </div>
+        {/* Left: SuperOps Table View */}
+        <div className="flex-1 overflow-auto bg-white custom-scrollbar border-r border-slate-200">
+          <table className="w-full text-left text-xs text-slate-700 border-collapse">
+            <thead className="bg-[#f9fafb] text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10">
+              <tr>
+                <th className="py-3 px-3 w-8">
+                  <input type="checkbox" className="rounded border-slate-300" />
+                </th>
+                <th className="py-3 px-2 w-10"></th>
+                <th className="py-3 px-4">Name</th>
+                <th className="py-3 px-4">Client Name</th>
+                <th className="py-3 px-4">Site Name</th>
+                <th className="py-3 px-4">Status</th>
+                <th className="py-3 px-4">Serial Number</th>
+                <th className="py-3 px-4">Manufacturer</th>
+                <th className="py-3 px-4">Model</th>
+                <th className="py-3 px-4">Hostname</th>
+                <th className="py-3 px-4">Public IP</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredDevices.map(device => {
+                const isSelected = device.id === selectedDeviceId;
+                const isOnline = device.health !== 'offline';
 
-                {/* Telemetry quick gauges */}
-                <div className="hidden md:flex items-center gap-6 text-xs">
-                  <div>
-                    <div className="text-[10px] text-slate-500 font-bold">CPU</div>
-                    <div className={`font-mono font-bold ${device.metrics.cpuUsage > 85 ? 'text-rose-400' : 'text-slate-200'}`}>
-                      {device.metrics.cpuUsage}%
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-500 font-bold">RAM</div>
-                    <div className={`font-mono font-bold ${device.metrics.ramUsage > 85 ? 'text-rose-400' : 'text-slate-200'}`}>
-                      {device.metrics.ramUsage}%
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-slate-500 font-bold">DISK</div>
-                    <div className={`font-mono font-bold ${device.metrics.diskUsage > 85 ? 'text-rose-400' : 'text-slate-200'}`}>
-                      {device.metrics.diskUsage}%
-                    </div>
-                  </div>
+                return (
+                  <tr
+                    key={device.id}
+                    onClick={() => setSelectedDeviceId(device.id)}
+                    className={`hover:bg-blue-50/40 transition cursor-pointer ${
+                      isSelected ? 'bg-blue-50/70 font-medium' : ''
+                    }`}
+                  >
+                    <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" className="rounded border-slate-300" />
+                    </td>
+                    <td className="py-3 px-2 text-center">
+                      <div className="flex items-center gap-1.5 text-slate-400">
+                        {getOsIcon(device.os)}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 font-semibold">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDeviceId(device.id);
+                        }}
+                        className="text-[#011fff] hover:underline text-left font-bold"
+                      >
+                        {device.name}
+                      </button>
+                    </td>
+                    <td className="py-3 px-4 font-medium text-slate-900">{device.clientName}</td>
+                    <td className="py-3 px-4 text-slate-500">{device.siteName || 'Headquarters'}</td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`inline-block px-2.5 py-0.5 rounded text-[11px] font-bold uppercase ${
+                          isOnline
+                            ? 'bg-[#c8e6c5] text-[#1c4419]'
+                            : 'bg-[#ececec] text-[#444444]'
+                        }`}
+                      >
+                        {isOnline ? 'ONLINE' : 'OFFLINE'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">
+                      {device.serialNumber || 'K4R17CLX2R'}
+                    </td>
+                    <td className="py-3 px-4 text-slate-600">
+                      {device.os === 'macos' ? 'Apple Inc.' : 'Dell Inc.'}
+                    </td>
+                    <td className="py-3 px-4 text-slate-500">{device.osVersion || 'Mac16,7'}</td>
+                    <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{device.hostname}</td>
+                    <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{device.ipAddress}</td>
+                    <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => launchRustDeskSession(device.id)}
+                          className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 transition"
+                          title="RustDesk Remote Desktop"
+                        >
+                          <Radio className="w-3 h-3" />
+                          <span>Connect</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
 
-                  <div className="flex items-center gap-2 pl-4 border-l border-slate-800">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        launchRustDeskSession(device.id);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-xs hover:bg-emerald-500/20 transition flex items-center gap-1.5"
-                    >
-                      <Radio className="w-3.5 h-3.5" />
-                      <span>RustDesk</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {filteredDevices.length === 0 && (
-            <div className="p-12 text-center text-slate-500 text-xs font-medium">
-              No devices match the selected filters.
-            </div>
-          )}
+              {filteredDevices.length === 0 && (
+                <tr>
+                  <td colSpan={12} className="py-16 text-center text-slate-400">
+                    <Monitor className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                    <div className="font-semibold text-slate-700">No endpoints found</div>
+                    <div className="text-xs text-slate-500 mt-1">Try modifying filter conditions or download agent</div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
 
         {/* Right: Selected Device Deep Detail Drawer */}
         {selectedDevice && (
-          <div className="w-[450px] bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 overflow-hidden">
+          <div className="w-[450px] bg-white border-l border-slate-200 flex flex-col shrink-0 overflow-hidden shadow-xl animate-fadeIn">
             {/* Drawer Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2.5">
                 {getOsIcon(selectedDevice.os)}
                 <div>
-                  <h2 className="font-bold text-slate-100 text-sm">{selectedDevice.name}</h2>
-                  <p className="text-[11px] text-slate-400">{selectedDevice.hostname}</p>
+                  <h2 className="font-bold text-slate-900 text-sm">{selectedDevice.name}</h2>
+                  <p className="text-[11px] text-slate-500">{selectedDevice.hostname} • {selectedDevice.ipAddress}</p>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedDeviceId(null)}
-                className="p-1 rounded-lg text-slate-400 hover:bg-slate-800"
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-200 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Quick Actions Bar */}
-            <div className="p-3 bg-slate-950 border-b border-slate-800 flex items-center justify-around gap-2 text-xs">
+            <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-around gap-2 text-xs">
               <button
                 onClick={() => launchRustDeskSession(selectedDevice.id)}
                 className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold flex items-center justify-center gap-1.5 transition"
@@ -347,28 +374,28 @@ export const RMMView: React.FC = () => {
             </div>
 
             {/* Tabs Selector */}
-            <div className="flex border-b border-slate-800 text-xs font-bold text-slate-400 bg-slate-950/30">
+            <div className="flex border-b border-slate-200 text-xs font-bold text-slate-500 bg-slate-50">
               <button
                 onClick={() => setActiveTabDrawer('metrics')}
-                className={`flex-1 py-2.5 text-center border-b-2 ${activeTabDrawer === 'metrics' ? 'border-sky-500 text-sky-400 bg-sky-500/10' : 'border-transparent hover:text-slate-200'}`}
+                className={`flex-1 py-2.5 text-center border-b-2 transition ${activeTabDrawer === 'metrics' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
               >
                 Metrics
               </button>
               <button
                 onClick={() => setActiveTabDrawer('terminal')}
-                className={`flex-1 py-2.5 text-center border-b-2 ${activeTabDrawer === 'terminal' ? 'border-sky-500 text-sky-400 bg-sky-500/10' : 'border-transparent hover:text-slate-200'}`}
+                className={`flex-1 py-2.5 text-center border-b-2 transition ${activeTabDrawer === 'terminal' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
               >
                 Terminal
               </button>
               <button
                 onClick={() => setActiveTabDrawer('software')}
-                className={`flex-1 py-2.5 text-center border-b-2 ${activeTabDrawer === 'software' ? 'border-sky-500 text-sky-400 bg-sky-500/10' : 'border-transparent hover:text-slate-200'}`}
+                className={`flex-1 py-2.5 text-center border-b-2 transition ${activeTabDrawer === 'software' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
               >
                 Apps
               </button>
               <button
                 onClick={() => setActiveTabDrawer('services')}
-                className={`flex-1 py-2.5 text-center border-b-2 ${activeTabDrawer === 'services' ? 'border-sky-500 text-sky-400 bg-sky-500/10' : 'border-transparent hover:text-slate-200'}`}
+                className={`flex-1 py-2.5 text-center border-b-2 transition ${activeTabDrawer === 'services' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
               >
                 Services
               </button>
@@ -379,15 +406,15 @@ export const RMMView: React.FC = () => {
               {activeTabDrawer === 'metrics' && (
                 <div className="space-y-4">
                   {/* Gauge Meters */}
-                  <div className="space-y-3">
+                  <div className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                     <div>
                       <div className="flex justify-between font-bold mb-1">
-                        <span className="text-slate-400">CPU Load</span>
-                        <span className="text-slate-200 font-mono">{selectedDevice.metrics.cpuUsage}%</span>
+                        <span className="text-slate-600">CPU Load</span>
+                        <span className="text-slate-900 font-mono">{selectedDevice.metrics.cpuUsage}%</span>
                       </div>
-                      <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                         <div
-                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.cpuUsage > 85 ? 'bg-rose-500' : 'bg-sky-500'}`}
+                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.cpuUsage > 85 ? 'bg-rose-500' : 'bg-blue-600'}`}
                           style={{ width: `${selectedDevice.metrics.cpuUsage}%` }}
                         />
                       </div>
@@ -395,12 +422,12 @@ export const RMMView: React.FC = () => {
 
                     <div>
                       <div className="flex justify-between font-bold mb-1">
-                        <span className="text-slate-400">Memory RAM</span>
-                        <span className="text-slate-200 font-mono">{selectedDevice.metrics.ramUsage}%</span>
+                        <span className="text-slate-600">Memory RAM</span>
+                        <span className="text-slate-900 font-mono">{selectedDevice.metrics.ramUsage}%</span>
                       </div>
-                      <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                         <div
-                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.ramUsage > 85 ? 'bg-rose-500' : 'bg-indigo-500'}`}
+                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.ramUsage > 85 ? 'bg-rose-500' : 'bg-indigo-600'}`}
                           style={{ width: `${selectedDevice.metrics.ramUsage}%` }}
                         />
                       </div>
@@ -408,12 +435,12 @@ export const RMMView: React.FC = () => {
 
                     <div>
                       <div className="flex justify-between font-bold mb-1">
-                        <span className="text-slate-400">Disk Storage</span>
-                        <span className="text-slate-200 font-mono">{selectedDevice.metrics.diskUsage}%</span>
+                        <span className="text-slate-600">Disk Storage</span>
+                        <span className="text-slate-900 font-mono">{selectedDevice.metrics.diskUsage}%</span>
                       </div>
-                      <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                         <div
-                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.diskUsage > 85 ? 'bg-rose-500' : 'bg-emerald-500'}`}
+                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.diskUsage > 85 ? 'bg-rose-500' : 'bg-emerald-600'}`}
                           style={{ width: `${selectedDevice.metrics.diskUsage}%` }}
                         />
                       </div>
@@ -421,25 +448,25 @@ export const RMMView: React.FC = () => {
                   </div>
 
                   {/* System Metadata */}
-                  <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
                     <div className="flex justify-between">
                       <span className="text-slate-500">OS Version:</span>
-                      <span className="font-semibold text-slate-200">{selectedDevice.osVersion}</span>
+                      <span className="font-semibold text-slate-800">{selectedDevice.osVersion}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Serial Number:</span>
-                      <span className="font-mono text-slate-300">{selectedDevice.serialNumber}</span>
+                      <span className="font-mono text-slate-700">{selectedDevice.serialNumber}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Encryption:</span>
-                      <span className="font-semibold text-emerald-400">{selectedDevice.encryptionStatus.toUpperCase()}</span>
+                      <span className="font-semibold text-emerald-600">{selectedDevice.encryptionStatus.toUpperCase()}</span>
                     </div>
                     {selectedDevice.encryptionKey && (
-                      <div className="flex justify-between items-center bg-slate-900 p-2 rounded border border-slate-800 mt-2">
-                        <span className="text-[10px] text-slate-400 font-mono">{selectedDevice.encryptionKey}</span>
+                      <div className="flex justify-between items-center bg-white p-2 rounded border border-slate-200 mt-2">
+                        <span className="text-[10px] text-slate-600 font-mono">{selectedDevice.encryptionKey}</span>
                         <button
                           onClick={() => navigator.clipboard.writeText(selectedDevice.encryptionKey!)}
-                          className="text-sky-400 hover:underline text-[10px] font-bold"
+                          className="text-[#011fff] hover:underline text-[10px] font-bold"
                         >
                           Copy Key
                         </button>
@@ -448,12 +475,12 @@ export const RMMView: React.FC = () => {
                   </div>
 
                   {/* MDM Security & Remote Wipe Zone */}
-                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 space-y-2">
-                    <div className="flex items-center gap-2 text-rose-400 font-bold">
+                  <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 space-y-2">
+                    <div className="flex items-center gap-2 text-rose-700 font-bold">
                       <AlertTriangle className="w-4 h-4" />
                       <span>MDM Remote Security Zone</span>
                     </div>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px] text-slate-600">
                       Issue emergency cryptographic remote wipe or force zero-trust device lock.
                     </p>
                     <button
@@ -462,7 +489,7 @@ export const RMMView: React.FC = () => {
                           remoteWipeDevice(selectedDevice.id);
                         }
                       }}
-                      className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-extrabold transition flex items-center justify-center gap-1.5"
+                      className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold transition flex items-center justify-center gap-1.5"
                     >
                       <Trash2 className="w-3.5 h-3.5" /> Emergency Remote Wipe Device
                     </button>
@@ -473,30 +500,30 @@ export const RMMView: React.FC = () => {
               {activeTabDrawer === 'terminal' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-300 flex items-center gap-1.5">
-                      <Terminal className="w-4 h-4 text-sky-400" /> Interactive Script Shell
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <Terminal className="w-4 h-4 text-blue-600" /> Interactive Script Shell
                     </span>
-                    <span className="text-[10px] text-slate-500">PowerShell / Zsh</span>
+                    <span className="text-[10px] text-slate-400">PowerShell / Zsh</span>
                   </div>
 
                   <textarea
                     rows={4}
                     value={terminalScript}
                     onChange={(e) => setTerminalScript(e.target.value)}
-                    className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-sky-300 font-mono text-xs outline-none focus:border-sky-500"
+                    className="w-full p-3 rounded-lg bg-slate-900 border border-slate-700 text-sky-300 font-mono text-xs outline-none focus:border-blue-500"
                   />
 
                   <button
                     onClick={handleRunScript}
                     disabled={isRunningScript}
-                    className="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 transition"
+                    className="w-full py-2 rounded-lg bg-[#090113] hover:bg-black disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 transition"
                   >
                     {isRunningScript ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                     <span>{isRunningScript ? 'Executing Agent Command...' : 'Run Remote Script'}</span>
                   </button>
 
                   {terminalOutput && (
-                    <div className="p-3 rounded-xl bg-black border border-slate-800 text-emerald-400 font-mono text-[11px] whitespace-pre-wrap overflow-x-auto">
+                    <div className="p-3 rounded-lg bg-[#0a0b10] border border-slate-700 text-emerald-400 font-mono text-[11px] whitespace-pre-wrap overflow-x-auto">
                       {terminalOutput}
                     </div>
                   )}
@@ -505,14 +532,14 @@ export const RMMView: React.FC = () => {
 
               {activeTabDrawer === 'software' && (
                 <div className="space-y-2">
-                  <div className="font-bold text-slate-300 mb-2">Installed Application Inventory</div>
+                  <div className="font-bold text-slate-800 mb-2">Installed Application Inventory</div>
                   {selectedDevice.installedApps.map(app => (
-                    <div key={app.id} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex justify-between">
+                    <div key={app.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between">
                       <div>
-                        <div className="font-bold text-slate-200">{app.name}</div>
+                        <div className="font-bold text-slate-800">{app.name}</div>
                         <div className="text-[10px] text-slate-500">{app.publisher}</div>
                       </div>
-                      <div className="font-mono text-slate-400 text-[11px]">{app.version}</div>
+                      <div className="font-mono text-slate-600 text-[11px]">{app.version}</div>
                     </div>
                   ))}
                 </div>
@@ -520,15 +547,17 @@ export const RMMView: React.FC = () => {
 
               {activeTabDrawer === 'services' && (
                 <div className="space-y-2">
-                  <div className="font-bold text-slate-300 mb-2">System Services Monitor</div>
-                  {selectedDevice.services.map((srv, idx) => (
-                    <div key={idx} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                  <div className="font-bold text-slate-800 mb-2">System Services Monitor</div>
+                  {selectedDevice.services.map(svc => (
+                    <div key={svc.name} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
                       <div>
-                        <div className="font-bold text-slate-200">{srv.displayName}</div>
-                        <div className="text-[10px] text-slate-500">{srv.name}</div>
+                        <div className="font-bold text-slate-800">{svc.displayName || svc.name}</div>
+                        <div className="text-[10px] text-slate-500 font-mono">{svc.name}</div>
                       </div>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${srv.status === 'running' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                        {srv.status.toUpperCase()}
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        svc.status === 'running' ? 'bg-[#c8e6c5] text-[#1c4419]' : 'bg-[#ececec] text-[#444444]'
+                      }`}>
+                        {svc.status.toUpperCase()}
                       </span>
                     </div>
                   ))}
@@ -539,21 +568,21 @@ export const RMMView: React.FC = () => {
         )}
       </div>
 
-      {/* Enroll New Agent Modal */}
+      {/* Enroll New Agent Modal (SuperOps Clean Light Modal) */}
       {showEnrollModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-white border border-slate-200 rounded-xl p-6 space-y-5 shadow-2xl text-slate-900 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-sky-500/10 text-sky-400">
-                  <UserPlus className="w-5 h-5" />
+                <div className="p-2 rounded-lg bg-pink-50 text-pink-600">
+                  <Download className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="font-bold text-slate-100 text-base">Enroll New Agent — One-Liner Installer</h2>
-                  <p className="text-slate-400 text-xs">Generate a one-time enrollment token and deploy to macOS, Windows, or Linux</p>
+                  <h2 className="font-bold text-slate-900 text-base">Download Agent — One-Liner Installer</h2>
+                  <p className="text-slate-500 text-xs">Deploy cross-platform Go agent to macOS, Windows, or Linux</p>
                 </div>
               </div>
-              <button onClick={() => setShowEnrollModal(false)} className="text-slate-400 hover:text-slate-100">
+              <button onClick={() => setShowEnrollModal(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-100 transition">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -561,7 +590,7 @@ export const RMMView: React.FC = () => {
             {/* Client Tenant & Token Banner */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">Target Client Organization</label>
+                <label className="block text-xs font-bold text-slate-600 mb-1">Target Client Organization</label>
                 <select
                   value={enrollClient}
                   onChange={(e) => {
@@ -569,10 +598,10 @@ export const RMMView: React.FC = () => {
                     setEnrollClient(nextId);
                     handleGenerateToken(nextId);
                   }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs outline-none focus:border-sky-500 cursor-pointer"
+                  className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 text-xs outline-none focus:border-blue-500 cursor-pointer"
                 >
                   {clients.map(c => (
-                    <option key={c.id} value={c.id} className="bg-slate-900">
+                    <option key={c.id} value={c.id}>
                       {c.name} ({c.totalDevices} Devices)
                     </option>
                   ))}
@@ -600,13 +629,13 @@ export const RMMView: React.FC = () => {
             </div>
 
             {/* Platform Selection Tabs */}
-            <div className="flex gap-2 border-b border-slate-800 pb-2 text-xs font-bold">
+            <div className="flex gap-2 border-b border-slate-200 pb-3 text-xs font-bold">
               <button
                 onClick={() => setEnrollMethod('macos')}
-                className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-2 border transition ${
+                className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 border transition cursor-pointer ${
                   enrollMethod === 'macos'
-                    ? 'bg-purple-500/10 border-purple-500 text-purple-400'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-purple-50 border-purple-500 text-purple-700'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Laptop className="w-4 h-4" />
@@ -615,10 +644,10 @@ export const RMMView: React.FC = () => {
 
               <button
                 onClick={() => setEnrollMethod('windows')}
-                className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-2 border transition ${
+                className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 border transition cursor-pointer ${
                   enrollMethod === 'windows'
-                    ? 'bg-sky-500/10 border-sky-500 text-sky-400'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-blue-50 border-blue-500 text-blue-700'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Laptop className="w-4 h-4" />
@@ -627,10 +656,10 @@ export const RMMView: React.FC = () => {
 
               <button
                 onClick={() => setEnrollMethod('binary')}
-                className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-2 border transition ${
+                className={`flex-1 py-2.5 rounded-lg flex items-center justify-center gap-2 border transition cursor-pointer ${
                   enrollMethod === 'binary'
-                    ? 'bg-amber-500/10 border-amber-500 text-amber-400'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    ? 'bg-amber-50 border-amber-500 text-amber-700'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Terminal className="w-4 h-4" />
@@ -641,12 +670,12 @@ export const RMMView: React.FC = () => {
             {/* Active Command Box */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="font-bold text-slate-300">Ready-to-Run Command:</span>
+                <span className="font-bold text-slate-700">Ready-to-Run Command:</span>
                 <span className="text-[11px] text-slate-500">Click button or copy command</span>
               </div>
 
               <div className="relative">
-                <pre className="p-4 pr-24 rounded-xl bg-black border border-slate-800 text-sky-300 font-mono text-xs overflow-x-auto whitespace-pre-wrap">
+                <pre className="p-4 pr-24 rounded-lg bg-slate-900 border border-slate-800 text-sky-300 font-mono text-xs overflow-x-auto whitespace-pre-wrap">
                   {enrollMethod === 'macos' && macOSCommand}
                   {enrollMethod === 'windows' && windowsCommand}
                   {enrollMethod === 'binary' && binaryCommand}
@@ -657,7 +686,7 @@ export const RMMView: React.FC = () => {
                     const cmd = enrollMethod === 'macos' ? macOSCommand : enrollMethod === 'windows' ? windowsCommand : binaryCommand;
                     copyToClipboard(cmd, `cmd-${enrollMethod}`);
                   }}
-                  className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition"
+                  className="absolute top-3 right-3 px-3 py-1.5 rounded-md bg-[#090113] hover:bg-black text-white font-bold text-xs flex items-center gap-1.5 shadow transition cursor-pointer"
                 >
                   {copiedCmd === `cmd-${enrollMethod}` ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedCmd === `cmd-${enrollMethod}` ? 'Copied!' : 'Copy'}</span>
@@ -670,7 +699,7 @@ export const RMMView: React.FC = () => {
                   href={`${apiBase}/api/v1/installers/download?os=macos`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-xs font-semibold border border-purple-500/30 transition"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold border border-purple-200 transition"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download macOS Agent (Universal M1-M4 & Intel)</span>
@@ -679,7 +708,7 @@ export const RMMView: React.FC = () => {
                   href={`${apiBase}/api/v1/installers/download?os=windows`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 text-xs font-semibold border border-sky-500/30 transition"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold border border-blue-200 transition"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download Windows Agent (.exe)</span>
@@ -687,33 +716,33 @@ export const RMMView: React.FC = () => {
               </div>
 
               {/* Instructions */}
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                <div className="font-bold text-slate-200 flex items-center gap-1.5">
-                  <Terminal className="w-3.5 h-3.5 text-sky-400" />
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-blue-600" />
                   <span>Installation Instructions:</span>
                 </div>
                 {enrollMethod === 'macos' && (
                   <p>
-                    Open Terminal on the target Mac and run with administrative privileges (<code className="text-sky-300 font-mono">sudo bash</code>). The installer script securely registers the hardware serial number &amp; MAC address, escrows FileVault keys, and begins 30-second telemetry heartbeats.
+                    Open Terminal on the target Mac and run with administrative privileges (<code className="text-blue-700 font-mono">sudo bash</code>). The installer script securely registers the hardware serial number &amp; MAC address, escrows FileVault keys, and begins 30-second telemetry heartbeats.
                   </p>
                 )}
                 {enrollMethod === 'windows' && (
                   <p>
-                    Open an elevated Administrator PowerShell prompt (<code className="text-sky-300 font-mono">Run as Administrator</code>) and paste the one-liner. It queries WMI for BIOS serial &amp; hardware interfaces, escrows BitLocker recovery keys, and registers the device in OpenMSP.
+                    Open an elevated Administrator PowerShell prompt (<code className="text-blue-700 font-mono">Run as Administrator</code>) and paste the one-liner. It queries WMI for BIOS serial &amp; hardware interfaces, escrows BitLocker recovery keys, and registers the device in OpenMSP.
                   </p>
                 )}
                 {enrollMethod === 'binary' && (
                   <p>
-                    For Linux servers, containers, or direct executable execution without shell wrappers, execute the precompiled <code className="text-sky-300 font-mono">openmsp-agent</code> binary directly specifying your API server and enrollment token.
+                    Run the compiled Go agent binary directly from terminal or schedule as a launchd daemon / Windows Service. For Linux servers, containers, or direct executable execution without shell wrappers, execute the precompiled <code className="text-blue-700 font-mono">openmsp-agent</code> binary directly specifying your API server and enrollment token.
                   </p>
                 )}
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-800 flex justify-end">
+            <div className="pt-3 border-t border-slate-200 flex justify-end">
               <button
                 onClick={() => setShowEnrollModal(false)}
-                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs hover:bg-slate-700"
+                className="px-4 py-2 rounded-lg bg-[#090113] text-white font-medium text-xs hover:bg-slate-800 shadow-sm transition"
               >
                 Done
               </button>

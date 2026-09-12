@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
   NavigationTab,
+  WorkspaceTab,
   ManagedDevice,
   ClientTenant,
   PatchItem,
@@ -45,6 +46,26 @@ import type { UserProfile } from '@openmsp/api-types';
 interface AppContextType {
   activeTab: NavigationTab;
   setActiveTab: (tab: NavigationTab) => void;
+
+  // Dynamic Workspace Tabs (SuperOps Multi-Tab Mode)
+  tabs: WorkspaceTab[];
+  activeTabId: string;
+  setActiveTabId: (id: string) => void;
+  openTab: (tab: { type: NavigationTab | 'device-detail' | 'ticket-detail' | 'probes'; title: string; dataId?: string; closable?: boolean }) => string;
+  closeTab: (tabId: string) => void;
+  refreshTab: (tabId: string) => void;
+  tabbedNavigationEnabled: boolean;
+  setTabbedNavigationEnabled: (enabled: boolean) => void;
+
+  // Worklog & Timer Count
+  activeTimersCount: number;
+  setActiveTimersCount: React.Dispatch<React.SetStateAction<number>>;
+
+  // Sub-Navigation Rail
+  activeSubRailView: string;
+  setActiveSubRailView: (view: string) => void;
+  isSubRailCollapsed: boolean;
+  setIsSubRailCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   
   // Clients
   clients: ClientTenant[];
@@ -128,8 +149,116 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!getStoredToken());
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getStoredUser());
-  const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
+  const [activeTab, setActiveTabState] = useState<NavigationTab>('dashboard');
   const [clients, setClients] = useState<ClientTenant[]>(INITIAL_CLIENTS);
+
+  // Dynamic Workspace Tabs (SuperOps Multi-Tab Mode)
+  const [tabbedNavigationEnabled, setTabbedNavigationEnabledState] = useState<boolean>(() => {
+    const saved = localStorage.getItem('apex_tabs_enabled');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const setTabbedNavigationEnabled = (enabled: boolean) => {
+    setTabbedNavigationEnabledState(enabled);
+    localStorage.setItem('apex_tabs_enabled', String(enabled));
+  };
+
+  const [tabs, setTabs] = useState<WorkspaceTab[]>([
+    { id: 'tab-home', type: 'dashboard', title: 'Home', closable: false },
+    { id: 'tab-rmm', type: 'rmm', title: 'Assets', closable: true },
+    { id: 'tab-tickets', type: 'psa-tickets', title: 'Tickets', closable: true }
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string>('tab-home');
+
+  const [activeTimersCount, setActiveTimersCount] = useState<number>(3);
+  const [activeSubRailView, setActiveSubRailView] = useState<string>('all');
+  const [isSubRailCollapsed, setIsSubRailCollapsed] = useState<boolean>(false);
+
+  const openTab = (newTab: { type: NavigationTab | 'device-detail' | 'ticket-detail' | 'probes'; title: string; dataId?: string; closable?: boolean }) => {
+    const existing = tabs.find(t => 
+      t.type === newTab.type && (newTab.dataId ? t.dataId === newTab.dataId : true)
+    );
+    if (existing) {
+      setActiveTabId(existing.id);
+      if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'settings'].includes(existing.type)) {
+        setActiveTabState(existing.type as NavigationTab);
+      }
+      return existing.id;
+    }
+
+    const tabId = `tab-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    const created: WorkspaceTab = {
+      id: tabId,
+      type: newTab.type,
+      title: newTab.title,
+      dataId: newTab.dataId,
+      closable: newTab.closable !== undefined ? newTab.closable : true
+    };
+    setTabs(prev => [...prev, created]);
+    setActiveTabId(tabId);
+    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'settings'].includes(newTab.type)) {
+      setActiveTabState(newTab.type as NavigationTab);
+    }
+    return tabId;
+  };
+
+  const closeTab = (tabId: string) => {
+    setTabs(prev => {
+      const idx = prev.findIndex(t => t.id === tabId);
+      if (idx === -1) return prev;
+      const updated = prev.filter(t => t.id !== tabId);
+      if (activeTabId === tabId) {
+        const nextActive = updated[Math.max(0, idx - 1)] || updated[0];
+        if (nextActive) {
+          setActiveTabId(nextActive.id);
+          if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'settings'].includes(nextActive.type)) {
+            setActiveTabState(nextActive.type as NavigationTab);
+          }
+        }
+      }
+      return updated;
+    });
+  };
+
+  const refreshTab = (tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab) return;
+    if (tab.type === 'dashboard' || tab.type === 'rmm') {
+      api.devices.getDevices(selectedClientId === 'all' ? undefined : selectedClientId).then((d: ManagedDevice[]) => d && setDevices(d)).catch(() => {});
+    }
+    if (tab.type === 'psa-tickets') {
+      api.tickets.getTickets(selectedClientId === 'all' ? undefined : selectedClientId).then((t: PSATicket[]) => t && setTickets(t)).catch(() => {});
+    }
+  };
+
+  const setActiveTab = (navTab: NavigationTab) => {
+    setActiveTabState(navTab);
+    const found = tabs.find(t => t.type === navTab);
+    if (found) {
+      setActiveTabId(found.id);
+    } else {
+      const labelMap: Record<NavigationTab, string> = {
+        'dashboard': 'Home',
+        'rmm': 'Assets',
+        'psa-tickets': 'Tickets',
+        'remote-support': 'Remote Support',
+        'vault': 'Vault',
+        'patching': 'Patch Management',
+        'automations': 'Automations',
+        'ai-copilot': 'Apex AI Lab',
+        'settings': 'Settings'
+      };
+      const newId = `tab-${navTab}`;
+      setTabs(prev => [...prev, {
+        id: newId,
+        type: navTab,
+        title: labelMap[navTab] || navTab,
+        closable: navTab !== 'dashboard'
+      }]);
+      setActiveTabId(newId);
+    }
+  };
+
 
   // Bind selectedClientId to URL query parameter (?clientId=)
   const [selectedClientId, setSelectedClientIdState] = useState<string | 'all'>(() => {
@@ -889,6 +1018,20 @@ rm -rf $(brew --cache)`;
     <AppContext.Provider value={{
       activeTab,
       setActiveTab,
+      tabs,
+      activeTabId,
+      setActiveTabId,
+      openTab,
+      closeTab,
+      refreshTab,
+      tabbedNavigationEnabled,
+      setTabbedNavigationEnabled,
+      activeTimersCount,
+      setActiveTimersCount,
+      activeSubRailView,
+      setActiveSubRailView,
+      isSubRailCollapsed,
+      setIsSubRailCollapsed,
       clients,
       selectedClientId,
       setSelectedClientId,
