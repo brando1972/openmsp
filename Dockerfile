@@ -23,17 +23,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
 
-RUN npm install -g pnpm
-
-COPY package.json pnpm-workspace.yaml ./
-COPY packages/api-types/package.json ./packages/api-types/
-COPY apps/api/package.json ./apps/api/
-
-RUN pnpm install --prod --frozen-lockfile=false
-
-COPY --from=builder /app/packages/api-types/dist ./packages/api-types/dist
-COPY --from=builder /app/packages/api-types/package.json ./packages/api-types/
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/package.json /app/pnpm-workspace.yaml ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/apps/api ./apps/api
 
 WORKDIR /app/apps/api
 
