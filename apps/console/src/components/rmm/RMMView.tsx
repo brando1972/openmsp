@@ -30,7 +30,7 @@ import {
   AlertTriangle,
   Flame
 } from 'lucide-react';
-import { createEnrollmentToken } from '../../services/api';
+import { createEnrollmentToken, API_BASE } from '../../services/api';
 
 export const RMMView: React.FC = () => {
   const {
@@ -141,9 +141,10 @@ export const RMMView: React.FC = () => {
     }
   };
 
-  const macOSCommand = `curl -fsSL http://localhost:3001/api/v1/installers/script?token=${enrollToken}&os=macos | bash`;
-  const windowsCommand = `irm http://localhost:3001/api/v1/installers/script?token=${enrollToken}&os=windows | iex`;
-  const binaryCommand = `./openmsp-agent --server=http://localhost:3001 --token=${enrollToken}`;
+  const apiBase = API_BASE || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001');
+  const macOSCommand = `curl -fsSL ${apiBase}/api/v1/installers/script?token=${enrollToken}&os=macos | bash`;
+  const windowsCommand = `irm ${apiBase}/api/v1/installers/script?token=${enrollToken}&os=windows | iex`;
+  const binaryCommand = `./openmsp-agent --server=${apiBase} --token=${enrollToken}`;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-slate-950 text-slate-100 overflow-hidden">
@@ -661,6 +662,28 @@ export const RMMView: React.FC = () => {
                   {copiedCmd === `cmd-${enrollMethod}` ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedCmd === `cmd-${enrollMethod}` ? 'Copied!' : 'Copy'}</span>
                 </button>
+              </div>
+
+              {/* Direct Binary Download Option */}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <a
+                  href={`${apiBase}/api/v1/installers/download?os=macos`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-xs font-semibold border border-purple-500/30 transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download macOS Agent (Universal M1-M4 & Intel)</span>
+                </a>
+                <a
+                  href={`${apiBase}/api/v1/installers/download?os=windows`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 text-xs font-semibold border border-sky-500/30 transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Windows Agent (.exe)</span>
+                </a>
               </div>
 
               {/* Instructions */}

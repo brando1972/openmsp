@@ -43,6 +43,51 @@ router.post('/token', authenticate, (req: AuthenticatedRequest, res) => {
   res.status(201).json(tokenObj);
 });
 
+import path from 'path';
+import fs from 'fs';
+
+// GET /api/v1/installers/download?os=macos|windows|linux
+router.get('/download', (req, res) => {
+  const os = (req.query.os as string) || 'macos';
+  const arch = (req.query.arch as string) || '';
+
+  let filename = 'openmsp-agent-macos-universal';
+  let downloadName = 'openmsp-agent';
+
+  if (os === 'macos') {
+    if (arch === 'arm64') filename = 'openmsp-agent-darwin-arm64';
+    else if (arch === 'amd64' || arch === 'x86_64') filename = 'openmsp-agent-darwin-amd64';
+    else filename = 'openmsp-agent-macos-universal';
+    downloadName = 'openmsp-agent';
+  } else if (os === 'windows') {
+    filename = 'openmsp-agent-windows-amd64.exe';
+    downloadName = 'openmsp-agent.exe';
+  } else if (os === 'linux') {
+    filename = 'openmsp-agent-linux-amd64';
+    downloadName = 'openmsp-agent';
+  }
+
+  const candidatePaths = [
+    path.join(process.cwd(), 'bin', filename),
+    path.join(process.cwd(), 'apps', 'api', 'bin', filename),
+    path.join(process.cwd(), '..', 'agent', 'bin', filename),
+    path.join(process.cwd(), 'apps', 'agent', 'bin', filename),
+    path.join('/app/apps/api/bin', filename),
+    path.join('/app/bin', filename)
+  ];
+
+  const foundPath = candidatePaths.find(p => fs.existsSync(p));
+
+  if (!foundPath) {
+    res.status(404).json({ error: `Agent binary not found for OS: ${os} (${filename})` });
+    return;
+  }
+
+  res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.sendFile(path.resolve(foundPath));
+});
+
 // GET /api/v1/installers/script?token=...&os=windows|macos
 router.get('/script', (req, res) => {
   const { token, os } = req.query;
@@ -57,12 +102,21 @@ SERVER_URL="${serverUrl}"
 ENROLL_TOKEN="${token || 'demo-enrollment-token-2026'}"
 RELAY_HOST="${relayHost}"
 
-echo "[*] Downloading OpenMSP Agent..."
-# In production, downloads signed .pkg installer
-echo "[*] Enrolling device with token: $ENROLL_TOKEN"
-curl -s -X POST "$SERVER_URL/api/v1/agents/enroll" \\
-  -H "Content-Type: application/json" \\
-  -d "{\\"token\\":\\"$ENROLL_TOKEN\\",\\"hostname\\":\\"$(hostname)\\",\\"os\\":\\"macos\\",\\"osVersion\\":\\"$(sw_vers -productVersion)\\",\\"serialNumber\\":\\"$(system_profiler SPHardwareDataType | awk '/Serial/ {print $4}')\\",\\"macAddress\\":\\"$(ifconfig en0 | awk '/ether/{print $2}')\\",\\"ipAddress\\":\\"$(ipconfig getifaddr en0 || echo '127.0.0.1')\\"}"
+echo "[*] Downloading OpenMSP Universal macOS Agent binary..."
+INSTALL_DIR="/tmp/openmsp"
+mkdir -p "$INSTALL_DIR"
+curl -fsSL "$SERVER_URL/api/v1/installers/download?os=macos" -o "$INSTALL_DIR/openmsp-agent" 2>/dev/null || true
+
+if [ -f "$INSTALL_DIR/openmsp-agent" ]; then
+  chmod +x "$INSTALL_DIR/openmsp-agent"
+  echo "[+] Binary verified. Launching OpenMSP device agent..."
+  "$INSTALL_DIR/openmsp-agent" --server="$SERVER_URL" --token="$ENROLL_TOKEN"
+else
+  echo "[*] Falling back to direct API device registration..."
+  curl -s -X POST "$SERVER_URL/api/v1/agents/enroll" \\
+    -H "Content-Type: application/json" \\
+    -d "{\\"token\\":\\"$ENROLL_TOKEN\\",\\"hostname\\":\\"$(hostname)\\",\\"os\\":\\"macos\\",\\"osVersion\\":\\"$(sw_vers -productVersion)\\",\\"serialNumber\\":\\"$(system_profiler SPHardwareDataType | awk '/Serial/ {print $4}')\\",\\"macAddress\\":\\"$(ifconfig en0 | awk '/ether/{print $2}')\\",\\"ipAddress\\":\\"$(ipconfig getifaddr en0 || echo '127.0.0.1')\\"}"
+fi
 echo "[+] Enrollment completed successfully."
 `;
     res.setHeader('Content-Type', 'text/plain');
