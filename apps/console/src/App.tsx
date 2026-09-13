@@ -2,6 +2,8 @@ import React from 'react';
 import { AppProvider, useApp } from './data/AppContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { TopNavbar } from './components/layout/TopNavbar';
+import { MobileBottomNav } from './components/layout/MobileBottomNav';
+import { MobileNavDrawer } from './components/layout/MobileNavDrawer';
 import { QuickSearchModal } from './components/layout/QuickSearchModal';
 import { AICopilotDrawer } from './components/ai/AICopilotDrawer';
 
@@ -29,14 +31,14 @@ const MainAppContent: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f8] text-[#1a1a24] font-sans select-none antialiased">
-      {/* SuperOps Dual-Sidebar Navigation */}
+      {/* Desktop SuperOps Dual-Sidebar Navigation */}
       <Sidebar />
 
       {/* Main Workspace Canvas */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f4f6f8]">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f4f6f8] relative">
         <TopNavbar />
 
-        <main className="flex-1 flex min-h-0 overflow-hidden relative bg-[#f4f6f8]">
+        <main className="flex-1 flex min-h-0 overflow-hidden relative bg-[#f4f6f8] pb-16 md:pb-0">
           {currentViewType === 'dashboard' && <DashboardView />}
           {currentViewType === 'rmm' && <RMMView />}
           {currentViewType === 'automations' && <AutomationsView />}
@@ -47,7 +49,13 @@ const MainAppContent: React.FC = () => {
           {currentViewType === 'ai-copilot' && <AICopilotView />}
           {currentViewType === 'settings' && <SettingsView />}
         </main>
+
+        {/* Mobile iOS-Style Bottom Navigation Bar */}
+        <MobileBottomNav />
       </div>
+
+      {/* Mobile Slide-Over Navigation Drawer */}
+      <MobileNavDrawer />
 
       {/* Modals & AI Side Drawers */}
       <QuickSearchModal />

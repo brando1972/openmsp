@@ -101,30 +101,30 @@ export const RemoteSupportView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-[#f4f6f8] text-[#1a1a24] space-y-6">
+    <div className="flex-1 p-4 sm:p-8 pb-24 md:pb-8 overflow-y-auto custom-scrollbar bg-[#f4f6f8] text-[#1a1a24] space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${rustDeskConfig.onlineState ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-rose-50 text-rose-600 border border-rose-200'}`}>
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${rustDeskConfig.onlineState ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-rose-50 text-rose-600 border border-rose-200'}`}>
             <Radio className={`w-5 h-5 ${rustDeskConfig.onlineState ? 'animate-pulse' : ''}`} />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-slate-900">RustDesk Remote Support & Enterprise MDM</h1>
-            <p className="text-slate-500 text-xs">Unattended remote desktop, self-hosted relay server, and BitLocker/FileVault escrow</p>
+            <h1 className="text-base sm:text-lg font-bold text-slate-900">RustDesk Remote Support</h1>
+            <p className="text-slate-500 text-xs">Unattended remote desktop & self-hosted relay</p>
           </div>
         </div>
 
         {/* Live Relay Status Indicator */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
           <div
-            className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-semibold ${
+            className={`flex items-center gap-2 border px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
               rustDeskConfig.onlineState
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                 : 'bg-rose-50 border-rose-200 text-rose-700'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${rustDeskConfig.onlineState ? 'bg-emerald-500 animate-ping' : 'bg-rose-500'}`} />
-            <span>Relay {rustDeskConfig.onlineState ? 'Online' : 'Offline'}: {rustDeskConfig.relayServer}</span>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${rustDeskConfig.onlineState ? 'bg-emerald-500 animate-ping' : 'bg-rose-500'}`} />
+            <span className="truncate max-w-[200px]">Relay {rustDeskConfig.onlineState ? 'Online' : 'Offline'}: {rustDeskConfig.relayServer}</span>
             {relayHealth?.latencyMs !== undefined && (
               <span className="text-[10px] font-mono opacity-80 pl-1 border-l border-emerald-300">
                 {relayHealth.latencyMs}ms
@@ -144,24 +144,24 @@ export const RemoteSupportView: React.FC = () => {
       </div>
 
       {/* Tabs Selector */}
-      <div className="flex border-b border-slate-200 text-xs font-bold text-slate-500 gap-6">
+      <div className="flex border-b border-slate-200 text-xs font-bold text-slate-500 gap-4 sm:gap-6 overflow-x-auto custom-scrollbar whitespace-nowrap">
         <button
           onClick={() => setActiveTab('sessions')}
-          className={`pb-3 border-b-2 transition cursor-pointer ${activeTab === 'sessions' ? 'border-purple-600 text-purple-700 font-bold' : 'border-transparent hover:text-slate-800'}`}
+          className={`pb-3 border-b-2 transition cursor-pointer shrink-0 ${activeTab === 'sessions' ? 'border-purple-600 text-purple-700 font-bold' : 'border-transparent hover:text-slate-800'}`}
         >
-          Active Sessions ({filteredSessions.length}) &amp; Quick Connect
+          Active Sessions ({filteredSessions.length})
         </button>
         <button
           onClick={() => setActiveTab('mdm-keys')}
-          className={`pb-3 border-b-2 transition cursor-pointer ${activeTab === 'mdm-keys' ? 'border-purple-600 text-purple-700 font-bold' : 'border-transparent hover:text-slate-800'}`}
+          className={`pb-3 border-b-2 transition cursor-pointer shrink-0 ${activeTab === 'mdm-keys' ? 'border-purple-600 text-purple-700 font-bold' : 'border-transparent hover:text-slate-800'}`}
         >
-          MDM BitLocker &amp; FileVault Key Escrow
+          MDM BitLocker &amp; FileVault
         </button>
         <button
           onClick={() => setActiveTab('relay-config')}
-          className={`pb-3 border-b-2 transition cursor-pointer ${activeTab === 'relay-config' ? 'border-purple-600 text-purple-700 font-bold' : 'border-transparent hover:text-slate-800'}`}
+          className={`pb-3 border-b-2 transition cursor-pointer shrink-0 ${activeTab === 'relay-config' ? 'border-purple-600 text-purple-700 font-bold' : 'border-transparent hover:text-slate-800'}`}
         >
-          RustDesk Self-Hosted Relay Server Config
+          Relay Server Config
         </button>
       </div>
 

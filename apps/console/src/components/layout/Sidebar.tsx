@@ -80,7 +80,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full select-none shrink-0 z-20">
+    <div className="hidden md:flex h-full select-none shrink-0 z-20">
       {/* ========================================================================= */}
       {/* LEVEL 1: Primary Icon Rail (60px fixed width, pitch black #0a0b10)        */}
       {/* ========================================================================= */}

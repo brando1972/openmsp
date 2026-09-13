@@ -66,6 +66,8 @@ interface AppContextType {
   setActiveSubRailView: (view: string) => void;
   isSubRailCollapsed: boolean;
   setIsSubRailCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
+  isMobileMenuOpen: boolean;
+  setIsMobileMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   
   // Clients
   clients: ClientTenant[];
@@ -173,6 +175,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeTimersCount, setActiveTimersCount] = useState<number>(3);
   const [activeSubRailView, setActiveSubRailView] = useState<string>('all');
   const [isSubRailCollapsed, setIsSubRailCollapsed] = useState<boolean>(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   const openTab = (newTab: { type: NavigationTab | 'device-detail' | 'ticket-detail' | 'probes'; title: string; dataId?: string; closable?: boolean }) => {
     const existing = tabs.find(t => 
@@ -1032,6 +1035,8 @@ rm -rf $(brew --cache)`;
       setActiveSubRailView,
       isSubRailCollapsed,
       setIsSubRailCollapsed,
+      isMobileMenuOpen,
+      setIsMobileMenuOpen,
       clients,
       selectedClientId,
       setSelectedClientId,

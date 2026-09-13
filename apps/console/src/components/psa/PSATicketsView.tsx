@@ -165,23 +165,23 @@ export const PSATicketsView: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-[#f4f6f8] text-[#1a1a24] overflow-hidden">
       {/* SuperOps Action Toolbar */}
-      <div className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-4 shrink-0 shadow-sm">
+      <div className="min-h-14 bg-white border-b border-slate-200 px-4 sm:px-6 py-2.5 sm:py-0 flex flex-wrap items-center justify-between gap-2 sm:gap-4 shrink-0 shadow-sm">
         {/* Left: Title + Scope */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded border border-slate-200 flex items-center justify-center text-slate-500 bg-slate-50">
             <TicketIcon className="w-4 h-4" />
           </div>
-          <h1 className="text-lg font-bold text-[#212b36] tracking-tight flex items-center gap-1.5">
+          <h1 className="text-base sm:text-lg font-bold text-[#212b36] tracking-tight flex items-center gap-1.5">
             <span>Tickets</span>
             <span className="text-slate-400 text-sm font-normal">🌐</span>
           </h1>
           <span className="text-xs text-slate-500 font-medium ml-1">
-            ({displayedTickets.length} tickets)
+            ({displayedTickets.length})
           </span>
         </div>
 
         {/* Right: SuperOps Action Buttons */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap">
           {/* View Mode Toggle */}
           <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600">
             <button
@@ -200,14 +200,14 @@ export const PSATicketsView: React.FC = () => {
             </button>
           </div>
 
-          {/* Columns */}
-          <button className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium flex items-center gap-1.5 transition">
+          {/* Columns - hidden on mobile */}
+          <button className="hidden sm:flex h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium items-center gap-1.5 transition">
             <Columns className="w-3.5 h-3.5 text-slate-500" />
             <span>Columns</span>
           </button>
 
-          {/* Filter */}
-          <button className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium flex items-center gap-1.5 transition">
+          {/* Filter - hidden on mobile */}
+          <button className="hidden sm:flex h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium items-center gap-1.5 transition">
             <Filter className="w-3.5 h-3.5 text-slate-500" />
             <span>Filter</span>
           </button>
@@ -215,7 +215,7 @@ export const PSATicketsView: React.FC = () => {
           {/* Create Button */}
           <button
             onClick={() => setShowCreateModal(true)}
-            className="h-8 px-4 rounded-lg bg-[#090113] hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+            className="h-8 px-3.5 rounded-lg bg-[#090113] hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>+ Create</span>
@@ -224,20 +224,20 @@ export const PSATicketsView: React.FC = () => {
       </div>
 
       {/* Subheader: Filter Bar & Search */}
-      <div className="bg-white border-b border-slate-200 px-6 py-2.5 flex items-center justify-between gap-4 shrink-0">
-        <div className="relative w-80">
+      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-2 flex items-center justify-between gap-3 shrink-0">
+        <div className="relative flex-1 sm:w-80 sm:flex-initial">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search tickets by ID, title, or client..."
+            placeholder="Search tickets..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-purple-500 transition"
+            className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-purple-500 transition"
           />
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="font-semibold text-slate-700">Open Tickets:</span>
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 shrink-0">
+          <span className="font-semibold text-slate-700 hidden xs:inline">Open:</span>
           <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold">
             {tickets.filter(t => t.status !== 'closed' && t.status !== 'resolved').length}
           </span>
@@ -245,11 +245,90 @@ export const PSATicketsView: React.FC = () => {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {/* Left: Table or Kanban */}
         {viewMode === 'list' ? (
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-3 sm:p-6 pb-20 md:pb-6">
+            {/* Mobile Ticket Cards View (md:hidden) */}
+            <div className="block md:hidden space-y-2.5">
+              {displayedTickets.map(ticket => {
+                const isSelected = ticket.id === selectedTicketId;
+                return (
+                  <div
+                    key={ticket.id}
+                    onClick={() => setSelectedTicketId(ticket.id)}
+                    className={`p-3.5 rounded-xl border bg-white shadow-xs transition active:scale-[0.99] cursor-pointer ${
+                      isSelected ? 'border-purple-500 ring-2 ring-purple-100' : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        {getIdBadge(ticket.ticketNumber)}
+                        {getStatusPill(ticket.status)}
+                      </div>
+                      {getPriorityPill(ticket.priority)}
+                    </div>
+
+                    <h4 className="font-bold text-slate-900 text-sm leading-snug mb-1">
+                      {ticket.title}
+                    </h4>
+
+                    {ticket.description && (
+                      <p className="text-xs text-slate-500 line-clamp-2 mb-2.5">
+                        {ticket.description}
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
+                      <div className="flex items-center gap-1 truncate max-w-[180px]">
+                        <span className="font-semibold text-slate-700 truncate">{ticket.clientName}</span>
+                        {ticket.deviceName && (
+                          <span className="text-slate-400">• {ticket.deviceName}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Clock className={`w-3.5 h-3.5 ${ticket.slaBreached ? 'text-rose-500' : 'text-slate-400'}`} />
+                        <span className={ticket.slaBreached ? 'text-rose-600 font-bold' : ''}>
+                          {ticket.slaDueDate}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-[10px] text-slate-400">
+                        Tech: <strong className="text-slate-600">{ticket.assignedTech}</strong>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {ticket.deviceId && (
+                          <button
+                            onClick={() => launchRustDeskSession(ticket.deviceId!)}
+                            className="px-2.5 py-1 rounded-md bg-[#090113] hover:bg-slate-800 text-white font-medium text-xs flex items-center gap-1 transition"
+                          >
+                            <Laptop className="w-3.5 h-3.5 text-sky-400" />
+                            <span>Remote</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setSelectedTicketId(ticket.id)}
+                          className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition"
+                        >
+                          View
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {displayedTickets.length === 0 && (
+                <div className="py-12 text-center text-slate-400 text-xs">
+                  No tickets match your current filters.
+                </div>
+              )}
+            </div>
+
+            {/* Desktop Table View (hidden md:block) */}
+            <div className="hidden md:block bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
@@ -418,19 +497,20 @@ export const PSATicketsView: React.FC = () => {
 
         {/* Right: Selected Ticket Detail & Workbench Drawer */}
         {selectedTicket && (
-          <div className="w-[480px] bg-white border-l border-slate-200 flex flex-col shrink-0 shadow-lg overflow-hidden animate-in slide-in-from-right duration-200">
+          <div className="fixed inset-0 z-50 w-full md:relative md:w-[480px] md:inset-auto md:z-auto bg-white border-l border-slate-200 flex flex-col shrink-0 shadow-2xl md:shadow-lg overflow-hidden animate-in slide-in-from-right duration-200">
             {/* Drawer Header */}
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 {getIdBadge(selectedTicket.ticketNumber)}
-                <h2 className="font-bold text-slate-900 text-sm truncate max-w-[280px]">
+                <h2 className="font-bold text-slate-900 text-sm truncate max-w-[200px] sm:max-w-[280px]">
                   {selectedTicket.title}
                 </h2>
               </div>
               <button
                 onClick={() => setSelectedTicketId(null)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+                className="p-1.5 rounded-md text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition flex items-center gap-1"
               >
+                <span className="text-xs font-semibold md:hidden">Close</span>
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -581,8 +661,8 @@ export const PSATicketsView: React.FC = () => {
 
       {/* New Ticket Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleCreateTicketSubmit} className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-xl">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <form onSubmit={handleCreateTicketSubmit} className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h2 className="font-bold text-slate-900 text-base">Create New PSA Ticket</h2>
               <button

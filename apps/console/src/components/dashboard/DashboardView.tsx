@@ -15,7 +15,8 @@ import {
   X,
   Laptop,
   HardDrive,
-  Check
+  Check,
+  ChevronRight
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
@@ -99,7 +100,7 @@ export const DashboardView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto space-y-6 custom-scrollbar bg-[#f4f6f8] text-[#1a1a24]">
+    <div className="flex-1 p-4 sm:p-6 pb-24 md:pb-6 overflow-y-auto space-y-4 sm:space-y-6 custom-scrollbar bg-[#f4f6f8] text-[#1a1a24]">
       {/* Top Greeting Header (SuperOps style) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
@@ -232,8 +233,8 @@ export const DashboardView: React.FC = () => {
           </span>
         </div>
 
-        {/* Alerts Table */}
-        <div className="overflow-x-auto">
+        {/* Desktop Alerts Table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-700">
             <thead className="bg-[#f9fafb] text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -271,6 +272,31 @@ export const DashboardView: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile Alerts Cards (< md) */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {alertsList.map((alert) => (
+            <div key={alert.id} className="p-3.5 flex flex-col gap-1.5 hover:bg-slate-50 transition">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-xs text-slate-900">{alert.message}</span>
+                <span className="bg-[#fef3c7] text-[#92400e] font-bold text-[10px] px-2 py-0.5 rounded">
+                  {alert.occurrences}x
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 line-clamp-2">{alert.description}</p>
+              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                <button
+                  onClick={() => handleOpenAsset(alert.assetId)}
+                  className="text-[#011fff] font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Laptop className="w-3 h-3" />
+                  <span>{alert.assetName}</span>
+                </button>
+                <span className="text-[10px]">{alert.clientName} • {alert.createdTime}</span>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ========================================================================= */}
@@ -296,8 +322,8 @@ export const DashboardView: React.FC = () => {
           </button>
         </div>
 
-        {/* Endpoints Table */}
-        <div className="overflow-x-auto">
+        {/* Desktop Endpoints Table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-700">
             <thead className="bg-[#f9fafb] text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200">
               <tr>
@@ -343,6 +369,38 @@ export const DashboardView: React.FC = () => {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Endpoints Cards (< md) */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {filteredDevices.map((d) => (
+            <div
+              key={d.id}
+              onClick={() => handleOpenAsset(d.id)}
+              className="p-3.5 flex items-center justify-between hover:bg-slate-50 transition cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
+                  <Laptop className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-[#011fff]">{d.name}</div>
+                  <div className="text-[10px] text-slate-500">{d.clientName} • {d.os.toUpperCase()}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                    d.health !== 'offline' ? 'bg-[#c8e6c5] text-[#1c4419]' : 'bg-[#ececec] text-[#444444]'
+                  }`}
+                >
+                  {d.health !== 'offline' ? 'ONLINE' : 'OFFLINE'}
+                </span>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

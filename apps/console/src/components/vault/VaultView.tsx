@@ -199,33 +199,33 @@ export const VaultView: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-[#f4f6f8] text-[#1a1a24] overflow-hidden">
       {/* Header */}
-      <div className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between gap-4 shrink-0 shadow-sm">
-        <div className="flex items-center gap-2.5">
+      <div className="min-h-14 bg-white border-b border-slate-200 px-4 sm:px-6 py-2.5 sm:py-0 flex flex-wrap items-center justify-between gap-2 sm:gap-4 shrink-0 shadow-sm">
+        <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded border border-slate-200 flex items-center justify-center text-slate-500 bg-slate-50">
             <KeyRound className="w-4 h-4 text-emerald-600" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-[#212b36] tracking-tight flex items-center gap-1.5">
-              <span>Bitwarden Zero-Trust Vault</span>
+            <h1 className="text-base sm:text-lg font-bold text-[#212b36] tracking-tight flex items-center gap-1.5">
+              <span>Vault</span>
               <span className="text-slate-400 text-sm font-normal">🌐</span>
             </h1>
           </div>
           <span className="text-xs text-slate-500 font-medium ml-1">
-            ({filteredItems.length} credentials)
+            ({filteredItems.length})
           </span>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap">
           {/* Master Vault Unlock / Lock Status Button */}
           {isVaultUnlocked ? (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
                 <Unlock className="w-3.5 h-3.5" />
-                <span>Unlocked ({formatSeconds(vaultUnlockedSecondsRemaining)})</span>
+                <span>({formatSeconds(vaultUnlockedSecondsRemaining)})</span>
               </div>
               <button
                 onClick={lockVault}
-                className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-200 transition flex items-center gap-1.5 cursor-pointer"
+                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-200 transition flex items-center gap-1 cursor-pointer"
                 title="Lock Master Vault Now"
               >
                 <Lock className="w-3.5 h-3.5" />
@@ -297,7 +297,7 @@ export const VaultView: React.FC = () => {
         </div>
 
         {/* Right: Items List */}
-        <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-4">
+        <div className="flex-1 p-3 sm:p-6 pb-20 md:pb-6 overflow-y-auto custom-scrollbar space-y-4">
           <div className="relative max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
