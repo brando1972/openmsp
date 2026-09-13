@@ -3,81 +3,97 @@ import { v4 as uuidv4 } from 'uuid';
 import { store } from '../db/store.js';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { wsManager } from '../ws/manager.js';
-import type { RustDeskSession } from '@openmsp/api-types';
+import type { RemoteSession } from '@openmsp/api-types';
+import { buildDesktopEmbedUrl, isConfigured, ping, listNodes } from '../integrations/meshcentral.js';
 
 const router = Router();
 router.use(authenticate);
 
-// GET /api/v1/remote/config
-router.get('/config', (req, res) => {
-  res.json(store.rustDeskConfig);
+// GET /api/v1/remote/config — MeshCentral connection config (provider-neutral)
+router.get('/config', (_req, res) => {
+  res.json(store.remoteConfig);
 });
 
 // PATCH /api/v1/remote/config
 router.patch('/config', (req: AuthenticatedRequest, res) => {
-  const updates = req.body;
-  store.rustDeskConfig = { ...store.rustDeskConfig, ...updates };
-
+  store.remoteConfig = { ...store.remoteConfig, ...req.body };
   store.recordAudit({
     orgId: req.user!.orgId,
     userId: req.user!.id,
     actorName: req.user!.name,
     action: 'remote.config_update',
-    targetType: 'relay_config',
-    targetId: 'rustdesk',
-    details: updates,
+    targetType: 'remote_config',
+    targetId: 'meshcentral',
+    details: req.body,
     ipAddress: req.ip
   });
-
-  res.json(store.rustDeskConfig);
+  res.json(store.remoteConfig);
 });
 
-// GET /api/v1/remote/health
-router.get('/health', (req, res) => {
+// GET /api/v1/remote/health — is MeshCentral reachable?
+router.get('/health', async (_req, res) => {
+  const online = await ping();
+  store.remoteConfig.online = online;
+  store.remoteConfig.activeSessionsCount = store.remoteSessions.size;
   res.json({
-    online: store.rustDeskConfig.onlineState,
-    relayServer: store.rustDeskConfig.relayServer,
-    idServer: store.rustDeskConfig.idServer,
-    activeSessions: store.rustDeskSessions.size,
-    latencyMs: 14,
-    status: 'operational'
+    provider: store.remoteConfig.provider,
+    online,
+    configured: isConfigured(),
+    serverUrl: store.remoteConfig.serverUrl,
+    deviceGroup: store.remoteConfig.deviceGroup,
+    activeSessions: store.remoteSessions.size,
+    status: online ? 'operational' : isConfigured() ? 'unreachable' : 'not_configured'
   });
+});
+
+// GET /api/v1/remote/devices — devices known to MeshCentral (best-effort)
+router.get('/devices', async (_req, res) => {
+  const nodes = await listNodes();
+  res.json({ configured: isConfigured(), nodes });
 });
 
 // GET /api/v1/remote/sessions
-router.get('/sessions', (req, res) => {
-  res.json(Array.from(store.rustDeskSessions.values()));
+router.get('/sessions', (_req, res) => {
+  res.json(Array.from(store.remoteSessions.values()));
 });
 
-// POST /api/v1/remote/sessions/start
+// POST /api/v1/remote/sessions/start — open a remote-desktop session for a device
 router.post('/sessions/start', (req: AuthenticatedRequest, res) => {
-  const { deviceId } = req.body;
+  const { deviceId, meshNodeId } = req.body as { deviceId?: string; meshNodeId?: string };
   if (!deviceId) {
     res.status(400).json({ error: 'deviceId is required' });
     return;
   }
-
   const device = store.devices.get(deviceId);
   if (!device) {
     res.status(404).json({ error: 'Device not found' });
     return;
   }
 
+  const nodeId = meshNodeId || device.meshNodeId || '';
+  const embedUrl = buildDesktopEmbedUrl(nodeId);
+  if (!embedUrl) {
+    res.status(409).json({
+      error: 'Remote support not ready: MeshCentral not configured or device has no meshNodeId',
+      configured: isConfigured()
+    });
+    return;
+  }
+
   const sessionId = `sess-${uuidv4().substring(0, 8)}`;
-  const session: RustDeskSession = {
+  const session: RemoteSession = {
     id: sessionId,
     deviceId: device.id,
     deviceName: device.name,
-    rustDeskId: device.rustDeskId || '982341209',
+    meshNodeId: nodeId,
     clientName: device.clientName,
     connectedTech: req.user!.name,
     startedAt: new Date().toISOString(),
     status: 'connected',
-    sessionKey: `rd-sess-${uuidv4()}`
+    embedUrl
   };
-
-  store.rustDeskSessions.set(sessionId, session);
-  store.rustDeskConfig.activeSessionsCount = store.rustDeskSessions.size;
+  store.remoteSessions.set(sessionId, session);
+  store.remoteConfig.activeSessionsCount = store.remoteSessions.size;
 
   store.recordAudit({
     orgId: req.user!.orgId,
@@ -86,27 +102,25 @@ router.post('/sessions/start', (req: AuthenticatedRequest, res) => {
     action: 'remote.session_start',
     targetType: 'device',
     targetId: device.id,
-    details: { sessionId, rustDeskId: session.rustDeskId },
+    details: { sessionId, meshNodeId: nodeId },
     ipAddress: req.ip
   });
 
   wsManager.broadcastToOrg(req.user!.orgId, 'session.started', session);
-
   res.status(201).json(session);
 });
 
 // POST /api/v1/remote/sessions/:id/end
 router.post('/sessions/:id/end', (req: AuthenticatedRequest, res) => {
   const sessionId = req.params.id as string;
-  const session = store.rustDeskSessions.get(sessionId);
+  const session = store.remoteSessions.get(sessionId);
   if (!session) {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
-
   session.status = 'ended';
-  store.rustDeskSessions.delete(sessionId);
-  store.rustDeskConfig.activeSessionsCount = store.rustDeskSessions.size;
+  store.remoteSessions.delete(sessionId);
+  store.remoteConfig.activeSessionsCount = store.remoteSessions.size;
 
   store.recordAudit({
     orgId: req.user!.orgId,
@@ -120,7 +134,6 @@ router.post('/sessions/:id/end', (req: AuthenticatedRequest, res) => {
   });
 
   wsManager.broadcastToOrg(req.user!.orgId, 'session.ended', { sessionId: session.id });
-
   res.json({ success: true, session });
 });
 

@@ -10,8 +10,8 @@ import type {
   AutomationExecutionLog,
   PatchItem,
   VaultItem,
-  RustDeskServerConfig,
-  RustDeskSession,
+  RemoteConfig,
+  RemoteSession,
   WhiteLabelConfig,
   UserProfile,
   EnrollmentToken,
@@ -34,6 +34,7 @@ export interface DBUser {
 export interface DBOrg {
   id: string;
   name: string;
+  slug: string;        // subdomain slug -> <slug>.apexmsp.app
   domain?: string;
   settings: WhiteLabelConfig;
   createdAt: string;
@@ -52,16 +53,15 @@ class DataStore {
   public patches: Map<string, PatchItem> = new Map();
   public vaultItems: Map<string, VaultItem> = new Map();
   public auditEvents: AuditEvent[] = [];
-  public rustDeskConfig: RustDeskServerConfig = {
-    idServer: 'relay.openmsp.local:21116',
-    relayServer: 'relay.openmsp.local:21117',
-    apiServer: 'http://relay.openmsp.local:21114',
-    key: 'openmsp-demo-public-key-9a8b7c6d5e4f3a2b1',
-    customPort: 21116,
-    onlineState: true,
+  // Remote support via MeshCentral (configured through env; see integrations/meshcentral.ts)
+  public remoteConfig: RemoteConfig = {
+    provider: 'meshcentral',
+    serverUrl: (process.env.MESH_SERVER_URL || '').replace(/\/$/, ''),
+    deviceGroup: process.env.MESH_GROUP || 'OpenMSP',
+    online: false,
     activeSessionsCount: 0
   };
-  public rustDeskSessions: Map<string, RustDeskSession> = new Map();
+  public remoteSessions: Map<string, RemoteSession> = new Map();
 
   private initialized = false;
 
@@ -77,7 +77,8 @@ class DataStore {
     const defaultOrg: DBOrg = {
       id: orgId,
       name: 'ApexMSP Technologies',
-      domain: 'apexmsp.io',
+      slug: process.env.DEFAULT_TENANT_SLUG || 'dev', // dev.apexmsp.app
+      domain: 'apexmsp.app',
       settings: {
         companyName: 'ApexMSP',
         logoUrl: '',

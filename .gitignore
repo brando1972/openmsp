@@ -44,3 +44,7 @@ apps/**/bin/
 apps/agent/*.json
 apps/agent/openmsp-agent
 
+
+# MeshCentral pre-tagged agents — live Mesh/Server IDs, never commit
+apps/agent/deploy/macos/mesh/
+apps/agent/deploy/windows/mesh/

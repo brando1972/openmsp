@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Ylianst/MeshCentral/master/meshcentral-config-schema.json",
+  "settings": {
+    "cert": "mesh.example.com",
+    "MongoDb": "mongodb://mongodb:27017/meshcentral",
+    "port": 443,
+    "redirPort": 80,
+    "AllowLoginToken": true,
+    "AllowFraming": true,
+    "WebRTC": true,
+    "TlsOffload": false
+  },
+  "domains": {
+    "": {
+      "title": "OpenMSP Remote",
+      "title2": "Support",
+      "newAccounts": false,
+      "userNameIsEmail": true,
+      "_note": "Branding here reskins MeshCentral's own UI; the OpenMSP console embeds the desktop viewer, so most users never see this page.",
+      "hide": 4
+    }
+  },
+  "_INSTRUCTIONS": {
+    "cert": "Set to the VM's public DNS name; MeshCentral auto-provisions Let's Encrypt when reachable on 80/443.",
+    "AllowFraming": "REQUIRED so the OpenMSP console can iframe the desktop viewer. Set to true, or to the console origin e.g. 'https://openmsp.vercel.app'.",
+    "AllowLoginToken": "REQUIRED so the API can mint login tokens for embedded sessions."
+  }
+}

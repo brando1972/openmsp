@@ -15,7 +15,7 @@ const router = Router();
 
 // POST /api/v1/agents/enroll
 router.post('/enroll', (req, res) => {
-  const { token, hostname, os, osVersion, serialNumber, macAddress, ipAddress } = req.body as AgentEnrollRequest;
+  const { token, hostname, os, osVersion, arch, serialNumber, macAddress, ipAddress } = req.body as AgentEnrollRequest;
 
   if (!token) {
     res.status(400).json({ error: 'Enrollment token is required' });
@@ -49,6 +49,9 @@ router.post('/enroll', (req, res) => {
     siteName: enrollmentToken.siteId || 'Default Site',
     os: os || 'windows',
     osVersion: osVersion || '',
+    arch: arch || '',
+    platform: os || 'windows',
+    managementChannel: 'agent',
     serialNumber: serialNumber || '',
     ipAddress: ipAddress || req.ip || '',
     publicIp: req.ip || '',
@@ -101,8 +104,7 @@ router.post('/enroll', (req, res) => {
     clientId: enrollmentToken.clientId,
     siteId: enrollmentToken.siteId,
     deviceSecret,
-    heartbeatIntervalSeconds: 30,
-    rustDeskConfig: store.rustDeskConfig
+    heartbeatIntervalSeconds: 30
   };
 
   res.status(201).json(response);
@@ -110,7 +112,7 @@ router.post('/enroll', (req, res) => {
 
 // POST /api/v1/agents/heartbeat
 router.post('/heartbeat', (req, res) => {
-  const { deviceId, deviceSecret, metrics, network, installedApps, services, eventLogs, rustDeskId } =
+  const { deviceId, deviceSecret, metrics, network, installedApps, services, eventLogs, security, agentVersion, arch, rustDeskId } =
     req.body as AgentHeartbeatRequest;
 
   if (!deviceId || !deviceSecret) {
@@ -144,6 +146,14 @@ router.post('/heartbeat', (req, res) => {
   if (installedApps) device.installedApps = installedApps;
   if (services) device.services = services;
   if (eventLogs) device.eventLogs = eventLogs;
+  if (agentVersion) device.agentVersion = agentVersion;
+  if (arch) device.arch = arch;
+  if (security) {
+    device.security = security;
+    // Reflect real disk-encryption state (FileVault/BitLocker) on the device
+    if (security.diskEncryption === 'on') device.encryptionStatus = 'encrypted';
+    else if (security.diskEncryption === 'off') device.encryptionStatus = 'decrypted';
+  }
   if (rustDeskId) {
     device.rustDeskId = rustDeskId;
     device.rustDeskOnline = true;
@@ -169,7 +179,9 @@ router.post('/heartbeat', (req, res) => {
     deviceId: device.id,
     clientId: device.clientId,
     health: device.health,
-    metrics: device.metrics
+    metrics: device.metrics,
+    security: device.security,
+    agentVersion: device.agentVersion
   });
 
   if (previousHealth !== device.health) {
@@ -237,7 +249,8 @@ router.post('/heartbeat', (req, res) => {
   const response: AgentHeartbeatResponse = {
     acknowledged: true,
     serverTime: new Date().toISOString(),
-    pendingCommands
+    pendingCommands,
+    latestAgentVersion: process.env.AGENT_LATEST_VERSION || '0.2.0'
   };
 
   res.json(response);

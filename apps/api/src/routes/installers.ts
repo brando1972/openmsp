@@ -45,47 +45,121 @@ router.post('/token', authenticate, (req: AuthenticatedRequest, res) => {
 
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 
-// GET /api/v1/installers/download?os=macos|windows|linux
+// Directories searched for agent artifacts (installers + raw binaries).
+// CI drops signed .pkg/.msi into AGENT_ARTIFACTS_DIR (or ./artifacts);
+// `make build-all` populates apps/agent/bin for local dev.
+const ARTIFACT_DIRS = [
+  process.env.AGENT_ARTIFACTS_DIR,
+  path.join(process.cwd(), 'artifacts'),
+  path.join(process.cwd(), 'bin'),
+  path.join(process.cwd(), 'apps', 'api', 'bin'),
+  path.join(process.cwd(), 'apps', 'agent', 'bin'),
+  '/app/artifacts',
+  '/app/apps/agent/bin',
+  '/app/bin'
+].filter(Boolean) as string[];
+
+// Find the first existing exact-name file across artifact dirs.
+function findExact(names: string[]): string | null {
+  for (const dir of ARTIFACT_DIRS) {
+    for (const name of names) {
+      const p = path.join(dir, name);
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return null;
+}
+
+// Find the newest file matching a regex (for versioned .pkg/.msi).
+function findNewest(pattern: RegExp): string | null {
+  let best: { p: string; mtime: number } | null = null;
+  for (const dir of ARTIFACT_DIRS) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (!pattern.test(f)) continue;
+      const p = path.join(dir, f);
+      const mtime = fs.statSync(p).mtimeMs;
+      if (!best || mtime > best.mtime) best = { p, mtime };
+    }
+  }
+  return best ? best.p : null;
+}
+
+type Artifact = { path: string; downloadName: string; contentType: string };
+
+// Resolve an artifact for (os, kind). kind: 'installer' (default) | 'binary' | 'tray'.
+function resolveArtifact(os: string, kind: string, arch: string): Artifact | null {
+  const OCTET = 'application/octet-stream';
+  if (os === 'macos') {
+    if (kind !== 'binary') {
+      const pkg = findNewest(/^OpenMSP-Agent.*\.pkg$/i);
+      if (pkg) return { path: pkg, downloadName: path.basename(pkg), contentType: 'application/octet-stream' };
+    }
+    const names =
+      arch === 'arm64' ? ['openmsp-agent-darwin-arm64', 'openmsp-agent-darwin']
+      : arch === 'amd64' || arch === 'x86_64' ? ['openmsp-agent-darwin-amd64', 'openmsp-agent-darwin']
+      : ['openmsp-agent-darwin', 'openmsp-agent-darwin-arm64', 'openmsp-agent-darwin-amd64', 'openmsp-agent-macos-universal'];
+    const bin = findExact(names);
+    return bin ? { path: bin, downloadName: 'openmsp-agent', contentType: OCTET } : null;
+  }
+  if (os === 'windows') {
+    if (kind === 'tray') {
+      const t = findExact(['openmsp-agent-tray.exe']);
+      return t ? { path: t, downloadName: 'openmsp-agent-tray.exe', contentType: OCTET } : null;
+    }
+    if (kind !== 'binary') {
+      const msi = findNewest(/^OpenMSP-Agent.*\.msi$/i);
+      if (msi) return { path: msi, downloadName: path.basename(msi), contentType: OCTET };
+    }
+    const exe = findExact(['openmsp-agent.exe', 'openmsp-agent-windows-amd64.exe']);
+    return exe ? { path: exe, downloadName: 'openmsp-agent.exe', contentType: OCTET } : null;
+  }
+  if (os === 'linux') {
+    const bin = findExact(['openmsp-agent-linux-amd64', 'openmsp-agent-linux']);
+    return bin ? { path: bin, downloadName: 'openmsp-agent', contentType: OCTET } : null;
+  }
+  return null;
+}
+
+// GET /api/v1/installers/manifest — what agents are available to download
+router.get('/manifest', (_req, res) => {
+  const out: Record<string, { installer: boolean; binary: boolean }> = {
+    macos: { installer: false, binary: false },
+    windows: { installer: false, binary: false },
+    linux: { installer: false, binary: false }
+  };
+  for (const os of ['macos', 'windows', 'linux']) {
+    out[os].installer = !!resolveArtifact(os, 'installer', '');
+    out[os].binary = !!resolveArtifact(os, 'binary', '');
+  }
+  // Expose the MeshCentral remote-support enrollment descriptor so the installer
+  // flow knows which server/group endpoints auto-join. The group .msh itself is
+  // bundled into the installers at build time (see apps/agent/deploy/*/mesh/).
+  const mesh = {
+    serverUrl: store.remoteConfig.serverUrl,
+    group: store.remoteConfig.deviceGroup,
+    configured: !!store.remoteConfig.serverUrl
+  };
+  res.json({ artifacts: out, mesh });
+});
+
+// GET /api/v1/installers/download?os=macos|windows|linux&kind=installer|binary|tray&arch=
 router.get('/download', (req, res) => {
   const os = (req.query.os as string) || 'macos';
+  const kind = (req.query.kind as string) || 'installer';
   const arch = (req.query.arch as string) || '';
 
-  let filename = 'openmsp-agent-macos-universal';
-  let downloadName = 'openmsp-agent';
-
-  if (os === 'macos') {
-    if (arch === 'arm64') filename = 'openmsp-agent-darwin-arm64';
-    else if (arch === 'amd64' || arch === 'x86_64') filename = 'openmsp-agent-darwin-amd64';
-    else filename = 'openmsp-agent-macos-universal';
-    downloadName = 'openmsp-agent';
-  } else if (os === 'windows') {
-    filename = 'openmsp-agent-windows-amd64.exe';
-    downloadName = 'openmsp-agent.exe';
-  } else if (os === 'linux') {
-    filename = 'openmsp-agent-linux-amd64';
-    downloadName = 'openmsp-agent';
-  }
-
-  const candidatePaths = [
-    path.join(process.cwd(), 'bin', filename),
-    path.join(process.cwd(), 'apps', 'api', 'bin', filename),
-    path.join(process.cwd(), '..', 'agent', 'bin', filename),
-    path.join(process.cwd(), 'apps', 'agent', 'bin', filename),
-    path.join('/app/apps/api/bin', filename),
-    path.join('/app/bin', filename)
-  ];
-
-  const foundPath = candidatePaths.find(p => fs.existsSync(p));
-
-  if (!foundPath) {
-    res.status(404).json({ error: `Agent binary not found for OS: ${os} (${filename})` });
+  const art = resolveArtifact(os, kind, arch);
+  if (!art) {
+    res.status(404).json({ error: `No ${kind} available for ${os}. Build/publish it first (see apps/agent/deploy).` });
     return;
   }
 
-  res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
-  res.setHeader('Content-Type', 'application/octet-stream');
-  res.sendFile(path.resolve(foundPath));
+  res.setHeader('Content-Disposition', `attachment; filename="${art.downloadName}"`);
+  res.setHeader('Content-Type', art.contentType);
+  res.sendFile(path.resolve(art.path));
 });
 
 // GET /api/v1/installers/script?token=...&os=windows|macos
@@ -93,7 +167,7 @@ router.get('/script', (req, res) => {
   const { token, os } = req.query;
   const proto = req.get('x-forwarded-proto') || req.protocol;
   const serverUrl = `${proto}://${req.get('host')}`;
-  const relayHost = store.rustDeskConfig.relayServer.split(':')[0] || 'relay.openmsp.local';
+  const relayHost = (store.remoteConfig.serverUrl || '').replace(/^https?:\/\//, '') || 'mesh.openmsp.local';
 
   if (os === 'macos') {
     const script = `#!/bin/bash
@@ -157,6 +231,32 @@ try {
 `;
   res.setHeader('Content-Type', 'text/plain');
   res.send(script);
+});
+
+// GET /api/v1/agents/update-info equivalent, served here:
+// /api/v1/installers/update?os=&arch= -> { version, url, sha256 } for self-update
+router.get('/update', (req, res) => {
+  const os = (req.query.os as string) || 'linux';
+  const arch = (req.query.arch as string) || '';
+  const version = process.env.AGENT_LATEST_VERSION || '0.2.0';
+
+  const art = resolveArtifact(os, 'binary', arch);
+  if (!art) {
+    res.status(404).json({ error: `No agent binary available for ${os}` });
+    return;
+  }
+  let sha256 = '';
+  try {
+    sha256 = crypto.createHash('sha256').update(fs.readFileSync(art.path)).digest('hex');
+  } catch {
+    // checksum optional; agent still downloads if absent
+  }
+  const archQ = arch ? `&arch=${encodeURIComponent(arch)}` : '';
+  res.json({
+    version,
+    url: `/api/v1/installers/download?os=${encodeURIComponent(os)}&kind=binary${archQ}`,
+    sha256
+  });
 });
 
 export default router;

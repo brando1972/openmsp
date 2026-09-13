@@ -1,0 +1,30 @@
+#!/bin/bash
+# Runs as root at the end of the .pkg install. Enrolls the device (token is
+# baked into openmsp-agent.json) and loads the daemon. Zero user interaction.
+set -uo pipefail
+IDENT="/usr/local/openmsp"
+DAEMON="/Library/LaunchDaemons/com.openmsp.agent.plist"
+
+# One-shot enrollment using the preconfigured server + token
+"$IDENT/openmsp-agent" --config "$IDENT/openmsp-agent.json" --run-once || true
+chmod 600 "$IDENT/openmsp-agent.json" || true
+
+# Load the headless daemon (KeepAlive watchdog restarts it)
+chown root:wheel "$DAEMON"; chmod 644 "$DAEMON"
+launchctl bootout system "$DAEMON" 2>/dev/null || true
+launchctl bootstrap system "$DAEMON"
+launchctl enable system/com.openmsp.agent
+
+# Load the UI-only tray LaunchAgent for the logged-in user's GUI session (if any)
+CONSOLE_UID="$(/usr/bin/stat -f%u /dev/console 2>/dev/null || echo 0)"
+if [ "$CONSOLE_UID" -gt 0 ]; then
+  launchctl bootstrap "gui/$CONSOLE_UID" "/Library/LaunchAgents/com.openmsp.agent.tray.plist" 2>/dev/null || true
+fi
+
+# MeshCentral remote-support enrollment (bundled .msh → ApexMSP group). Fully
+# non-fatal: never let a mesh failure fail the ApexMSP agent install.
+if [ -x "$IDENT/mesh-enroll.sh" ]; then
+  "$IDENT/mesh-enroll.sh" || true
+fi
+
+exit 0

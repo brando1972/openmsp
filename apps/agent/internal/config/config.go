@@ -17,6 +17,9 @@ type Config struct {
 	SiteId                   string                 `json:"siteId,omitempty"`
 	HeartbeatIntervalSeconds int                    `json:"heartbeatIntervalSeconds,omitempty"`
 	RustDeskConfig           map[string]interface{} `json:"rustDeskConfig,omitempty"`
+	// ServerPublicKey is a base64-encoded Ed25519 key. When set, the agent
+	// verifies the signature on every dispatched command before executing it.
+	ServerPublicKey string `json:"serverPublicKey,omitempty"`
 }
 
 // Load reads the config file from disk. If the file does not exist, an error is returned.

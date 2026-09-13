@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MDM PPPC profile: pre-grants Full Disk Access to the OpenMSP daemon so the
+     end user is NEVER prompted. Push via Jamf/Intune/etc. Replace __TEAMID__
+     with your Apple Developer Team ID. Only works when delivered by MDM
+     (PPPC/TCC grants cannot be self-applied). -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadType</key><string>Configuration</string>
+  <key>PayloadVersion</key><integer>1</integer>
+  <key>PayloadIdentifier</key><string>com.openmsp.agent.pppc</string>
+  <key>PayloadUUID</key><string>7C1B2E10-0000-4A00-9000-OPENMSPPPC01</string>
+  <key>PayloadDisplayName</key><string>OpenMSP Agent — Privacy Preferences</string>
+  <key>PayloadScope</key><string>System</string>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key><string>com.apple.TCC.configuration-profile-policy</string>
+      <key>PayloadVersion</key><integer>1</integer>
+      <key>PayloadIdentifier</key><string>com.openmsp.agent.tcc</string>
+      <key>PayloadUUID</key><string>7C1B2E10-0000-4A00-9000-OPENMSPTCC01</string>
+      <key>Services</key>
+      <dict>
+        <key>SystemPolicyAllFiles</key>
+        <array>
+          <dict>
+            <key>Identifier</key><string>/usr/local/openmsp/openmsp-agent</string>
+            <key>IdentifierType</key><string>path</string>
+            <key>CodeRequirement</key>
+            <string>identifier "com.openmsp.agent" and anchor apple generic and certificate leaf[subject.OU] = "__TEAMID__"</string>
+            <key>Authorization</key><string>Allow</string>
+          </dict>
+        </array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

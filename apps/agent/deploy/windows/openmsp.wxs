@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WiX v4 source for the OpenMSP Windows agent MSI.
+     Double-click (or silent MDM push) installer. End users install nothing else.
+     Build (in CI, after staging the exes + baked openmsp-agent.json here):
+       wix build openmsp.wxs -o OpenMSP-Agent.msi
+     Silent:  msiexec /i OpenMSP-Agent.msi /qn
+     The server URL + enrollment token are baked into openmsp-agent.json at
+     build time, so no msiexec properties are required. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="OpenMSP Agent"
+           Manufacturer="OpenMSP"
+           Version="0.2.0.0"
+           UpgradeCode="6f3a1c9e-0b2d-4e7a-9c11-openmspagent01"
+           Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of the OpenMSP Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLDIR" Name="OpenMSP">
+        <Component Id="AgentFiles" Guid="a1b2c3d4-0000-4000-8000-openmspfiles1">
+          <File Id="AgentExe"     Source="openmsp-agent.exe" KeyPath="yes" />
+          <File Id="TrayExe"      Source="openmsp-agent-tray.exe" />
+          <File Id="AgentConfig"  Source="openmsp-agent.json" />
+          <File Id="ConfigurePs1" Source="configure.ps1" />
+          <File Id="UninstallPs1" Source="uninstall.ps1" />
+          <File Id="MeshEnrollPs1" Source="mesh-enroll.ps1" />
+        </Component>
+
+        <!-- MeshCentral remote-support enrollment (ApexMSP group). Ships the
+             PRE-TAGGED "Windows x86-64 (.exe)" from the group's "Add Agent"
+             dialog (server + ApexMSP group baked in). mesh-enroll.ps1 finds it at
+             INSTALLDIR\mesh\ and runs it -fullinstall. NOTE: the .exe is
+             gitignored (carries live Mesh/Server IDs), so it must be present at
+             deploy/windows/mesh/MeshAgent64.exe for `wix build` to succeed. -->
+        <Directory Id="MeshDir" Name="mesh">
+          <Component Id="MeshFiles">
+            <File Id="MeshAgentExe" Source="mesh\MeshAgent64.exe" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="AgentFiles" />
+      <ComponentRef Id="MeshFiles" />
+    </Feature>
+
+    <!-- Deferred, run-as-SYSTEM: enroll + register scheduled tasks -->
+    <CustomAction Id="Configure"
+                  Directory="INSTALLDIR"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLDIR]configure.ps1&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- Deferred, run-as-SYSTEM: remove tasks before files go away -->
+    <CustomAction Id="Deconfigure"
+                  Directory="INSTALLDIR"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLDIR]uninstall.ps1&quot;"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="Configure" After="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="Deconfigure" Before="RemoveFiles" Condition="Installed AND (REMOVE=&quot;ALL&quot;)" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

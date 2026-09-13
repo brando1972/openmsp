@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openmsp.agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/openmsp/openmsp-agent</string>
+        <string>--config</string>
+        <string>/usr/local/openmsp/openmsp-agent.json</string>
+        <string>--interval</string>
+        <string>30</string>
+    </array>
+
+    <!-- Start at boot -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Watchdog: relaunch if the agent exits or crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Throttle restart storms -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/openmsp-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/openmsp-agent.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

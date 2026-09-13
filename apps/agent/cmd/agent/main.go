@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -14,7 +17,30 @@ import (
 	"openmsp/agent/internal/collector"
 	"openmsp/agent/internal/config"
 	"openmsp/agent/internal/executor"
+	"openmsp/agent/internal/tray"
+	"openmsp/agent/internal/updater"
 )
+
+// openURL opens a URL in the user's default browser (best effort).
+func openURL(url string) {
+	if url == "" {
+		return
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	_ = cmd.Start()
+}
+
+// Version is the agent version; overridable at build time via
+// -ldflags "-X main.Version=x.y.z".
+var Version = "0.2.0-dev"
 
 func main() {
 	serverFlag := flag.String("server", "http://localhost:3001", "API base URL")
@@ -22,10 +48,44 @@ func main() {
 	configFlag := flag.String("config", "openmsp-agent.json", "Path to local config JSON")
 	runOnceFlag := flag.Bool("run-once", false, "Run a single heartbeat and exit")
 	intervalFlag := flag.Int("interval", 30, "Heartbeat interval in seconds")
+	serverKeyFlag := flag.String("server-key", "", "Base64 Ed25519 public key; when set, command signatures are verified")
+	versionFlag := flag.Bool("version", false, "Print agent version and exit")
+	dumpFlag := flag.Bool("dump", false, "Collect and print all local telemetry as JSON, then exit (no server needed)")
+	trayFlag := flag.Bool("tray", false, "Show the status-bar/system-tray icon (requires a build with -tags tray, run in a user session)")
+	uiOnlyFlag := flag.Bool("ui-only", false, "Tray UI only: show the icon/menu but do not enroll or send heartbeats (pair with the headless daemon)")
+	autoUpdateFlag := flag.Bool("auto-update", true, "Automatically download and apply newer agent versions advertised by the control plane")
 
 	flag.Parse()
+	autoUpdate := *autoUpdateFlag
 
-	log.Println("[*] OpenMSP Device Agent starting...")
+	if *versionFlag {
+		fmt.Printf("openmsp-agent %s (%s/%s)\n", Version, runtime.GOOS, runtime.GOARCH)
+		return
+	}
+
+	if *dumpFlag {
+		sysInfo := collector.GetSystemInfo()
+		metrics, _ := collector.CollectMetrics()
+		security := collector.CollectSecurityPosture()
+		network := collector.CollectNetwork()
+		apps := collector.CollectInstalledApps()
+		services := collector.CollectServices()
+		dump := map[string]interface{}{
+			"agentVersion":       Version,
+			"platform":           fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+			"host":               sysInfo,
+			"metrics":            metrics,
+			"security":           security,
+			"network":            network,
+			"installedAppsCount": len(apps),
+			"servicesCount":      len(services),
+		}
+		out, _ := json.MarshalIndent(dump, "", "  ")
+		fmt.Println(string(out))
+		return
+	}
+
+	log.Printf("[*] OpenMSP Device Agent %s starting...", Version)
 
 	// 1. Load or initialize configuration
 	cfg, err := config.Load(*configFlag)
@@ -49,9 +109,40 @@ func main() {
 	if *intervalFlag > 0 {
 		cfg.HeartbeatIntervalSeconds = *intervalFlag
 	}
+	if *serverKeyFlag != "" {
+		cfg.ServerPublicKey = *serverKeyFlag
+	}
+
+	// Tray UI-only mode: just the menu-bar/tray icon, no enrollment or
+	// heartbeats. The headless daemon does the real work; this is the user's
+	// GUI-session companion, so the machine enrolls exactly once.
+	if *trayFlag && *uiOnlyFlag {
+		if !tray.Supported() {
+			log.Fatalln("[-] --ui-only tray requires a build with -tags tray")
+		}
+		log.Println("[*] Tray UI-only mode (no enrollment/heartbeat)")
+		tray.Run(tray.Callbacks{
+			OnOpenConsole:  func() { openURL(cfg.ServerURL) },
+			OnCreateTicket: func() { openURL(cfg.ServerURL + "/tickets/new") },
+			OnSyncNow:      func() {}, // daemon owns heartbeats in this mode
+			OnQuit:         func() { os.Exit(0) },
+		})
+		return
+	}
 
 	apiClient := client.New(cfg.ServerURL)
 	execManager := executor.New()
+
+	verifier, err := executor.NewVerifier(cfg.ServerPublicKey)
+	if err != nil {
+		log.Fatalf("[-] Invalid server public key: %v", err)
+	}
+	if verifier.Enabled() {
+		log.Println("[*] Command signature verification: ENABLED")
+	} else {
+		log.Println("[!] Command signature verification: DISABLED (no server public key configured)")
+	}
+
 	ctx := context.Background()
 
 	// 2. Enrollment check
@@ -70,6 +161,7 @@ func main() {
 			Hostname:     sysInfo.Hostname,
 			OS:           sysInfo.OS,
 			OSVersion:    sysInfo.OSVersion,
+			Arch:         runtime.GOARCH,
 			SerialNumber: sysInfo.SerialNumber,
 			MACAddress:   sysInfo.MACAddress,
 			IPAddress:    sysInfo.IPAddress,
@@ -110,6 +202,7 @@ func main() {
 		network := collector.CollectNetwork()
 		installedApps := collector.CollectInstalledApps()
 		services := collector.CollectServices()
+		security := collector.CollectSecurityPosture()
 
 		hbReq := client.AgentHeartbeatRequest{
 			DeviceId:      cfg.DeviceId,
@@ -118,6 +211,9 @@ func main() {
 			Network:       network,
 			InstalledApps: installedApps,
 			Services:      services,
+			Security:      &security,
+			AgentVersion:  Version,
+			Arch:          runtime.GOARCH,
 		}
 
 		hbResp, err := apiClient.Heartbeat(ctx, hbReq)
@@ -132,6 +228,33 @@ func main() {
 		if len(hbResp.PendingCommands) > 0 {
 			log.Printf("[*] Received %d pending command(s)", len(hbResp.PendingCommands))
 			for _, cmd := range hbResp.PendingCommands {
+				if err := verifier.Verify(cmd); err != nil {
+					log.Printf("[-] Refusing command %s: %v", cmd.ID, err)
+					refused := client.CommandResultRequest{
+						CommandID: cmd.ID,
+						Status:    "failed",
+						Error:     fmt.Sprintf("agent refused command: %v", err),
+					}
+					if rerr := apiClient.ReportCommandResult(ctx, refused); rerr != nil {
+						log.Printf("[!] Failed to report refusal for command %s: %v", cmd.ID, rerr)
+					}
+					continue
+				}
+				// update_agent can be pushed from the console to force an update now
+				if cmd.CommandType == "update_agent" {
+					applied, newV, uerr := updater.CheckAndApply(ctx, cfg.ServerURL, Version, true)
+					result := client.CommandResultRequest{CommandID: cmd.ID, Status: "completed"}
+					if uerr != nil {
+						result.Status = "failed"
+						result.Error = uerr.Error()
+					} else if applied {
+						result.Output = fmt.Sprintf("Updating to %s; agent will restart", newV)
+					} else {
+						result.Output = "Already up to date"
+					}
+					_ = apiClient.ReportCommandResult(ctx, result)
+					continue
+				}
 				log.Printf("[*] Executing command %s (Type: %s)", cmd.ID, cmd.CommandType)
 				result := execManager.Execute(ctx, cmd)
 				log.Printf("[+] Command %s result: status=%s", cmd.ID, result.Status)
@@ -141,6 +264,15 @@ func main() {
 				} else {
 					log.Printf("[+] Command %s result successfully delivered to control plane", cmd.ID)
 				}
+			}
+		}
+
+		// Auto-update: if the control plane advertises a newer version, apply it.
+		if autoUpdate && hbResp.LatestAgentVersion != "" {
+			if applied, newV, uerr := updater.CheckAndApply(ctx, cfg.ServerURL, Version, false); uerr != nil {
+				log.Printf("[!] Auto-update check failed: %v", uerr)
+			} else if applied {
+				log.Printf("[+] Auto-updating to %s; restarting", newV)
 			}
 		}
 
@@ -166,22 +298,59 @@ func main() {
 		interval = 30
 	}
 
-	log.Printf("[+] Continuous agent active. Sending heartbeats every %ds. Press Ctrl+C to exit.", interval)
-	ticker := time.NewTicker(time.Duration(interval) * time.Second)
-	defer ticker.Stop()
+	// triggerCh lets the tray "Sync Now" item force an immediate heartbeat.
+	triggerCh := make(chan struct{}, 1)
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	runLoop := func() {
+		log.Printf("[+] Continuous agent active. Sending heartbeats every %ds. Press Ctrl+C to exit.", interval)
+		ticker := time.NewTicker(time.Duration(interval) * time.Second)
+		defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			if err := sendHeartbeat(); err != nil {
-				log.Printf("[!] Heartbeat failed: %v", err)
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := sendHeartbeat(); err != nil {
+					log.Printf("[!] Heartbeat failed: %v", err)
+				}
+			case <-triggerCh:
+				log.Println("[*] Manual sync requested from tray")
+				if err := sendHeartbeat(); err != nil {
+					log.Printf("[!] Heartbeat failed: %v", err)
+				}
+			case sig := <-sigChan:
+				log.Printf("[*] Received signal %v. Shutting down agent gracefully.", sig)
+				tray.Quit()
+				return
 			}
-		case sig := <-sigChan:
-			log.Printf("[*] Received signal %v. Shutting down agent gracefully.", sig)
-			return
 		}
 	}
+
+	// Tray mode: the tray must own the main thread, so run the agent loop in a
+	// goroutine. Requires a build with -tags tray (and a user GUI session).
+	if *trayFlag {
+		if !tray.Supported() {
+			log.Println("[!] --tray requested but this build has no tray support (rebuild with -tags tray). Continuing headless.")
+			runLoop()
+			return
+		}
+		log.Println("[*] Starting with status-bar/system-tray icon")
+		go runLoop()
+		tray.Run(tray.Callbacks{
+			OnSyncNow: func() {
+				select {
+				case triggerCh <- struct{}{}:
+				default: // a sync is already queued
+				}
+			},
+			OnOpenConsole:  func() { openURL(cfg.ServerURL) },
+			OnCreateTicket: func() { openURL(cfg.ServerURL + "/tickets/new") },
+			OnQuit:         func() { os.Exit(0) },
+		})
+		return
+	}
+
+	runLoop()
 }
