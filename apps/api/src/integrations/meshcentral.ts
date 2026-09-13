@@ -37,6 +37,12 @@ export function isConfigured(): boolean {
  * Build the URL the console iframes to show a device's live desktop.
  * viewmode=11 opens the Desktop tab; `hide` trims MeshCentral chrome so it sits
  * cleanly inside the OpenMSP shell; `gotonode` targets the device.
+ *
+ * SECURITY: The login token is NOT included in the URL. The console must
+ * authenticate via a separate mechanism (e.g., session cookie set by a
+ * server-side redirect through /api/v1/remote/auth). Including the long-lived
+ * MESH_LOGIN_TOKEN in URLs would expose admin credentials via browser history,
+ * logs, Referer headers, and stored session objects.
  */
 export function buildDesktopEmbedUrl(meshNodeId: string): string {
   const c = meshConfig();
@@ -47,7 +53,6 @@ export function buildDesktopEmbedUrl(meshNodeId: string): string {
     hide: '127',           // hide top bar / tabs / footer chrome
     console: '0'
   });
-  if (c.loginToken) params.set('login', c.loginToken);
   return `${c.serverUrl}/?${params.toString()}`;
 }
 

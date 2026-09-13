@@ -33,7 +33,16 @@ MESH_SERVER_URL="${MESH_SERVER_URL%/}"
 MESH_GROUP="${MESH_GROUP:-ApexMSP}"
 MESH_MAC_AGENT_URL="${MESH_MAC_AGENT_URL:-$MESH_SERVER_URL/meshagents?id=10005}"
 
-MESHDIR="$HERE/mesh"
+# When run from install.sh, $HERE is deploy/macos/scripts; mesh files are in
+# deploy/macos/mesh (the parent's mesh/ subdir). When run from pkg postinstall
+# after build-pkg.sh, $HERE is /usr/local/openmsp and mesh/ is a sibling.
+if [ -d "$HERE/mesh" ]; then
+  MESHDIR="$HERE/mesh"
+elif [ -d "$HERE/../mesh" ]; then
+  MESHDIR="$(cd "$HERE/../mesh" && pwd)"
+else
+  MESHDIR="$HERE/mesh"
+fi
 
 # Idempotent: if the MeshAgent is already installed, do nothing.
 if [ -f "/Library/LaunchDaemons/meshagent.plist" ] || [ -x "/usr/local/mesh_services/meshagent/meshagent" ]; then

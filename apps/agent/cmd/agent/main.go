@@ -43,11 +43,11 @@ func openURL(url string) {
 var Version = "0.2.0-dev"
 
 func main() {
-	serverFlag := flag.String("server", "http://localhost:3001", "API base URL")
+	serverFlag := flag.String("server", "", "API base URL (overrides config file when provided)")
 	tokenFlag := flag.String("token", "", "One-time enrollment token (e.g. demo-enrollment-token-2026)")
 	configFlag := flag.String("config", "openmsp-agent.json", "Path to local config JSON")
 	runOnceFlag := flag.Bool("run-once", false, "Run a single heartbeat and exit")
-	intervalFlag := flag.Int("interval", 30, "Heartbeat interval in seconds")
+	intervalFlag := flag.Int("interval", 0, "Heartbeat interval in seconds (overrides config file when provided)")
 	serverKeyFlag := flag.String("server-key", "", "Base64 Ed25519 public key; when set, command signatures are verified")
 	versionFlag := flag.Bool("version", false, "Print agent version and exit")
 	dumpFlag := flag.Bool("dump", false, "Collect and print all local telemetry as JSON, then exit (no server needed)")
@@ -93,13 +93,10 @@ func main() {
 		if !os.IsNotExist(err) {
 			log.Printf("[!] Warning reading config %s: %v", *configFlag, err)
 		}
-		cfg = &config.Config{
-			ServerURL:                *serverFlag,
-			HeartbeatIntervalSeconds: *intervalFlag,
-		}
+		cfg = &config.Config{}
 	}
 
-	// Override with CLI flags if provided
+	// Override with CLI flags only when explicitly provided
 	if *serverFlag != "" {
 		cfg.ServerURL = *serverFlag
 	}
@@ -111,6 +108,14 @@ func main() {
 	}
 	if *serverKeyFlag != "" {
 		cfg.ServerPublicKey = *serverKeyFlag
+	}
+
+	// Apply defaults for required values not set by config or flags
+	if cfg.ServerURL == "" {
+		cfg.ServerURL = "http://localhost:3001"
+	}
+	if cfg.HeartbeatIntervalSeconds <= 0 {
+		cfg.HeartbeatIntervalSeconds = 30
 	}
 
 	// Tray UI-only mode: just the menu-bar/tray icon, no enrollment or

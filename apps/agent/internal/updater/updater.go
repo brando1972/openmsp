@@ -71,7 +71,11 @@ func CheckAndApply(ctx context.Context, serverURL, currentVersion string, force 
 }
 
 func fetchInfo(ctx context.Context, serverURL string) (*updateInfo, error) {
-	u := fmt.Sprintf("%s/api/v1/installers/update?os=%s&arch=%s", serverURL, runtime.GOOS, runtime.GOARCH)
+	osName := runtime.GOOS
+	if osName == "darwin" {
+		osName = "macos"
+	}
+	u := fmt.Sprintf("%s/api/v1/installers/update?os=%s&arch=%s", serverURL, osName, runtime.GOARCH)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	c := &http.Client{Timeout: 20 * time.Second}
 	resp, err := c.Do(req)

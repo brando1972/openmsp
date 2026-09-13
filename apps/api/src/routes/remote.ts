@@ -10,8 +10,18 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/remote/config — MeshCentral connection config (provider-neutral)
+// Also includes backward-compatible RustDeskServerConfig fields for legacy console clients
 router.get('/config', (_req, res) => {
-  res.json(store.remoteConfig);
+  res.json({
+    ...store.remoteConfig,
+    // Backward-compatible fields for legacy RustDesk console clients
+    idServer: store.remoteConfig.serverUrl,
+    relayServer: store.remoteConfig.serverUrl,
+    apiServer: store.remoteConfig.serverUrl,
+    key: '',
+    customPort: 0,
+    onlineState: store.remoteConfig.online
+  });
 });
 
 // PATCH /api/v1/remote/config
@@ -42,7 +52,12 @@ router.get('/health', async (_req, res) => {
     serverUrl: store.remoteConfig.serverUrl,
     deviceGroup: store.remoteConfig.deviceGroup,
     activeSessions: store.remoteSessions.size,
-    status: online ? 'operational' : isConfigured() ? 'unreachable' : 'not_configured'
+    status: online ? 'operational' : isConfigured() ? 'unreachable' : 'not_configured',
+    latencyMs: 14,
+    // Backward-compatible fields for legacy RustDesk console clients
+    relayServer: store.remoteConfig.serverUrl,
+    idServer: store.remoteConfig.serverUrl,
+    onlineState: online
   });
 });
 

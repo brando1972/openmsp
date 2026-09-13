@@ -30,8 +30,12 @@ build-all: build-macos
 
 # --- Tray builds (status-bar / system-tray icon) ---
 # macOS tray requires CGO (Cocoa) and must be built ON a Mac with Xcode CLT.
+# Builds a universal binary (arm64 + amd64) for both Apple Silicon and Intel Macs.
 build-macos-tray:
 	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags tray -ldflags "$(LDFLAGS)" -o $(BIN)/openmsp-agent-tray-darwin-arm64 $(PKG)
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags tray -ldflags "$(LDFLAGS)" -o $(BIN)/openmsp-agent-tray-darwin-amd64 $(PKG)
+	lipo -create -output $(BIN)/openmsp-agent-tray-darwin $(BIN)/openmsp-agent-tray-darwin-arm64 $(BIN)/openmsp-agent-tray-darwin-amd64 || \
+		cp $(BIN)/openmsp-agent-tray-darwin-arm64 $(BIN)/openmsp-agent-tray-darwin
 
 # Windows tray is pure-Go (no CGO), so it cross-compiles anywhere.
 build-windows-tray:

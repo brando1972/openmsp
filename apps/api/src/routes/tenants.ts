@@ -19,8 +19,10 @@ router.use((req: AuthenticatedRequest, res, next) => {
 
 function toTenant(org: DBOrg): Tenant {
   const devices = Array.from(store.devices.values()).filter((d) => (d as any).orgId === org.id);
-  const clients = Array.from(store.clients.values()).filter((c) => (c as any).orgId === org.id);
   const users = Array.from(store.users.values()).filter((u) => u.orgId === org.id);
+  // Count clients that have at least one device enrolled in this org
+  const orgDeviceClientIds = new Set(devices.map((d) => d.clientId));
+  const clientCount = orgDeviceClientIds.size;
   return {
     id: org.id,
     slug: org.slug,
@@ -28,7 +30,7 @@ function toTenant(org: DBOrg): Tenant {
     domain: org.domain,
     createdAt: org.createdAt,
     deviceCount: devices.length,
-    clientCount: clients.length,
+    clientCount,
     userCount: users.length
   };
 }

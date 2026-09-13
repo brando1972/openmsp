@@ -32,18 +32,23 @@
              dialog (server + ApexMSP group baked in). mesh-enroll.ps1 finds it at
              INSTALLDIR\mesh\ and runs it -fullinstall. NOTE: the .exe is
              gitignored (carries live Mesh/Server IDs), so it must be present at
-             deploy/windows/mesh/MeshAgent64.exe for `wix build` to succeed. -->
+             deploy/windows/mesh/MeshAgent64.exe for `wix build` to succeed.
+             UNCOMMENT the Directory element below and the ComponentRef in the
+             Feature element when you have a MeshAgent64.exe staged. -->
+        <!--
         <Directory Id="MeshDir" Name="mesh">
           <Component Id="MeshFiles">
             <File Id="MeshAgentExe" Source="mesh\MeshAgent64.exe" KeyPath="yes" />
           </Component>
         </Directory>
+        -->
       </Directory>
     </StandardDirectory>
 
     <Feature Id="Main">
       <ComponentRef Id="AgentFiles" />
-      <ComponentRef Id="MeshFiles" />
+      <!-- Uncomment when MeshAgent64.exe is staged in deploy/windows/mesh/ -->
+      <!-- <ComponentRef Id="MeshFiles" /> -->
     </Feature>
 
     <!-- Deferred, run-as-SYSTEM: enroll + register scheduled tasks -->

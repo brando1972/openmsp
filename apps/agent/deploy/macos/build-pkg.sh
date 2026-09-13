@@ -33,8 +33,8 @@ rm -rf "$BUILD"; mkdir -p "$ROOT$IDENT" "$SCRIPTS" \
 
 echo "[*] Building universal daemon + tray binaries…"
 ( cd "$AGENT_DIR" && make build-macos VERSION="$VERSION" build-macos-tray VERSION="$VERSION" )
-cp "$AGENT_DIR/bin/openmsp-agent-darwin"            "$ROOT$IDENT/openmsp-agent"
-cp "$AGENT_DIR/bin/openmsp-agent-tray-darwin-arm64" "$ROOT$IDENT/openmsp-agent-tray"
+cp "$AGENT_DIR/bin/openmsp-agent-darwin"      "$ROOT$IDENT/openmsp-agent"
+cp "$AGENT_DIR/bin/openmsp-agent-tray-darwin" "$ROOT$IDENT/openmsp-agent-tray"
 
 echo "[*] Signing binaries (hardened runtime)…"
 codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APP" "$ROOT$IDENT/openmsp-agent"

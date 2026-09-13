@@ -78,8 +78,9 @@ router.post('/enroll', (req, res) => {
     updatedAt: new Date().toISOString()
   };
 
-  // Save device with deviceSecret internally
+  // Save device with deviceSecret and orgId internally
   (newDevice as any).deviceSecret = deviceSecret;
+  (newDevice as any).orgId = enrollmentToken.orgId;
   store.devices.set(deviceId, newDevice);
 
   // Update client total devices count
