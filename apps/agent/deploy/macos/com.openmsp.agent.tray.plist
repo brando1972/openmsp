@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LaunchAgent (per-user, GUI session) for the OpenMSP status-bar icon.
+     __HOME__ is substituted by install-tray.sh. Runs in the user's Aqua
+     session so the menu-bar icon can appear — a root LaunchDaemon cannot. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.openmsp.agent.tray</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__HOME__/Library/Application Support/OpenMSP/openmsp-agent-tray</string>
+        <string>--tray</string>
+        <string>--config</string>
+        <string>__HOME__/Library/Application Support/OpenMSP/openmsp-agent.json</string>
+        <string>--interval</string>
+        <string>30</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Only load in a GUI (Aqua) login session -->
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/openmsp-agent-tray.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/openmsp-agent-tray.err.log</string>
+</dict>
+</plist>

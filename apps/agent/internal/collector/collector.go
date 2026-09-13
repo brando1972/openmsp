@@ -44,19 +44,40 @@ func GetSystemInfo() SystemInfo {
 }
 
 // CollectMetrics gathers current CPU, RAM, Disk, and Uptime metrics.
+// gopsutil is the primary source (accurate + cross-platform); the native
+// per-OS collectors are used as a fallback when gopsutil returns nothing.
 func CollectMetrics() (client.DeviceMetric, error) {
-	cpu := getCPUUsage()
-	ram := getRAMUsage()
-	disk := getDiskUsage()
-	uptime := getUptimeDays()
+	cpu, ok := psCPUPercent()
+	if !ok {
+		cpu = getCPUUsage()
+	}
+	ram, ok := psRAMPercent()
+	if !ok {
+		ram = getRAMUsage()
+	}
+	dsk, ok := psDiskPercent()
+	if !ok {
+		dsk = getDiskUsage()
+	}
+	uptime, ok := psUptimeDays()
+	if !ok {
+		uptime = getUptimeDays()
+	}
 
 	return client.DeviceMetric{
 		CpuUsage:   round(cpu, 1),
 		RamUsage:   round(ram, 1),
-		DiskUsage:  round(disk, 1),
+		DiskUsage:  round(dsk, 1),
 		UptimeDays: round(uptime, 2),
+		Battery:    getBattery(),
 		LastSeen:   time.Now().UTC().Format(time.RFC3339),
 	}, nil
+}
+
+// CollectSecurityPosture gathers OS security state (FileVault/SIP/firewall on
+// macOS; stubs elsewhere until those collectors are added).
+func CollectSecurityPosture() client.SecurityPosture {
+	return getSecurityPosture()
 }
 
 // CollectNetwork retrieves primary local network identifiers.

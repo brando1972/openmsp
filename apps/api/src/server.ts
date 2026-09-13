@@ -16,6 +16,8 @@ import aiRouter from './routes/ai.js';
 import settingsRouter from './routes/settings.js';
 import auditRouter from './routes/audit.js';
 import installersRouter from './routes/installers.js';
+import tenantsRouter from './routes/tenants.js';
+import { resolveTenant } from './middleware/tenant.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -27,6 +29,7 @@ wsManager.init(server);
 app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
+app.use(resolveTenant);
 
 // Request logging
 app.use((req, res, next) => {
@@ -59,6 +62,7 @@ app.use('/api/v1/ai', aiRouter);
 app.use('/api/v1/org/settings', settingsRouter);
 app.use('/api/v1/audit', auditRouter);
 app.use('/api/v1/installers', installersRouter);
+app.use('/api/v1/admin/tenants', tenantsRouter);
 
 // 404 Handler
 app.use((req, res) => {

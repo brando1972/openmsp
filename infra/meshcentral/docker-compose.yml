@@ -1,0 +1,31 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: openmsp-mesh-mongo
+    restart: unless-stopped
+    volumes:
+      - ./data/mongo:/data/db
+    # Not published to the host; only reachable by the meshcentral container.
+    networks: [mesh]
+
+  meshcentral:
+    image: ghcr.io/ylianst/meshcentral:latest
+    container_name: openmsp-meshcentral
+    restart: unless-stopped
+    depends_on: [mongodb]
+    environment:
+      # If you prefer env-driven config over config.json, MeshCentral reads these.
+      - NODE_ENV=production
+    ports:
+      - "443:443"     # HTTPS console + agent + web relay
+      - "80:80"       # HTTP -> used for Let's Encrypt / redirect
+      - "4433:4433"   # Intel AMT CIRA relay (optional)
+    volumes:
+      - ./data/meshcentral:/opt/meshcentral/meshcentral-data   # config.json + certs live here
+      - ./data/user_files:/opt/meshcentral/meshcentral-files
+      - ./data/backups:/opt/meshcentral/meshcentral-backups
+    networks: [mesh]
+
+networks:
+  mesh:
+    driver: bridge
