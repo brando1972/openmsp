@@ -511,6 +511,37 @@ export const installers = {
 };
 
 // ---------------------------------------------------------------------------
+// 11b. MDM / Managed Tablets API (Android kiosk fleet via the VNC relay)
+// ---------------------------------------------------------------------------
+export interface ManagedTablet {
+  id: string;
+  name: string;
+  model: string;
+  connectedAt: number;
+  online: boolean;
+  viewerUrl: string | null;
+}
+
+export interface ManagedTabletsResponse {
+  configured: boolean;
+  devices: ManagedTablet[];
+  error?: string;
+}
+
+export const mdm = {
+  getTablets: async (): Promise<ManagedTabletsResponse> => {
+    return request<ManagedTabletsResponse>('/mdm/devices');
+  },
+
+  renameTablet: async (id: string, name: string): Promise<{ ok: boolean; id: string; name: string }> => {
+    return request<{ ok: boolean; id: string; name: string }>(`/mdm/devices/${encodeURIComponent(id)}/name`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name })
+    });
+  }
+};
+
+// ---------------------------------------------------------------------------
 // 12. WebSocket Client (with automatic reconnect & event dispatching)
 // ---------------------------------------------------------------------------
 type WSEventHandler<T = any> = (event: WSEvent<T>) => void;
@@ -709,6 +740,7 @@ export const api = {
   ai,
   settings,
   installers,
+  mdm,
   ws
 };
 

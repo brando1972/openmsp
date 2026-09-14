@@ -32,6 +32,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { createEnrollmentToken, API_BASE } from '../../services/api';
+import { ManagedTabletsView } from './ManagedTabletsView';
 
 export const RMMView: React.FC = () => {
   const {
@@ -41,6 +42,7 @@ export const RMMView: React.FC = () => {
     clients,
     selectedClientId,
     setSelectedClientId,
+    activeSubRailView,
     runRemoteScriptOnDevice,
     toggleDeviceEncryption,
     remoteWipeDevice,
@@ -146,6 +148,11 @@ export const RMMView: React.FC = () => {
   const macOSCommand = `curl -fsSL ${apiBase}/api/v1/installers/script?token=${enrollToken}&os=macos | bash`;
   const windowsCommand = `irm ${apiBase}/api/v1/installers/script?token=${enrollToken}&os=windows | iex`;
   const binaryCommand = `./openmsp-agent --server=${apiBase} --token=${enrollToken}`;
+
+  // Managed Tablets (Android MDM / kiosk fleet) — live from the VNC relay
+  if (activeSubRailView === 'mdm-tablets') {
+    return <ManagedTabletsView />;
+  }
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-[#f4f6f8] text-[#1a1a24] overflow-hidden">
