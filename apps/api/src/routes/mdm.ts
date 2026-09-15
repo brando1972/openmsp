@@ -56,12 +56,18 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
       return;
     }
     const data = (await r.json()) as { devices?: RelayDevice[] };
+    const liveSerials = new Set<string>();
     const devices = (data.devices || []).map((d) => {
+      liveSerials.add(d.device);
       const c = store.mdmClients.get(d.device);
+      // Remember the friendly name/model so the tablet still shows (offline) when it disconnects.
+      if (c && (d.name || d.model)) {
+        store.mdmClients.set(d.device, { ...c, name: d.name || c.name, model: d.model || c.model });
+      }
       return {
         id: d.device,
-        name: d.name || d.device,
-        model: d.model || '',
+        name: d.name || c?.name || d.device,
+        model: d.model || c?.model || '',
         connectedAt: d.connectedAt || 0,
         online: true,
         clientId: c?.clientId || null,
@@ -69,6 +75,21 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
         viewerUrl: d.viewUrl ? `${RELAY_PUBLIC_URL}${d.viewUrl}` : null
       };
     });
+    // Surface known tablets that aren't currently on the relay as offline cards,
+    // so a managed tablet never just disappears when it drops off.
+    for (const [serial, c] of store.mdmClients) {
+      if (liveSerials.has(serial)) continue;
+      devices.push({
+        id: serial,
+        name: c.name || serial,
+        model: c.model || '',
+        connectedAt: 0,
+        online: false,
+        clientId: c.clientId || null,
+        clientName: c.clientName || '',
+        viewerUrl: null
+      });
+    }
     res.json({ configured: true, devices });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'relay unreachable';

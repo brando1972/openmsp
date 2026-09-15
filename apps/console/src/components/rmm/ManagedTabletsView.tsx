@@ -104,7 +104,7 @@ export const ManagedTabletsView: React.FC = () => {
             os: 'android',
             model: t.model,
             client: t.clientName || '',
-            status: 'online',
+            status: t.online ? 'online' : 'offline',
             connectedAt: t.connectedAt,
             viewerUrl: t.viewerUrl,
             source: 'relay'

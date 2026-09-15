@@ -65,7 +65,7 @@ class DataStore {
   };
   public rustDeskSessions: Map<string, RustDeskSession> = new Map();
   // Android/relay tablet serial → client org (tablets aren't RMM-enrolled, so we map them here)
-  public mdmClients: Map<string, { clientId: string; clientName: string }> = new Map();
+  public mdmClients: Map<string, { clientId: string; clientName: string; name?: string; model?: string }> = new Map();
   // RMM deviceId → MeshCentral nodeid (native ApexConnect remote desktop).
   // RMM and MeshCentral are separate agents, so this is filled by hostname
   // correlation on first Connect; entries can also be seeded explicitly.
@@ -225,7 +225,7 @@ class DataStore {
     this.enrollmentTokens.set(tokenRichs.token, tokenRichs);
 
     // Android/relay tablets → client org mapping (device serial → client)
-    this.mdmClients.set('HNQ01Q1C', { clientId: client2.id, clientName: client2.name });
+    this.mdmClients.set('HNQ01Q1C', { clientId: client2.id, clientName: client2.name, name: 'Richs Auburn', model: 'Android tablet' });
 
     // Initial Devices
     const dev1: ManagedDevice = {

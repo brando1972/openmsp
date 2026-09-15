@@ -141,7 +141,7 @@ export const RemoteSupportView: React.FC = () => {
       for (const t of tabletsRes.value.devices || []) {
         next.push({
           key: 'tablet:' + t.id, kind: 'tablet', viewerUrl: t.viewerUrl,
-          name: t.name, client: t.clientName || '', os: 'android', model: t.model, online: true
+          name: t.name, client: t.clientName || '', os: 'android', model: t.model, online: t.online
         });
       }
     }
@@ -252,8 +252,8 @@ export const RemoteSupportView: React.FC = () => {
                     <DesktopThumb nodeid={c.nodeid} online={c.online} intervalMs={intervalMs} bump={bump} />
                   ) : (
                     <div className="relative aspect-[16/10] bg-gradient-to-br from-slate-800 to-slate-900 flex flex-col items-center justify-center gap-1.5 text-slate-300">
-                      <Smartphone className="w-7 h-7" />
-                      <span className="text-[10px] font-semibold">{c.model || 'Android'} · live view on Connect</span>
+                      <Smartphone className={`w-7 h-7 ${c.online ? '' : 'opacity-50'}`} />
+                      <span className="text-[10px] font-semibold">{c.online ? `${c.model || 'Android'} · live view on Connect` : 'Offline · not connected to relay'}</span>
                     </div>
                   )}
 
