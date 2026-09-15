@@ -64,7 +64,7 @@ function grabFrame(wsBase: string, device: string, token: string): Promise<{ w: 
       try { ws.close(); } catch { /* ignore */ }
       resolve(ok && rgb ? { w: W, h: H, rgb } : null);
     };
-    const timer = setTimeout(() => finish(false), 6000);
+    const timer = setTimeout(() => finish(false), 12000);
     const send = (a: number[]) => { try { ws.send(Buffer.from(a)); } catch { /* ignore */ } };
 
     ws.on('message', (data: Buffer, isBinary: boolean) => {
