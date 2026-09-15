@@ -53,9 +53,11 @@ router.get('/nodes', async (_req: AuthenticatedRequest, res) => {
     res.json({ configured: true, connected: false, error: err instanceof Error ? err.message : 'not ready', nodes: [] });
     return;
   }
-  const nodes = meshClient.listNodes().map((n) => {
+  const nodes = await Promise.all(meshClient.listNodes().map(async (n) => {
     const d = rmmDeviceForNode(n);
     const thumb = meshClient.getThumb(n.nodeid);
+    // Pull hardware telemetry from the MeshCentral agent (works even without the RMM agent).
+    const telemetry = n.online ? await meshClient.getTelemetry(n.nodeid) : null;
     return {
       nodeid: n.nodeid,
       name: n.name,
@@ -64,8 +66,8 @@ router.get('/nodes', async (_req: AuthenticatedRequest, res) => {
       online: n.online,
       deviceId: d?.id || null,
       clientName: d?.clientName || '',
-      os: d?.os || (n.rname && n.rname !== n.name ? 'windows' : 'macos'),
-      serial: d?.serialNumber || '',
+      os: d?.os || (telemetry?.os ? (/windows/i.test(telemetry.os) ? 'windows' : 'macos') : (n.rname && n.rname !== n.name ? 'windows' : 'macos')),
+      serial: d?.serialNumber || telemetry?.serial || '',
       health: d
         ? {
             status: d.health,
@@ -76,9 +78,10 @@ router.get('/nodes', async (_req: AuthenticatedRequest, res) => {
             lastSeen: d.metrics?.lastSeen ?? null
           }
         : null,
+      telemetry,
       thumbAt: thumb ? thumb.ts : null
     };
-  });
+  }));
   res.json({ configured: true, connected: true, nodes });
 });
 

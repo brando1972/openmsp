@@ -554,6 +554,16 @@ export interface MeshNodeHealth {
   uptimeDays: number | null;
   lastSeen: string | null;
 }
+export interface MeshTelemetry {
+  os: string;
+  cpu: string;
+  ramGB: number | null;
+  ramUsedPct: number | null;
+  diskPct: number | null;
+  diskTotalGB: number | null;
+  model: string;
+  serial: string;
+}
 export interface MeshNodeInfo {
   nodeid: string;
   name: string;
@@ -566,6 +576,7 @@ export interface MeshNodeInfo {
   os?: string;
   serial?: string;
   health?: MeshNodeHealth | null;
+  telemetry?: MeshTelemetry | null;
   thumbAt?: number | null;
 }
 export interface MeshSession {

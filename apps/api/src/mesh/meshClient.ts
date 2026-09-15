@@ -38,6 +38,59 @@ interface AuthCookie {
   rcookie: string;
 }
 
+export interface MeshTelemetry {
+  os: string;
+  cpu: string;
+  ramGB: number | null;
+  ramUsedPct: number | null;
+  diskPct: number | null;
+  diskTotalGB: number | null;
+  model: string;
+  serial: string;
+}
+
+// Normalize a MeshCentral sysinfo doc into card telemetry.
+function parseTelemetry(si: any): MeshTelemetry {
+  const hw = si?.hardware || {};
+  const id = hw.identifiers || {};
+  const win = hw.windows || {};
+  const t: MeshTelemetry = { os: '', cpu: '', ramGB: null, ramUsedPct: null, diskPct: null, diskTotalGB: null, model: '', serial: '' };
+
+  t.cpu = id.cpu_name || (Array.isArray(win.cpu) && win.cpu[0] && win.cpu[0].Name) || '';
+  t.serial = id.board_serial || id.bios_serial || '';
+  t.model = [id.board_vendor || id.bios_vendor || '', id.product_name || id.board_name || ''].filter(Boolean).join(' ').trim();
+
+  if (win.osinfo && win.osinfo.Caption) t.os = String(win.osinfo.Caption).replace(/^Microsoft\s+/, '');
+
+  // RAM: sum physical memory sticks; usage from OS snapshot if present.
+  if (Array.isArray(win.memory)) {
+    let bytes = 0;
+    for (const m of win.memory) { const c = parseInt(m.Capacity, 10); if (Number.isFinite(c)) bytes += c; }
+    if (bytes > 0) t.ramGB = Math.round(bytes / 1073741824);
+  }
+  if (win.osinfo && win.osinfo.TotalVisibleMemorySize && win.osinfo.FreePhysicalMemory) {
+    const total = parseInt(win.osinfo.TotalVisibleMemorySize, 10);
+    const free = parseInt(win.osinfo.FreePhysicalMemory, 10);
+    if (total > 0 && free >= 0) t.ramUsedPct = Math.round(((total - free) / total) * 100);
+    if (!t.ramGB && total > 0) t.ramGB = Math.round(total / 1048576); // KB → GB
+  }
+
+  // Disk: sum fixed volumes (dType 3 = local disk).
+  if (win.volumes && typeof win.volumes === 'object') {
+    let size = 0, free = 0;
+    for (const v of Object.values<any>(win.volumes)) {
+      if (v && typeof v.size === 'number' && typeof v.sizeremaining === 'number' && (v.dType == null || v.dType === 3)) {
+        size += v.size; free += v.sizeremaining;
+      }
+    }
+    if (size > 0) { t.diskPct = Math.round(((size - free) / size) * 100); t.diskTotalGB = Math.round(size / 1073741824); }
+  } else if (Array.isArray(id.storage_devices) && id.storage_devices[0] && id.storage_devices[0].Size) {
+    const m = String(id.storage_devices[0].Size).match(/([\d.]+)\s*GB/i);
+    if (m) t.diskTotalGB = Math.round(parseFloat(m[1]));
+  }
+  return t;
+}
+
 const MESH_URL = (process.env.MESH_URL || 'https://mesh.apexmsp.app').replace(/\/+$/, '');
 const MESH_USER = process.env.MESH_USER || '';
 const MESH_PASS = process.env.MESH_PASS || '';
@@ -171,6 +224,11 @@ class MeshClient {
         if (cb) cb({ cookie: msg.cookie || '', rcookie: msg.rcookie || '' });
         break;
       }
+      case 'getsysinfo': {
+        const cb = msg.tag && this.sysinfoWaiters.get(msg.tag);
+        if (cb) { this.sysinfoWaiters.delete(msg.tag); cb(msg); }
+        break;
+      }
       case 'close': {
         if (msg.cause) this.fail('server closed control channel: ' + msg.cause);
         break;
@@ -178,6 +236,32 @@ class MeshClient {
       default:
         break;
     }
+  }
+
+  // ---- device telemetry (hardware inventory from the MeshCentral agent) ----
+  private sysinfoWaiters = new Map<string, (m: any) => void>();
+  private telemetryCache = new Map<string, { data: MeshTelemetry | null; ts: number }>();
+
+  public async getTelemetry(nodeid: string, maxAgeMs = 600000): Promise<MeshTelemetry | null> {
+    const cached = this.telemetryCache.get(nodeid);
+    if (cached && Date.now() - cached.ts < maxAgeMs) return cached.data;
+    let data: MeshTelemetry | null = null;
+    try {
+      await this.ensureReady();
+      const raw = await this.requestSysInfo(nodeid);
+      data = raw ? parseTelemetry(raw) : null;
+    } catch { data = cached ? cached.data : null; }
+    this.telemetryCache.set(nodeid, { data, ts: Date.now() });
+    return data;
+  }
+
+  private requestSysInfo(nodeid: string, timeoutMs = 8000): Promise<any | null> {
+    return new Promise((resolve) => {
+      const tag = 'apex-si-' + Math.random().toString(36).slice(2);
+      const t = setTimeout(() => { this.sysinfoWaiters.delete(tag); resolve(null); }, timeoutMs);
+      this.sysinfoWaiters.set(tag, (m) => { clearTimeout(t); resolve(m && m.noinfo ? null : m); });
+      this.safeSend({ action: 'getsysinfo', nodeid, tag, nodeinfo: false });
+    });
   }
 
   private ingestNodes(nodes: any): void {

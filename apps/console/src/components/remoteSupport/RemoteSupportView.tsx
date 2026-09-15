@@ -3,7 +3,7 @@ import {
   Monitor, RefreshCw, Wifi, ShieldCheck, Laptop, Smartphone, Radio,
   AlertTriangle, Loader2, Cpu, MemoryStick, HardDrive, Clock, ExternalLink, ImageOff
 } from 'lucide-react';
-import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth } from '../../services/api';
+import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth, type MeshTelemetry } from '../../services/api';
 import { ApexConnectDesktop } from './ApexConnectDesktop';
 
 type LoadState = 'loading' | 'ready' | 'unconfigured' | 'error';
@@ -20,6 +20,7 @@ interface Card {
   model?: string;
   online: boolean;
   health?: MeshNodeHealth | null;
+  telemetry?: MeshTelemetry | null;
   serial?: string;
 }
 
@@ -128,7 +129,7 @@ export const RemoteSupportView: React.FC = () => {
         next.push({
           key: 'mesh:' + n.nodeid, kind: 'mesh', nodeid: n.nodeid, deviceId: n.deviceId,
           name: n.name || n.rname || n.nodeid, client: n.clientName || '',
-          os: (n.os as Card['os']) || 'macos', online: n.online, health: n.health, serial: n.serial
+          os: (n.os as Card['os']) || 'macos', online: n.online, health: n.health, telemetry: n.telemetry, serial: n.serial
         });
       }
     } else {
@@ -279,8 +280,21 @@ export const RemoteSupportView: React.FC = () => {
                           {c.health.uptimeDays != null && <span>up {Math.round(c.health.uptimeDays)}d</span>}
                         </div>
                       </div>
+                    ) : c.kind === 'mesh' && c.telemetry ? (
+                      <div className="flex flex-col gap-1.5">
+                        {c.telemetry.ramUsedPct != null && <Metric icon={MemoryStick} label="RAM" value={c.telemetry.ramUsedPct} warn={75} crit={90} />}
+                        {c.telemetry.diskPct != null && <Metric icon={HardDrive} label="Disk" value={c.telemetry.diskPct} warn={80} crit={92} />}
+                        <div className="flex flex-col gap-0.5 mt-0.5 text-[10px] text-slate-500 leading-snug">
+                          {c.telemetry.os && <div className="flex items-center gap-1.5"><Monitor className="w-3 h-3 text-slate-400 shrink-0" /><span className="truncate">{c.telemetry.os}</span></div>}
+                          {c.telemetry.cpu && <div className="flex items-center gap-1.5"><Cpu className="w-3 h-3 text-slate-400 shrink-0" /><span className="truncate">{c.telemetry.cpu}</span></div>}
+                          {(c.telemetry.ramGB || c.telemetry.diskTotalGB) && (
+                            <div className="flex items-center gap-1.5"><HardDrive className="w-3 h-3 text-slate-400 shrink-0" /><span className="truncate">{[c.telemetry.ramGB ? `${c.telemetry.ramGB} GB RAM` : '', c.telemetry.diskTotalGB ? `${c.telemetry.diskTotalGB} GB disk` : ''].filter(Boolean).join(' · ')}</span></div>
+                          )}
+                        </div>
+                        <div className="text-[9px] text-slate-400 mt-0.5">Inventory via ApexConnect agent · live CPU/RAM needs the RMM agent</div>
+                      </div>
                     ) : c.kind === 'mesh' ? (
-                      <div className="text-[11px] text-slate-400 py-1">No RMM agent on this device — remote desktop only. Enroll the agent for health metrics.</div>
+                      <div className="text-[11px] text-slate-400 py-1">Remote desktop ready · telemetry loading…</div>
                     ) : (
                       <div className="text-[11px] text-slate-500 py-1">Android tablet · {c.model || 'kiosk'}</div>
                     )}
