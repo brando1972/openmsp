@@ -56,8 +56,9 @@ router.get('/nodes', async (_req: AuthenticatedRequest, res) => {
   const nodes = await Promise.all(meshClient.listNodes().map(async (n) => {
     const d = rmmDeviceForNode(n);
     const thumb = meshClient.getThumb(n.nodeid);
-    // Pull hardware telemetry from the MeshCentral agent (works even without the RMM agent).
-    const telemetry = n.online ? await meshClient.getTelemetry(n.nodeid) : null;
+    // Pull hardware telemetry from MeshCentral (stored inventory — available even
+    // without the RMM agent AND even when the device is currently offline).
+    const telemetry = await meshClient.getTelemetry(n.nodeid);
     return {
       nodeid: n.nodeid,
       name: n.name,
