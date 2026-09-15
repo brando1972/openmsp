@@ -1,4 +1,6 @@
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   ClientTenant,
@@ -65,8 +67,74 @@ class DataStore {
 
   private initialized = false;
 
+  // ---- durable snapshot persistence (survives restarts/redeploys) ----
+  private readonly dataFile = path.join(process.env.DATA_DIR || '/data', 'store.json');
+  private readonly mapNames = [
+    'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
+    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions'
+  ] as const;
+  private persistTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor() {
-    this.seedDefaults();
+    const restored = this.hydrate();
+    if (restored) {
+      this.initialized = true;
+    } else {
+      this.seedDefaults();
+    }
+    this.startPersistence();
+  }
+
+  private hydrate(): boolean {
+    try {
+      if (!fs.existsSync(this.dataFile)) return false;
+      const snap = JSON.parse(fs.readFileSync(this.dataFile, 'utf8'));
+      for (const name of this.mapNames) {
+        const obj = snap[name];
+        if (obj && typeof obj === 'object') {
+          const m = (this as unknown as Record<string, Map<string, unknown>>)[name];
+          m.clear();
+          for (const [k, v] of Object.entries(obj)) m.set(k, v);
+        }
+      }
+      if (Array.isArray(snap.automationLogs)) this.automationLogs = snap.automationLogs;
+      if (Array.isArray(snap.auditEvents)) this.auditEvents = snap.auditEvents;
+      if (snap.rustDeskConfig) this.rustDeskConfig = snap.rustDeskConfig;
+      const hasData = this.users.size > 0 || this.orgs.size > 0;
+      if (hasData) {
+        console.log(`[store] restored from ${this.dataFile}: ${this.devices.size} devices, ${this.users.size} users, ${this.clients.size} clients`);
+      }
+      return hasData;
+    } catch (e) {
+      console.warn('[store] hydrate failed (starting fresh):', (e as Error).message);
+      return false;
+    }
+  }
+
+  public persist(): void {
+    try {
+      const snap: Record<string, unknown> = {};
+      for (const name of this.mapNames) {
+        snap[name] = Object.fromEntries((this as unknown as Record<string, Map<string, unknown>>)[name]);
+      }
+      snap.automationLogs = this.automationLogs;
+      snap.auditEvents = this.auditEvents;
+      snap.rustDeskConfig = this.rustDeskConfig;
+      fs.mkdirSync(path.dirname(this.dataFile), { recursive: true });
+      const tmp = this.dataFile + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(snap));
+      fs.renameSync(tmp, this.dataFile);
+    } catch (e) {
+      console.warn('[store] persist failed:', (e as Error).message);
+    }
+  }
+
+  private startPersistence(): void {
+    this.persistTimer = setInterval(() => this.persist(), 10000);
+    if (this.persistTimer.unref) this.persistTimer.unref();
+    const flush = () => { this.persist(); process.exit(0); };
+    process.on('SIGTERM', flush);
+    process.on('SIGINT', flush);
   }
 
   public async seedDefaults() {
