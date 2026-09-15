@@ -1,18 +1,42 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Smartphone,
+  Laptop,
+  Monitor,
+  Server,
+  Wifi,
   Radio,
   RefreshCw,
   Pencil,
   Check,
   X,
   ExternalLink,
-  AlertTriangle,
-  Tablet
+  AlertTriangle
 } from 'lucide-react';
-import { mdm, type ManagedTablet } from '../../services/api';
+import { mdm, devices as devicesApi } from '../../services/api';
+import type { ManagedDevice } from '../../types';
 
-type LoadState = 'loading' | 'ready' | 'error' | 'unconfigured';
+type LoadState = 'loading' | 'ready' | 'error';
+
+interface DeviceRow {
+  id: string;
+  name: string;
+  os: 'android' | 'macos' | 'windows' | 'linux' | 'network';
+  model: string;
+  client: string;
+  status: 'online' | 'offline' | 'provisioning';
+  connectedAt: number;
+  viewerUrl: string | null;
+  source: 'relay' | 'rmm';
+}
+
+const OS_META: Record<DeviceRow['os'], { label: string; Icon: typeof Smartphone; color: string }> = {
+  android: { label: 'Android', Icon: Smartphone, color: 'text-emerald-500' },
+  macos: { label: 'macOS', Icon: Laptop, color: 'text-purple-500' },
+  windows: { label: 'Windows', Icon: Monitor, color: 'text-sky-500' },
+  linux: { label: 'Linux', Icon: Server, color: 'text-amber-500' },
+  network: { label: 'Network', Icon: Wifi, color: 'text-emerald-500' }
+};
 
 const relativeTime = (ms: number): string => {
   if (!ms) return '—';
@@ -25,11 +49,17 @@ const relativeTime = (ms: number): string => {
   return `${Math.floor(hrs / 24)}d`;
 };
 
+const normalizeOs = (os: string): DeviceRow['os'] => {
+  if (os === 'macos' || os === 'windows' || os === 'linux' || os === 'network') return os;
+  return 'network';
+};
+
 export const ManagedTabletsView: React.FC = () => {
-  const [tablets, setTablets] = useState<ManagedTablet[]>([]);
+  const [rows, setRows] = useState<DeviceRow[]>([]);
   const [state, setState] = useState<LoadState>('loading');
-  const [errorMsg, setErrorMsg] = useState<string>('');
-  const [lastUpdated, setLastUpdated] = useState<number>(0);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [relayNote, setRelayNote] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -37,24 +67,64 @@ export const ManagedTabletsView: React.FC = () => {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = async () => {
-    try {
-      setRefreshing(true);
-      const res = await mdm.getTablets();
-      if (!res.configured) {
-        setState('unconfigured');
-        setTablets([]);
-        return;
+    setRefreshing(true);
+    const [tabletsRes, devicesRes] = await Promise.allSettled([mdm.getTablets(), devicesApi.getDevices()]);
+
+    const next: DeviceRow[] = [];
+    let relayMsg = '';
+
+    // Control-plane devices (Mac / Windows / etc.)
+    if (devicesRes.status === 'fulfilled' && Array.isArray(devicesRes.value)) {
+      for (const d of devicesRes.value as ManagedDevice[]) {
+        next.push({
+          id: d.id,
+          name: d.name,
+          os: normalizeOs(d.os),
+          model: d.osVersion || (d as any).model || '',
+          client: d.clientName || '',
+          status: d.health === 'offline' ? 'offline' : 'online',
+          connectedAt: 0,
+          viewerUrl: null,
+          source: 'rmm'
+        });
       }
-      setTablets(res.devices || []);
+    }
+
+    // Relay tablets (Android kiosk fleet)
+    if (tabletsRes.status === 'fulfilled') {
+      if (tabletsRes.value.configured === false) {
+        relayMsg = 'MDM relay not configured';
+      } else {
+        for (const t of tabletsRes.value.devices || []) {
+          next.push({
+            id: t.id,
+            name: t.name,
+            os: 'android',
+            model: t.model,
+            client: '',
+            status: 'online',
+            connectedAt: t.connectedAt,
+            viewerUrl: t.viewerUrl,
+            source: 'relay'
+          });
+        }
+      }
+    } else {
+      relayMsg = 'Relay unreachable';
+    }
+
+    const bothFailed = devicesRes.status === 'rejected' && tabletsRes.status === 'rejected';
+    if (bothFailed) {
+      setErrorMsg(devicesRes.reason instanceof Error ? devicesRes.reason.message : 'Failed to load devices');
+      setState('error');
+    } else {
+      next.sort((a, b) => a.name.localeCompare(b.name));
+      setRows(next);
+      setRelayNote(relayMsg);
       setLastUpdated(Date.now());
       setState('ready');
-      setErrorMsg('');
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to reach relay');
-      setState((prev) => (prev === 'loading' ? 'error' : prev));
-    } finally {
-      setRefreshing(false);
     }
+    setRefreshing(false);
   };
 
   useEffect(() => {
@@ -65,27 +135,39 @@ export const ManagedTabletsView: React.FC = () => {
     };
   }, []);
 
-  const connect = (t: ManagedTablet) => {
-    if (t.viewerUrl) window.open(t.viewerUrl, '_blank', 'noopener,noreferrer');
+  const connect = (r: DeviceRow) => {
+    if (r.viewerUrl) window.open(r.viewerUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const startEdit = (t: ManagedTablet) => {
-    setEditingId(t.id);
-    setEditName(t.name === t.id ? '' : t.name);
+  const startEdit = (r: DeviceRow) => {
+    setEditingId(r.id);
+    setEditName(r.name === r.id ? '' : r.name);
   };
 
-  const saveEdit = async (t: ManagedTablet) => {
+  const saveEdit = async (r: DeviceRow) => {
     const name = editName.trim();
-    setSavingId(t.id);
+    setSavingId(r.id);
     try {
-      await mdm.renameTablet(t.id, name);
-      setTablets((prev) => prev.map((d) => (d.id === t.id ? { ...d, name: name || d.id } : d)));
+      await mdm.renameTablet(r.id, name);
+      setRows((prev) => prev.map((d) => (d.id === r.id ? { ...d, name: name || d.id } : d)));
       setEditingId(null);
     } catch {
-      // keep editing open on failure
+      /* keep editing open on failure */
     } finally {
       setSavingId(null);
     }
+  };
+
+  const online = rows.filter((r) => r.status !== 'offline').length;
+
+  const statusPill = (s: DeviceRow['status']) => {
+    const cls =
+      s === 'online'
+        ? 'bg-[#c8e6c5] text-[#1c4419]'
+        : s === 'provisioning'
+        ? 'bg-amber-100 text-amber-700'
+        : 'bg-[#ececec] text-[#444444]';
+    return <span className={`inline-block px-2.5 py-0.5 rounded text-[11px] font-bold uppercase ${cls}`}>{s}</span>;
   };
 
   return (
@@ -94,20 +176,22 @@ export const ManagedTabletsView: React.FC = () => {
       <div className="min-h-14 bg-white border-b border-slate-200 px-4 sm:px-6 py-2.5 sm:py-0 flex flex-wrap items-center justify-between gap-2 sm:gap-4 shrink-0 shadow-sm">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded border border-slate-200 flex items-center justify-center text-emerald-600 bg-emerald-50">
-            <Tablet className="w-4 h-4" />
+            <Smartphone className="w-4 h-4" />
           </div>
-          <h1 className="text-base sm:text-lg font-bold text-[#212b36] tracking-tight">Managed Tablets</h1>
-          <span className="text-xs text-slate-500 font-medium ml-1">({tablets.length})</span>
+          <h1 className="text-base sm:text-lg font-bold text-[#212b36] tracking-tight">Managed Devices</h1>
+          <span className="text-xs text-slate-500 font-medium ml-1">({rows.length})</span>
           {state === 'ready' && (
             <span className="hidden sm:inline text-[11px] text-slate-400 ml-2">
-              MDM · live from relay{lastUpdated ? ` · updated ${relativeTime(lastUpdated)} ago` : ''}
+              {online} online · tablets, Macs &amp; Windows{lastUpdated ? ` · updated ${relativeTime(lastUpdated)} ago` : ''}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Relay
-          </span>
+          {relayNote && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
+              <AlertTriangle className="w-3 h-3" /> {relayNote}
+            </span>
+          )}
           <button
             onClick={load}
             disabled={refreshing}
@@ -124,105 +208,63 @@ export const ManagedTabletsView: React.FC = () => {
         {state === 'loading' && (
           <div className="py-16 text-center text-slate-400">
             <RefreshCw className="w-7 h-7 mx-auto mb-2 text-slate-300 animate-spin" />
-            <div className="text-sm font-semibold text-slate-600">Loading managed tablets…</div>
-          </div>
-        )}
-
-        {state === 'unconfigured' && (
-          <div className="py-16 px-6 text-center max-w-md mx-auto">
-            <Smartphone className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-            <div className="font-semibold text-slate-700">MDM relay not configured</div>
-            <div className="text-xs text-slate-500 mt-1">
-              Set <code className="font-mono text-slate-700">RELAY_URL</code> and{' '}
-              <code className="font-mono text-slate-700">RELAY_ADMIN_TOKEN</code> on the control plane to list live tablets.
-            </div>
+            <div className="text-sm font-semibold text-slate-600">Loading managed devices…</div>
           </div>
         )}
 
         {state === 'error' && (
           <div className="py-16 px-6 text-center max-w-md mx-auto">
             <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
-            <div className="font-semibold text-slate-700">Can’t reach the relay right now</div>
+            <div className="font-semibold text-slate-700">Can’t load devices right now</div>
             <div className="text-xs text-slate-500 mt-1 font-mono">{errorMsg}</div>
             <button onClick={load} className="mt-3 px-3 py-1.5 rounded bg-slate-900 text-white text-xs font-semibold">Retry</button>
           </div>
         )}
 
-        {state === 'ready' && tablets.length === 0 && (
+        {state === 'ready' && rows.length === 0 && (
           <div className="py-16 text-center text-slate-400">
             <Smartphone className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-            <div className="font-semibold text-slate-700">No tablets online</div>
-            <div className="text-xs text-slate-500 mt-1">Tablets appear here the moment their agent connects to the relay.</div>
+            <div className="font-semibold text-slate-700">No managed devices yet</div>
+            <div className="text-xs text-slate-500 mt-1">Tablets appear when their agent connects; Macs &amp; Windows when the RMM agent enrolls.</div>
           </div>
         )}
 
-        {state === 'ready' && tablets.length > 0 && (
-          <>
-            {/* Mobile cards */}
-            <div className="block md:hidden p-3 space-y-2.5">
-              {tablets.map((t) => (
-                <div key={t.id} className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-xs">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
-                        <Smartphone className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-900 text-sm truncate">{t.name}</div>
-                        <div className="text-[11px] text-slate-500 font-mono truncate">{t.id}</div>
-                      </div>
-                    </div>
-                    <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[#c8e6c5] text-[#1c4419]">Online</span>
-                  </div>
-                  <div className="mt-2.5 pt-2.5 border-t border-slate-100 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
-                    <div><span className="text-slate-400 text-[10px] block">MODEL</span><span className="truncate block">{t.model || '—'}</span></div>
-                    <div><span className="text-slate-400 text-[10px] block">CONNECTED</span><span className="truncate block">{relativeTime(t.connectedAt)} ago</span></div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-end">
-                    <button
-                      onClick={() => connect(t)}
-                      disabled={!t.viewerUrl}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
-                    >
-                      <Radio className="w-3.5 h-3.5" /> Connect
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Desktop table */}
-            <div className="hidden md:block">
-              <table className="w-full text-left text-xs text-slate-700 border-collapse">
-                <thead className="bg-[#f9fafb] text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10">
-                  <tr>
-                    <th className="py-3 px-2 w-10"></th>
-                    <th className="py-3 px-4">Name</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Serial / Device ID</th>
-                    <th className="py-3 px-4">Model</th>
-                    <th className="py-3 px-4">Connected</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {tablets.map((t) => (
-                    <tr key={t.id} className="hover:bg-emerald-50/30 transition">
+        {state === 'ready' && rows.length > 0 && (
+          <div className="hidden md:block">
+            <table className="w-full text-left text-xs text-slate-700 border-collapse">
+              <thead className="bg-[#f9fafb] text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="py-3 px-2 w-10"></th>
+                  <th className="py-3 px-4">Name</th>
+                  <th className="py-3 px-4">Platform</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Client / Device ID</th>
+                  <th className="py-3 px-4">Model / OS</th>
+                  <th className="py-3 px-4">Seen</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map((r) => {
+                  const meta = OS_META[r.os];
+                  const Icon = meta.Icon;
+                  return (
+                    <tr key={`${r.source}:${r.id}`} className="hover:bg-emerald-50/30 transition">
                       <td className="py-3 px-2 text-center">
-                        <Smartphone className="w-4 h-4 text-emerald-500 mx-auto" />
+                        <Icon className={`w-4 h-4 mx-auto ${meta.color}`} />
                       </td>
                       <td className="py-3 px-4 font-semibold">
-                        {editingId === t.id ? (
+                        {editingId === r.id ? (
                           <div className="flex items-center gap-1.5">
                             <input
                               autoFocus
                               value={editName}
                               onChange={(e) => setEditName(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(t); if (e.key === 'Escape') setEditingId(null); }}
-                              placeholder={t.id}
+                              onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(r); if (e.key === 'Escape') setEditingId(null); }}
+                              placeholder={r.id}
                               className="border border-slate-300 rounded px-2 py-1 text-xs w-44 outline-none focus:border-emerald-500"
                             />
-                            <button onClick={() => saveEdit(t)} disabled={savingId === t.id} className="p-1 rounded bg-emerald-600 text-white disabled:opacity-50" title="Save">
+                            <button onClick={() => saveEdit(r)} disabled={savingId === r.id} className="p-1 rounded bg-emerald-600 text-white disabled:opacity-50" title="Save">
                               <Check className="w-3.5 h-3.5" />
                             </button>
                             <button onClick={() => setEditingId(null)} className="p-1 rounded bg-slate-100 text-slate-600" title="Cancel">
@@ -231,37 +273,78 @@ export const ManagedTabletsView: React.FC = () => {
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5 group">
-                            <span className="text-[#011fff] font-bold">{t.name}</span>
-                            <button onClick={() => startEdit(t)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition" title="Rename">
-                              <Pencil className="w-3 h-3" />
-                            </button>
+                            <span className="text-[#011fff] font-bold">{r.name}</span>
+                            {r.source === 'relay' && (
+                              <button onClick={() => startEdit(r)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition" title="Rename">
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="inline-block px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-[#c8e6c5] text-[#1c4419]">Online</span>
+                        <span className="inline-flex items-center gap-1.5 text-slate-600">
+                          <Icon className={`w-3.5 h-3.5 ${meta.color}`} /> {meta.label}
+                        </span>
                       </td>
-                      <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">{t.id}</td>
-                      <td className="py-3 px-4 text-slate-600">{t.model || '—'}</td>
-                      <td className="py-3 px-4 text-slate-500">{relativeTime(t.connectedAt)} ago</td>
+                      <td className="py-3 px-4">{statusPill(r.status)}</td>
+                      <td className="py-3 px-4">
+                        {r.client ? <span className="text-slate-700">{r.client}</span> : <span className="font-mono text-slate-500 text-[11px]">{r.id}</span>}
+                      </td>
+                      <td className="py-3 px-4 text-slate-500">{r.model || '—'}</td>
+                      <td className="py-3 px-4 text-slate-500">{r.source === 'relay' ? `${relativeTime(r.connectedAt)} ago` : r.status === 'offline' ? 'offline' : 'live'}</td>
                       <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                        {r.viewerUrl ? (
                           <button
-                            onClick={() => connect(t)}
-                            disabled={!t.viewerUrl}
-                            className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-40 text-[11px] font-bold flex items-center gap-1 transition"
+                            onClick={() => connect(r)}
+                            className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold inline-flex items-center gap-1 transition"
                             title="Open live remote viewer"
                           >
                             <Radio className="w-3 h-3" /> Connect <ExternalLink className="w-3 h-3 opacity-60" />
                           </button>
-                        </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">—</span>
+                        )}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Mobile cards */}
+        {state === 'ready' && rows.length > 0 && (
+          <div className="block md:hidden p-3 space-y-2.5">
+            {rows.map((r) => {
+              const meta = OS_META[r.os];
+              const Icon = meta.Icon;
+              return (
+                <div key={`m:${r.source}:${r.id}`} className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 rounded-lg bg-slate-100 shrink-0">
+                        <Icon className={`w-4 h-4 ${meta.color}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-900 text-sm truncate">{r.name}</div>
+                        <div className="text-[11px] text-slate-500 truncate">{r.client || r.id} · {meta.label}</div>
+                      </div>
+                    </div>
+                    {statusPill(r.status)}
+                  </div>
+                  {r.viewerUrl && (
+                    <div className="mt-3 flex items-center justify-end">
+                      <button onClick={() => connect(r)} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition">
+                        <Radio className="w-3.5 h-3.5" /> Connect
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

@@ -397,7 +397,7 @@ export const Sidebar: React.FC = () => {
                         { id: 'all-assets', label: 'All Assets', icon: Folder, count: devices.length },
                         { id: 'monitored', label: 'Monitored Assets', icon: Monitor, count: onlineDevicesCount },
                         { id: 'endpoints', label: 'Endpoints', icon: Laptop, count: devices.filter(d => d.os === 'macos' || d.os === 'windows').length },
-                        { id: 'mdm-tablets', label: 'Managed Tablets', icon: Smartphone, count: undefined as number | undefined },
+                        { id: 'mdm-tablets', label: 'Managed Devices', icon: Smartphone, count: undefined as number | undefined },
                         { id: 'servers', label: 'Servers', icon: Server, count: devices.filter(d => d.name.toLowerCase().includes('server') || d.os === 'linux').length },
                         { id: 'macos', label: 'Apple macOS', icon: Laptop, count: devices.filter(d => d.os === 'macos').length },
                         { id: 'windows', label: 'Windows', icon: Monitor, count: devices.filter(d => d.os === 'windows').length },
