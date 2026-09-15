@@ -53,6 +53,7 @@ function grabFrame(wsBase: string, device: string, token: string): Promise<{ w: 
     let W = 0, H = 0, nameLen = 0;
     let rgb: Buffer | null = null;
     let rectsLeft = 0;
+    let inUpdate = false;
     // current rect being read
     let rx = 0, ry = 0, rw = 0, rh = 0, needRectHeader = true, rectBytes = 0;
     let done = false;
@@ -115,19 +116,17 @@ function grabFrame(wsBase: string, device: string, token: string): Promise<{ w: 
         send([3, 0, 0, 0, 0, 0, (W >> 8) & 0xff, W & 0xff, (H >> 8) & 0xff, H & 0xff]); // full update request
         state = 4;
       }
-      // 4: FramebufferUpdate
+      // 4: FramebufferUpdate — wait for the update to actually arrive, then decode it.
       if (state === 4) {
-        // read update header once rectsLeft == 0 and we haven't started
-        if (rectsLeft === 0 && needRectHeader && acc.length >= 4 && acc[0] === 0) {
-          // [msgtype=0][pad][numRects u16]
+        if (!inUpdate) {
+          // skip any non-FramebufferUpdate server messages (defensive; none expected in true-colour)
+          while (acc.length >= 1 && acc[0] !== 0) acc = acc.subarray(1);
+          if (acc.length < 4) return;            // [msgtype=0][pad][numRects u16] — wait for it
           rectsLeft = acc.readUInt16BE(2);
           acc = acc.subarray(4);
+          inUpdate = true;
           if (rectsLeft === 0) { finish(true); return; }
-        } else if (rectsLeft === 0 && acc.length >= 1 && acc[0] !== 0) {
-          // non-framebuffer server message before/after: skip one byte defensively
-          acc = acc.subarray(1);
         }
-        // consume rects
         while (rectsLeft > 0) {
           if (needRectHeader) {
             if (acc.length < 12) return;
@@ -135,12 +134,11 @@ function grabFrame(wsBase: string, device: string, token: string): Promise<{ w: 
             rw = acc.readUInt16BE(4); rh = acc.readUInt16BE(6);
             const enc = acc.readInt32BE(8);
             acc = acc.subarray(12);
-            if (enc !== 0) { finish(!!rgb && rectsLeft < 1); return; } // only Raw handled
+            if (enc !== 0) { finish(false); return; } // advertised Raw only; bail on anything else
             rectBytes = rw * rh * 4;
             needRectHeader = false;
           }
-          if (acc.length < rectBytes) return;
-          // decode Raw rect (RGBX) into the RGB framebuffer
+          if (acc.length < rectBytes) return; // wait for the rest of the rect
           const px = acc.subarray(0, rectBytes);
           acc = acc.subarray(rectBytes);
           if (rgb) {
@@ -150,7 +148,7 @@ function grabFrame(wsBase: string, device: string, token: string): Promise<{ w: 
               let s = r * rw * 4;
               let d = (gy * W + rx) * 3;
               for (let c = 0; c < rw; c++, s += 4, d += 3) {
-                if (rx + c >= W) { d += 0; continue; }
+                if (rx + c >= W) continue;
                 rgb[d] = px[s]; rgb[d + 1] = px[s + 1]; rgb[d + 2] = px[s + 2];
               }
             }
@@ -158,7 +156,7 @@ function grabFrame(wsBase: string, device: string, token: string): Promise<{ w: 
           needRectHeader = true;
           rectsLeft--;
         }
-        if (rectsLeft === 0) finish(true);
+        finish(true); return;
       }
     }
   });
