@@ -232,8 +232,9 @@ class DataStore {
       tags: ['engineering', 'developer']
     };
 
-    this.devices.set(dev1.id, dev1);
-    this.devices.set(dev2.id, dev2);
+    // Seed/demo devices intentionally NOT loaded — the console shows only real
+    // devices that enroll (RMM agents) or connect live (relay tablets).
+    void dev1; void dev2;
 
     // Initial Ticket
     const ticket1: PSATicket = {

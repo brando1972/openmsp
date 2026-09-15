@@ -416,7 +416,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (fetchedClients.status === 'fulfilled' && Array.isArray(fetchedClients.value) && fetchedClients.value.length > 0) {
           setClients(fetchedClients.value);
         }
-        if (fetchedDevices.status === 'fulfilled' && Array.isArray(fetchedDevices.value) && fetchedDevices.value.length > 0) {
+        if (fetchedDevices.status === 'fulfilled' && Array.isArray(fetchedDevices.value)) {
+          // Reflect the backend exactly — real enrolled/live devices only, even if empty.
           setDevices(fetchedDevices.value);
         }
         if (fetchedTickets.status === 'fulfilled' && Array.isArray(fetchedTickets.value) && fetchedTickets.value.length > 0) {
