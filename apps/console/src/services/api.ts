@@ -519,6 +519,8 @@ export interface ManagedTablet {
   model: string;
   connectedAt: number;
   online: boolean;
+  clientId?: string | null;
+  clientName?: string;
   viewerUrl: string | null;
 }
 

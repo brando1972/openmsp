@@ -101,7 +101,7 @@ export const ManagedTabletsView: React.FC = () => {
             name: t.name,
             os: 'android',
             model: t.model,
-            client: '',
+            client: t.clientName || '',
             status: 'online',
             connectedAt: t.connectedAt,
             viewerUrl: t.viewerUrl,

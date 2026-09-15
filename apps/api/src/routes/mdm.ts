@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
+import { store } from '../db/store.js';
 
 /**
  * MDM / Managed Tablets proxy.
@@ -55,14 +56,19 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
       return;
     }
     const data = (await r.json()) as { devices?: RelayDevice[] };
-    const devices = (data.devices || []).map((d) => ({
-      id: d.device,
-      name: d.name || d.device,
-      model: d.model || '',
-      connectedAt: d.connectedAt || 0,
-      online: true,
-      viewerUrl: d.viewUrl ? `${RELAY_PUBLIC_URL}${d.viewUrl}` : null
-    }));
+    const devices = (data.devices || []).map((d) => {
+      const c = store.mdmClients.get(d.device);
+      return {
+        id: d.device,
+        name: d.name || d.device,
+        model: d.model || '',
+        connectedAt: d.connectedAt || 0,
+        online: true,
+        clientId: c?.clientId || null,
+        clientName: c?.clientName || '',
+        viewerUrl: d.viewUrl ? `${RELAY_PUBLIC_URL}${d.viewUrl}` : null
+      };
+    });
     res.json({ configured: true, devices });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'relay unreachable';

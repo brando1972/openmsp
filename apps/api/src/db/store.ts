@@ -64,6 +64,8 @@ class DataStore {
     activeSessionsCount: 0
   };
   public rustDeskSessions: Map<string, RustDeskSession> = new Map();
+  // Android/relay tablet serial → client org (tablets aren't RMM-enrolled, so we map them here)
+  public mdmClients: Map<string, { clientId: string; clientName: string }> = new Map();
 
   private initialized = false;
 
@@ -71,7 +73,7 @@ class DataStore {
   private readonly dataFile = path.join(process.env.DATA_DIR || '/data', 'store.json');
   private readonly mapNames = [
     'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
-    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions'
+    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -144,8 +146,8 @@ class DataStore {
     const orgId = '00000000-0000-0000-0000-000000000001';
     const defaultOrg: DBOrg = {
       id: orgId,
-      name: 'ApexMSP Technologies',
-      domain: 'apexmsp.io',
+      name: 'Apex',
+      domain: 'apexmsp.app',
       settings: {
         companyName: 'ApexMSP',
         logoUrl: '',
@@ -177,48 +179,49 @@ class DataStore {
     };
     this.users.set(adminUser.id, adminUser);
 
-    // Initial Clients
+    // Client Orgs (the MSP tenant's customers)
     const client1: ClientTenant = {
-      id: 'c-acme-corp',
-      name: 'Acme Corporation',
-      domain: 'acme.com',
-      contactName: 'Sarah Jenkins',
-      contactEmail: 'sjenkins@acme.com',
-      contactPhone: '(555) 234-5678',
-      sites: ['HQ - Downtown', 'Warehouse 4'],
-      activeContract: 'Premium 24/7 Managed IT',
-      monthlySlaTier: 'Gold 24/7',
-      totalDevices: 2,
-      openTickets: 1
+      id: 'c-brandon-ray',
+      name: 'Brandon Ray',
+      domain: '',
+      contactName: 'Brandon Ray',
+      contactEmail: '',
+      contactPhone: '',
+      sites: ['Primary'],
+      activeContract: 'Internal',
+      monthlySlaTier: 'Bronze Best Effort',
+      totalDevices: 0,
+      openTickets: 0
     };
     const client2: ClientTenant = {
-      id: 'c-globex',
-      name: 'Globex Health',
-      domain: 'globexhealth.org',
-      contactName: 'Dr. Robert Chen',
-      contactEmail: 'rchen@globexhealth.org',
-      contactPhone: '(555) 876-5432',
-      sites: ['Main Clinic', 'Annex'],
-      activeContract: 'Standard Business Hours',
+      id: 'c-richs',
+      name: 'Richs',
+      domain: '',
+      contactName: '',
+      contactEmail: '',
+      contactPhone: '',
+      sites: ['Auburn'],
+      activeContract: 'Managed',
       monthlySlaTier: 'Silver 8/5',
-      totalDevices: 1,
+      totalDevices: 0,
       openTickets: 0
     };
     this.clients.set(client1.id, client1);
     this.clients.set(client2.id, client2);
 
-    // Initial Enrollment Token
-    const defaultToken: EnrollmentToken = {
-      id: uuidv4(),
-      token: 'demo-enrollment-token-2026',
-      orgId,
-      clientId: client1.id,
-      siteId: 'HQ - Downtown',
+    // Per-client enrollment tokens — a device lands under the token's client org
+    const mkToken = (token: string, clientId: string, siteId: string): EnrollmentToken => ({
+      id: uuidv4(), token, orgId, clientId, siteId,
       expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      used: false,
-      createdAt: new Date().toISOString()
-    };
-    this.enrollmentTokens.set(defaultToken.token, defaultToken);
+      used: false, createdAt: new Date().toISOString()
+    });
+    const tokenBrandon = mkToken('apex-brandon-ray', client1.id, 'Primary');
+    const tokenRichs = mkToken('apex-richs', client2.id, 'Auburn');
+    this.enrollmentTokens.set(tokenBrandon.token, tokenBrandon);
+    this.enrollmentTokens.set(tokenRichs.token, tokenRichs);
+
+    // Android/relay tablets → client org mapping (device serial → client)
+    this.mdmClients.set('HNQ01Q1C', { clientId: client2.id, clientName: client2.name });
 
     // Initial Devices
     const dev1: ManagedDevice = {
