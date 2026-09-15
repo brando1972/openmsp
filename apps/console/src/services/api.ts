@@ -544,6 +544,42 @@ export const mdm = {
 };
 
 // ---------------------------------------------------------------------------
+// Native ApexConnect remote desktop (MeshCentral engine, zero MeshCentral UI)
+// ---------------------------------------------------------------------------
+export interface MeshNodeInfo {
+  nodeid: string;
+  name: string;
+  rname: string;
+  host: string;
+  meshid: string;
+  online: boolean;
+}
+export interface MeshSession {
+  relayUrl: string;
+  nodeid: string;
+  tunnelid: string;
+  auth: string;
+  protocol: number;
+  deviceName: string;
+  online: boolean;
+}
+export interface MeshHealth {
+  configured: boolean;
+  connected: boolean;
+  nodeCount?: number;
+  lastError?: string;
+  server?: string;
+}
+
+export const mesh = {
+  health: async (): Promise<MeshHealth> => request<MeshHealth>('/mesh/health'),
+  nodes: async (): Promise<{ configured: boolean; connected: boolean; error?: string; nodes: MeshNodeInfo[] }> =>
+    request('/mesh/nodes'),
+  startSession: async (opts: { deviceId?: string; nodeid?: string }): Promise<MeshSession> =>
+    request<MeshSession>('/mesh/session', { method: 'POST', body: JSON.stringify(opts) })
+};
+
+// ---------------------------------------------------------------------------
 // 12. WebSocket Client (with automatic reconnect & event dispatching)
 // ---------------------------------------------------------------------------
 type WSEventHandler<T = any> = (event: WSEvent<T>) => void;
@@ -743,6 +779,7 @@ export const api = {
   settings,
   installers,
   mdm,
+  mesh,
   ws
 };
 

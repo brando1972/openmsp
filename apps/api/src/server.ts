@@ -17,6 +17,8 @@ import settingsRouter from './routes/settings.js';
 import auditRouter from './routes/audit.js';
 import installersRouter from './routes/installers.js';
 import mdmRouter from './routes/mdm.js';
+import meshRouter from './routes/mesh.js';
+import { meshClient } from './mesh/meshClient.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -61,6 +63,7 @@ app.use('/api/v1/org/settings', settingsRouter);
 app.use('/api/v1/audit', auditRouter);
 app.use('/api/v1/installers', installersRouter);
 app.use('/api/v1/mdm', mdmRouter);
+app.use('/api/v1/mesh', meshRouter);
 
 // 404 Handler
 app.use((req, res) => {
@@ -72,6 +75,15 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`[+] OpenMSP Control Plane API listening on http://localhost:${PORT}`);
   console.log(`[+] WebSocket Server live on ws://localhost:${PORT}/ws/v1/org/:orgId`);
+  // Warm up the native ApexConnect remote engine (best-effort; no-op if unconfigured).
+  if (meshClient.configured()) {
+    meshClient.ensureReady().then(
+      () => console.log('[mesh] ApexConnect control channel ready'),
+      (e) => console.log('[mesh] control channel not ready:', e instanceof Error ? e.message : e)
+    );
+  } else {
+    console.log('[mesh] ApexConnect remote engine not configured (set MESH_USER/MESH_PASS)');
+  }
 });
 
 export { app, server };

@@ -66,6 +66,10 @@ class DataStore {
   public rustDeskSessions: Map<string, RustDeskSession> = new Map();
   // Android/relay tablet serial → client org (tablets aren't RMM-enrolled, so we map them here)
   public mdmClients: Map<string, { clientId: string; clientName: string }> = new Map();
+  // RMM deviceId → MeshCentral nodeid (native ApexConnect remote desktop).
+  // RMM and MeshCentral are separate agents, so this is filled by hostname
+  // correlation on first Connect; entries can also be seeded explicitly.
+  public meshNodes: Map<string, string> = new Map();
 
   private initialized = false;
 
@@ -73,7 +77,7 @@ class DataStore {
   private readonly dataFile = path.join(process.env.DATA_DIR || '/data', 'store.json');
   private readonly mapNames = [
     'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
-    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients'
+    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 
