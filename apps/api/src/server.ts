@@ -16,6 +16,7 @@ import aiRouter from './routes/ai.js';
 import settingsRouter from './routes/settings.js';
 import auditRouter from './routes/audit.js';
 import installersRouter from './routes/installers.js';
+import mdmRouter from './routes/mdm.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -59,6 +60,7 @@ app.use('/api/v1/ai', aiRouter);
 app.use('/api/v1/org/settings', settingsRouter);
 app.use('/api/v1/audit', auditRouter);
 app.use('/api/v1/installers', installersRouter);
+app.use('/api/v1/mdm', mdmRouter);
 
 // 404 Handler
 app.use((req, res) => {
