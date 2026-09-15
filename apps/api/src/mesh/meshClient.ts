@@ -321,6 +321,25 @@ class MeshClient {
     return this.nodes.get(nodeid) || null;
   }
 
+  /**
+   * Run a shell command / script on a node through MeshCentral. The Mesh agent
+   * runs as SYSTEM (Windows) / root (macOS/Linux), so this is the channel used
+   * to repair a sibling agent (e.g. restart the RMM agent) when the RMM channel
+   * itself is down. Fire-and-forget over the control channel.
+   *
+   * shell: 'ps'   -> Windows PowerShell   (MeshCentral runcommands type 2)
+   *        'bat'  -> Windows cmd.exe       (type 1)
+   *        'bash' -> macOS/Linux /bin/sh   (type 0)
+   * NOTE: the MeshCentral runcommands type enum and the agent's dispatch are
+   * validated against a LIVE agent - this path is exercised only when a node is
+   * online but its sibling agent is down. runAsUser 0 = run as the agent user.
+   */
+  public async runCommand(nodeid: string, cmds: string, shell: 'ps' | 'bat' | 'bash' = 'bash', runAsUser = 0): Promise<void> {
+    await this.ensureReady();
+    const type = shell === 'bat' ? 1 : shell === 'ps' ? 2 : 0;
+    this.safeSend({ action: 'runcommands', nodeids: [nodeid], type, cmds, runAsUser, reqid: 'apex-heal-' + Math.random().toString(36).slice(2) });
+  }
+
   private mintAuthCookie(timeoutMs = 8000): Promise<AuthCookie> {
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => {

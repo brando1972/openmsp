@@ -70,6 +70,11 @@ class DataStore {
   // RMM and MeshCentral are separate agents, so this is filled by hostname
   // correlation on first Connect; entries can also be seeded explicitly.
   public meshNodes: Map<string, string> = new Map();
+  // MeshCentral nodeid -> client org. The mesh equivalent of mdmClients: for a
+  // mesh node with no RMM agent to infer the client from (e.g. a Windows box
+  // that only has ApexConnect), an operator assigns it here so it filters and
+  // counts like any other device.
+  public meshNodeClients: Map<string, { clientId: string; clientName: string }> = new Map();
 
   private initialized = false;
 
@@ -77,7 +82,7 @@ class DataStore {
   private readonly dataFile = path.join(process.env.DATA_DIR || '/data', 'store.json');
   private readonly mapNames = [
     'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
-    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes'
+    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 

@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
 import { meshClient, type MeshNode } from '../mesh/meshClient.js';
+import { repairAgent, type HealAgent } from '../mesh/heal.js';
 import type { ManagedDevice } from '@openmsp/api-types';
+
+const RMM_STALE_MS = 10 * 60 * 1000;
 
 /**
  * Native ApexConnect remote-desktop control plane + device monitoring.
@@ -53,12 +56,18 @@ router.get('/nodes', async (_req: AuthenticatedRequest, res) => {
     res.json({ configured: true, connected: false, error: err instanceof Error ? err.message : 'not ready', nodes: [] });
     return;
   }
+  const now = Date.now();
   const nodes = await Promise.all(meshClient.listNodes().map(async (n) => {
     const d = rmmDeviceForNode(n);
+    const explicit = store.meshNodeClients.get(n.nodeid);
     const thumb = meshClient.getThumb(n.nodeid);
     // Pull hardware telemetry from MeshCentral (stored inventory — available even
     // without the RMM agent AND even when the device is currently offline).
     const telemetry = await meshClient.getTelemetry(n.nodeid);
+    // Fused per-agent status so the console can show both channels and repair the
+    // down one. RMM is "online" if it heartbeat recently; Mesh from the live conn.
+    const rmmLast = d?.metrics?.lastSeen ? Date.parse(d.metrics.lastSeen) : 0;
+    const rmmState = !d ? 'absent' : (rmmLast && now - rmmLast < RMM_STALE_MS ? 'online' : 'offline');
     return {
       nodeid: n.nodeid,
       name: n.name,
@@ -66,7 +75,10 @@ router.get('/nodes', async (_req: AuthenticatedRequest, res) => {
       host: n.host,
       online: n.online,
       deviceId: d?.id || null,
-      clientName: d?.clientName || '',
+      // Identity: RMM device's client wins; else an explicit operator assignment; else unassigned.
+      clientId: d?.clientId || explicit?.clientId || null,
+      clientName: d?.clientName || explicit?.clientName || '',
+      assigned: !!(d?.clientId || explicit?.clientId),
       os: d?.os || (telemetry?.os ? (/windows/i.test(telemetry.os) ? 'windows' : 'macos') : (n.rname && n.rname !== n.name ? 'windows' : 'macos')),
       serial: d?.serialNumber || telemetry?.serial || '',
       health: d
@@ -80,10 +92,58 @@ router.get('/nodes', async (_req: AuthenticatedRequest, res) => {
           }
         : null,
       telemetry,
+      agents: {
+        rmm: { state: rmmState, lastSeen: d?.metrics?.lastSeen ?? null },
+        mesh: { state: n.online ? 'online' : 'offline' }
+      },
       thumbAt: thumb ? thumb.ts : null
     };
   }));
   res.json({ configured: true, connected: true, nodes });
+});
+
+// PATCH /api/v1/mesh/nodes/:nodeid/client — assign a mesh node to a client org
+// (for nodes with no RMM agent to infer the client from). Body: { clientId } or
+// { clientId: '' | 'none' } to clear the assignment.
+router.patch('/nodes/:nodeid/client', (req: AuthenticatedRequest, res) => {
+  const nodeid = String(req.params.nodeid);
+  const clientId = typeof req.body?.clientId === 'string' ? req.body.clientId : '';
+  if (!clientId || clientId === 'none') {
+    store.meshNodeClients.delete(nodeid);
+    store.recordAudit({
+      orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+      action: 'mesh.unassign_client', targetType: 'device', targetId: nodeid, details: {}, ipAddress: req.ip
+    });
+    res.json({ ok: true, nodeid, clientId: null, clientName: '' });
+    return;
+  }
+  const client = store.clients.get(clientId);
+  if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
+  store.meshNodeClients.set(nodeid, { clientId, clientName: client.name });
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'mesh.assign_client', targetType: 'device', targetId: nodeid,
+    details: { clientId, clientName: client.name }, ipAddress: req.ip
+  });
+  res.json({ ok: true, nodeid, clientId, clientName: client.name });
+});
+
+// POST /api/v1/mesh/nodes/:nodeid/repair — manually repair a sibling agent.
+// Body: { agent: 'rmm' | 'mesh' } — 'rmm' restarts the RMM agent via MeshCentral;
+// 'mesh' enqueues an RMM command to restart the Mesh agent.
+router.post('/nodes/:nodeid/repair', async (req: AuthenticatedRequest, res) => {
+  if (!meshClient.configured()) { res.status(503).json({ error: 'Remote engine not configured' }); return; }
+  const agent = req.body?.agent as HealAgent;
+  if (agent !== 'rmm' && agent !== 'mesh') { res.status(400).json({ error: "agent must be 'rmm' or 'mesh'" }); return; }
+  try { await meshClient.ensureReady(); } catch { res.status(502).json({ error: 'remote engine unreachable' }); return; }
+  const nodeid = String(req.params.nodeid);
+  const result = await repairAgent(nodeid, agent);
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'agent.heal_manual', targetType: 'device', targetId: nodeid,
+    details: { agent, ok: result.ok }, ipAddress: req.ip
+  });
+  res.status(result.ok ? 200 : 409).json(result);
 });
 
 // POST /api/v1/mesh/session — start a native remote-desktop session

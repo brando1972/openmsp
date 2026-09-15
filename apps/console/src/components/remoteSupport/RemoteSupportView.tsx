@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Monitor, RefreshCw, Wifi, ShieldCheck, Laptop, Smartphone, Radio,
   AlertTriangle, Loader2, Cpu, MemoryStick, HardDrive, Clock, ExternalLink, ImageOff,
-  X, Maximize2
+  X, Maximize2, Wrench, Building2
 } from 'lucide-react';
-import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth, type MeshTelemetry } from '../../services/api';
+import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth, type MeshTelemetry, type MeshAgentStatus } from '../../services/api';
+import { useApp } from '../../data/AppContext';
 import { ApexConnectDesktop } from './ApexConnectDesktop';
 
 type LoadState = 'loading' | 'ready' | 'unconfigured' | 'error';
@@ -18,11 +19,13 @@ interface Card {
   viewerUrl?: string | null;
   name: string;
   client: string;
+  clientId?: string | null;
   os: 'macos' | 'windows' | 'android' | 'linux' | 'network';
   model?: string;
   online: boolean;
   health?: MeshNodeHealth | null;
   telemetry?: MeshTelemetry | null;
+  agents?: MeshAgentStatus;
   serial?: string;
 }
 
@@ -113,6 +116,7 @@ const DesktopThumb: React.FC<{ fetchThumb: ThumbFetch; cacheKey: string; online:
 };
 
 export const RemoteSupportView: React.FC = () => {
+  const { clients, selectedClientId } = useApp();
   const [cards, setCards] = useState<Card[]>([]);
   const [state, setState] = useState<LoadState>('loading');
   const [note, setNote] = useState('');
@@ -121,6 +125,8 @@ export const RemoteSupportView: React.FC = () => {
   const [bump, setBump] = useState(0);
   const [target, setTarget] = useState<Card | null>(null);
   const [tabletViewer, setTabletViewer] = useState<{ url: string; name: string } | null>(null);
+  const [busy, setBusy] = useState<Record<string, string>>({}); // per-card action-in-progress label
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
 
   const load = async () => {
@@ -134,8 +140,9 @@ export const RemoteSupportView: React.FC = () => {
       for (const n of nodesRes.value.nodes as MeshNodeInfo[]) {
         next.push({
           key: 'mesh:' + n.nodeid, kind: 'mesh', nodeid: n.nodeid, deviceId: n.deviceId,
-          name: n.name || n.rname || n.nodeid, client: n.clientName || '',
-          os: (n.os as Card['os']) || 'macos', online: n.online, health: n.health, telemetry: n.telemetry, serial: n.serial
+          name: n.name || n.rname || n.nodeid, client: n.clientName || '', clientId: n.clientId ?? null,
+          os: (n.os as Card['os']) || 'macos', online: n.online, health: n.health, telemetry: n.telemetry,
+          agents: n.agents, serial: n.serial
         });
       }
     } else {
@@ -147,7 +154,8 @@ export const RemoteSupportView: React.FC = () => {
       for (const t of tabletsRes.value.devices || []) {
         next.push({
           key: 'tablet:' + t.id, kind: 'tablet', device: t.id, viewerUrl: t.viewerUrl,
-          name: t.name, client: t.clientName || '', os: 'android', model: t.model, online: t.online
+          name: t.name, client: t.clientName || '', clientId: t.clientId ?? null,
+          os: 'android', model: t.model, online: t.online
         });
       }
     }
@@ -159,8 +167,41 @@ export const RemoteSupportView: React.FC = () => {
   };
 
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
 
   const manualRefresh = () => { setBump((b) => b + 1); load(); };
+
+  // Top-nav client filter: show only the selected client's devices ('all' shows everything).
+  const visibleCards = selectedClientId === 'all'
+    ? cards
+    : cards.filter((c) => c.clientId === selectedClientId);
+
+  const assign = async (c: Card, clientId: string) => {
+    if (!c.nodeid) return;
+    setBusy((b) => ({ ...b, [c.key]: 'assign' }));
+    try {
+      const r = await mesh.assignClient(c.nodeid, clientId);
+      setToast({ kind: 'ok', text: clientId ? `Assigned ${c.name} to ${r.clientName}` : `Cleared ${c.name}'s client` });
+      await load();
+    } catch {
+      setToast({ kind: 'err', text: `Couldn't assign ${c.name}` });
+    } finally {
+      setBusy((b) => { const n = { ...b }; delete n[c.key]; return n; });
+    }
+  };
+
+  const repair = async (c: Card, agent: 'rmm' | 'mesh') => {
+    if (!c.nodeid) return;
+    setBusy((b) => ({ ...b, [c.key]: 'repair:' + agent }));
+    try {
+      const r = await mesh.repair(c.nodeid, agent);
+      setToast({ kind: r.ok ? 'ok' : 'err', text: r.detail });
+    } catch {
+      setToast({ kind: 'err', text: 'Repair request failed' });
+    } finally {
+      setBusy((b) => { const n = { ...b }; delete n[c.key]; return n; });
+    }
+  };
 
   const connect = (c: Card) => {
     if (c.kind === 'tablet') { if (c.viewerUrl) setTabletViewer({ url: c.viewerUrl, name: c.name }); }
@@ -247,9 +288,19 @@ export const RemoteSupportView: React.FC = () => {
           </div>
         )}
 
-        {state === 'ready' && cards.length > 0 && (
+        {state === 'ready' && cards.length > 0 && visibleCards.length === 0 && (
+          <div className="py-16 text-center text-slate-400">
+            <Building2 className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+            <div className="font-semibold text-slate-700">No devices for this client</div>
+            <div className="text-xs text-slate-500 mt-1">
+              {cards.length} device{cards.length === 1 ? '' : 's'} in other clients are hidden by the filter. Switch to “All MSP Clients” to see them.
+            </div>
+          </div>
+        )}
+
+        {state === 'ready' && visibleCards.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {cards.map((c) => {
+            {visibleCards.map((c) => {
               const Icon = OS_ICON[c.os];
               return (
                 <div key={c.key} className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden flex flex-col">
@@ -319,6 +370,51 @@ export const RemoteSupportView: React.FC = () => {
                       <div className="text-[11px] text-slate-500 py-1">{c.model && c.model !== 'Android tablet' ? `Android tablet · ${c.model}` : 'Android tablet'}</div>
                     )}
 
+                    {/* Dual-agent status — both channels at a glance (fused RMM + ApexConnect) */}
+                    {c.kind === 'mesh' && c.agents && (
+                      <div className="flex items-center gap-3 text-[10px] font-semibold">
+                        <span className="flex items-center gap-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${c.agents.rmm.state === 'online' ? 'bg-emerald-500' : c.agents.rmm.state === 'offline' ? 'bg-red-500' : 'bg-slate-300'}`} />
+                          <span className="text-slate-500">RMM {c.agents.rmm.state === 'absent' ? 'not deployed' : c.agents.rmm.state}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${c.agents.mesh.state === 'online' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <span className="text-slate-500">ApexConnect {c.agents.mesh.state}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Cross-agent repair: fix a down agent through the healthy one */}
+                    {c.kind === 'mesh' && c.agents && c.agents.mesh.state === 'online' && c.agents.rmm.state === 'offline' && (
+                      <button onClick={() => repair(c, 'rmm')} disabled={!!busy[c.key]}
+                        className="w-full px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold flex items-center justify-center gap-1.5 hover:bg-amber-100 transition disabled:opacity-50">
+                        {busy[c.key] === 'repair:rmm' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wrench className="w-3 h-3" />} Restart RMM agent via ApexConnect
+                      </button>
+                    )}
+                    {c.kind === 'mesh' && c.agents && c.agents.mesh.state === 'offline' && c.agents.rmm.state === 'online' && (
+                      <button onClick={() => repair(c, 'mesh')} disabled={!!busy[c.key]}
+                        className="w-full px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold flex items-center justify-center gap-1.5 hover:bg-amber-100 transition disabled:opacity-50">
+                        {busy[c.key] === 'repair:mesh' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wrench className="w-3 h-3" />} Restart ApexConnect via RMM agent
+                      </button>
+                    )}
+
+                    {/* Assign an un-cliented mesh node (no RMM agent) to a client org */}
+                    {c.kind === 'mesh' && !c.clientId && (
+                      <div className="flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <select
+                          defaultValue=""
+                          disabled={busy[c.key] === 'assign'}
+                          onChange={(e) => { if (e.target.value) assign(c, e.target.value); }}
+                          className="flex-1 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 cursor-pointer outline-none focus:border-emerald-500"
+                        >
+                          <option value="">Assign to client…</option>
+                          {clients.map((cl) => <option key={cl.id} value={cl.id}>{cl.name}</option>)}
+                        </select>
+                        {busy[c.key] === 'assign' && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+                      </div>
+                    )}
+
                     <button
                       onClick={() => connect(c)}
                       disabled={!c.online}
@@ -386,6 +482,13 @@ export const RemoteSupportView: React.FC = () => {
               allow="fullscreen; clipboard-read; clipboard-write"
             />
           </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className={`fixed bottom-5 right-5 z-[120] max-w-sm px-4 py-3 rounded-xl shadow-lg border text-sm font-semibold flex items-start gap-2 ${toast.kind === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          {toast.kind === 'ok' ? <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />}
+          <span>{toast.text}</span>
         </div>
       )}
     </div>

@@ -577,6 +577,10 @@ export interface MeshTelemetry {
   model: string;
   serial: string;
 }
+export interface MeshAgentStatus {
+  rmm: { state: 'online' | 'offline' | 'absent'; lastSeen: string | null };
+  mesh: { state: 'online' | 'offline' };
+}
 export interface MeshNodeInfo {
   nodeid: string;
   name: string;
@@ -585,11 +589,14 @@ export interface MeshNodeInfo {
   meshid?: string;
   online: boolean;
   deviceId?: string | null;
+  clientId?: string | null;
   clientName?: string;
+  assigned?: boolean;
   os?: string;
   serial?: string;
   health?: MeshNodeHealth | null;
   telemetry?: MeshTelemetry | null;
+  agents?: MeshAgentStatus;
   thumbAt?: number | null;
 }
 export interface MeshSession {
@@ -615,6 +622,13 @@ export const mesh = {
     request('/mesh/nodes'),
   startSession: async (opts: { deviceId?: string; nodeid?: string }): Promise<MeshSession> =>
     request<MeshSession>('/mesh/session', { method: 'POST', body: JSON.stringify(opts) }),
+  // Assign a mesh node (no RMM agent) to a client org; clientId '' clears it.
+  assignClient: async (nodeid: string, clientId: string): Promise<{ ok: boolean; clientId: string | null; clientName: string }> =>
+    request(`/mesh/nodes/${encodeURIComponent(nodeid)}/client`, { method: 'PATCH', body: JSON.stringify({ clientId }) }),
+  // Repair a sibling agent: 'rmm' restarts the RMM agent via ApexConnect; 'mesh'
+  // enqueues an RMM command to restart the Mesh agent.
+  repair: async (nodeid: string, agent: 'rmm' | 'mesh'): Promise<{ ok: boolean; detail: string }> =>
+    request(`/mesh/nodes/${encodeURIComponent(nodeid)}/repair`, { method: 'POST', body: JSON.stringify({ agent }) }),
   // Authenticated desktop screenshot fetch (null when none available yet)
   thumbnailBlob: async (opts: { nodeid?: string; deviceId?: string; maxAgeSec?: number; refresh?: boolean }): Promise<{ blob: Blob; capturedAt: number } | null> => {
     const p = new URLSearchParams();

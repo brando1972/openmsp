@@ -19,6 +19,7 @@ import installersRouter from './routes/installers.js';
 import mdmRouter from './routes/mdm.js';
 import meshRouter from './routes/mesh.js';
 import { meshClient } from './mesh/meshClient.js';
+import { startWatchdog } from './mesh/heal.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -81,6 +82,8 @@ server.listen(PORT, () => {
       () => {
         console.log('[mesh] ApexConnect control channel ready');
         meshClient.startThumbnailScheduler(300000); // refresh desktop thumbnails every 5 min
+        startWatchdog(120000); // cross-agent watchdog: heal a down agent via its sibling
+        console.log(`[heal] cross-agent watchdog ${process.env.HEAL_AUTO === '0' ? 'DISABLED (HEAL_AUTO=0)' : 'active'}`);
       },
       (e) => console.log('[mesh] control channel not ready:', e instanceof Error ? e.message : e)
     );
