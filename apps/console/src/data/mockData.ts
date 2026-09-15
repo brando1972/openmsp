@@ -85,12 +85,12 @@ export const INITIAL_DEVICES: ManagedDevice[] = [
     installedApps: [
       { id: 'app-1', name: 'CrowdStrike Falcon Sensor', version: '7.12.1802', publisher: 'CrowdStrike', installDate: '2024-01-15' },
       { id: 'app-2', name: 'ApexMSP RMM Agent', version: '4.2.1', publisher: 'ApexMSP', installDate: '2024-02-01' },
-      { id: 'app-3', name: 'RustDesk Remote Server Agent', version: '1.3.1', publisher: 'RustDesk', installDate: '2024-02-01' }
+      { id: 'app-3', name: 'ApexConnect Agent', version: '1.3.1', publisher: 'ApexMSP', installDate: '2024-02-01' }
     ],
     services: [
       { name: 'NTDS', displayName: 'Active Directory Domain Services', status: 'running', startupType: 'auto' },
       { name: 'DNS', displayName: 'DNS Server', status: 'running', startupType: 'auto' },
-      { name: 'RustDeskService', displayName: 'RustDesk Remote Desktop Service', status: 'running', startupType: 'auto' }
+      { name: 'ApexConnectService', displayName: 'ApexConnect Remote Service', status: 'running', startupType: 'auto' }
     ],
     eventLogs: [
       { id: 'log-1', timestamp: '10:14 AM', level: 'info', source: 'Security-Auditing', message: 'User logon succeeded for AD\\s.jenkins', eventId: 4624 },
@@ -133,7 +133,7 @@ export const INITIAL_DEVICES: ManagedDevice[] = [
     ],
     services: [
       { name: 'com.apple.FileVault', displayName: 'FileVault Encryption Engine', status: 'running', startupType: 'auto' },
-      { name: 'com.rustdesk.rustdesk', displayName: 'RustDesk Client Daemon', status: 'running', startupType: 'auto' }
+      { name: 'app.apexmsp.connect', displayName: 'ApexConnect Client Daemon', status: 'running', startupType: 'auto' }
     ],
     eventLogs: [
       { id: 'log-10', timestamp: '10:30 AM', level: 'warning', source: 'kernel', message: 'Disk space critical: less than 5% free on /System/Volumes/Data', eventId: 501 },

@@ -182,7 +182,7 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-white/15 text-white font-bold'
                   : 'text-white/60 hover:text-white hover:bg-white/10'
               }`}
-              title="RustDesk Remote Desktop Support"
+              title="ApexConnect Remote Support"
             >
               <Headphones className="w-5 h-5" />
             </button>
@@ -544,7 +544,7 @@ export const Sidebar: React.FC = () => {
                         activeTab === 'remote-support' ? 'bg-[#e2e2ea] text-slate-900 font-semibold' : 'text-slate-600 hover:bg-slate-200/50'
                       }`}
                     >
-                      RustDesk Support
+                      ApexConnect
                     </button>
                     <button
                       onClick={() => setActiveTab('settings')}

@@ -305,7 +305,7 @@ export const TopNavbar: React.FC = () => {
                         { type: 'rmm', title: 'Assets & Endpoints' },
                         { type: 'psa-tickets', title: 'PSA Tickets' },
                         { type: 'vault', title: 'Bitwarden Vault' },
-                        { type: 'remote-support', title: 'RustDesk Remote' },
+                        { type: 'remote-support', title: 'ApexConnect' },
                         { type: 'patching', title: 'Patch Management' },
                         { type: 'automations', title: 'Automations' },
                         { type: 'settings', title: 'Settings' }
@@ -375,7 +375,7 @@ export const TopNavbar: React.FC = () => {
                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                 : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
             }`}
-            title="RustDesk Relay Server"
+            title="ApexConnect Relay"
           >
             <Radio className={`w-3 h-3 ${rustDeskConfig.onlineState ? 'animate-pulse' : ''}`} />
             <span>{rustDeskConfig.onlineState ? 'Relay Active' : 'Relay Down'}</span>

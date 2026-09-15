@@ -414,7 +414,7 @@ export const PSATicketsView: React.FC = () => {
                               <button
                                 onClick={() => launchRustDeskSession(ticket.deviceId!)}
                                 className="px-2 py-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 font-semibold text-[11px] flex items-center gap-1 border border-purple-200 transition"
-                                title="Connect with RustDesk Remote Support"
+                                title="Connect with ApexConnect"
                               >
                                 <Laptop className="w-3 h-3" />
                                 <span>Remote</span>

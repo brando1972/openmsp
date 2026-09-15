@@ -182,7 +182,7 @@ export const MobileNavDrawer: React.FC = () => {
             >
               <div className="flex items-center gap-2.5">
                 <Radio className="w-4 h-4 text-emerald-400" />
-                <span>RustDesk Remote</span>
+                <span>ApexConnect</span>
               </div>
               <span className={`w-2 h-2 rounded-full ${rustDeskConfig.onlineState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
             </button>
