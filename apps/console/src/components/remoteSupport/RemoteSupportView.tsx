@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Monitor, RefreshCw, Wifi, ShieldCheck, Laptop, Smartphone, Radio,
-  AlertTriangle, Loader2, Cpu, MemoryStick, HardDrive, Clock, ExternalLink, ImageOff
+  AlertTriangle, Loader2, Cpu, MemoryStick, HardDrive, Clock, ExternalLink, ImageOff,
+  X, Maximize2
 } from 'lucide-react';
 import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth, type MeshTelemetry } from '../../services/api';
 import { ApexConnectDesktop } from './ApexConnectDesktop';
@@ -119,6 +120,8 @@ export const RemoteSupportView: React.FC = () => {
   const [intervalMs, setIntervalMs] = useState(300000);
   const [bump, setBump] = useState(0);
   const [target, setTarget] = useState<Card | null>(null);
+  const [tabletViewer, setTabletViewer] = useState<{ url: string; name: string } | null>(null);
+  const viewerRef = useRef<HTMLDivElement | null>(null);
 
   const load = async () => {
     setRefreshing(true);
@@ -160,7 +163,7 @@ export const RemoteSupportView: React.FC = () => {
   const manualRefresh = () => { setBump((b) => b + 1); load(); };
 
   const connect = (c: Card) => {
-    if (c.kind === 'tablet') { if (c.viewerUrl) window.open(c.viewerUrl, '_blank', 'noopener,noreferrer'); }
+    if (c.kind === 'tablet') { if (c.viewerUrl) setTabletViewer({ url: c.viewerUrl, name: c.name }); }
     else setTarget(c);
   };
 
@@ -345,6 +348,45 @@ export const RemoteSupportView: React.FC = () => {
           clientName={target.client}
           onClose={() => setTarget(null)}
         />
+      )}
+
+      {/* Android tablet remote — relay viewer embedded in ApexConnect chrome (in-console, not a new tab) */}
+      {tabletViewer && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-0 sm:p-4">
+          <div ref={viewerRef} className="relative w-full h-full sm:h-[92vh] sm:max-w-[1200px] bg-[#0b0e14] sm:rounded-2xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col">
+            <div className="h-12 shrink-0 bg-[#10141c] border-b border-slate-800 flex items-center justify-between px-3 sm:px-4">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-white truncate leading-tight">{tabletViewer.name}</div>
+                  <div className="text-[11px] text-slate-400 truncate leading-tight">ApexConnect remote · Android</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <a href={tabletViewer.url} target="_blank" rel="noreferrer" title="Open in new tab"
+                   className="h-8 w-8 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition">
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+                <button onClick={() => { const el = viewerRef.current; if (!el) return; if (document.fullscreenElement) document.exitFullscreen?.(); else el.requestFullscreen?.(); }}
+                        title="Fullscreen" className="h-8 w-8 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition">
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+                <button onClick={() => setTabletViewer(null)} title="Close"
+                        className="h-8 w-8 rounded-lg bg-red-500/15 hover:bg-red-500/30 text-red-300 flex items-center justify-center transition">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <iframe
+              src={tabletViewer.url}
+              title={tabletViewer.name}
+              className="flex-1 w-full border-0 bg-black"
+              allow="fullscreen; clipboard-read; clipboard-write"
+            />
+          </div>
+        </div>
       )}
     </div>
   );
