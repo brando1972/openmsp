@@ -13,6 +13,7 @@ interface Card {
   kind: 'mesh' | 'tablet';
   nodeid?: string;
   deviceId?: string | null;
+  device?: string;
   viewerUrl?: string | null;
   name: string;
   client: string;
@@ -57,7 +58,8 @@ const Metric: React.FC<{ icon: React.ElementType; label: string; value: number |
 );
 
 // Server-captured desktop screenshot, auto-refreshing on the chosen cadence.
-const DesktopThumb: React.FC<{ nodeid: string; online: boolean; intervalMs: number; bump: number }> = ({ nodeid, online, intervalMs, bump }) => {
+type ThumbFetch = (force: boolean) => Promise<{ blob: Blob; capturedAt: number } | null>;
+const DesktopThumb: React.FC<{ fetchThumb: ThumbFetch; cacheKey: string; online: boolean; intervalMs: number; bump: number }> = ({ fetchThumb, cacheKey, online, intervalMs, bump }) => {
   const [src, setSrc] = useState<string | null>(null);
   const [capturedAt, setCapturedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,7 +72,7 @@ const DesktopThumb: React.FC<{ nodeid: string; online: boolean; intervalMs: numb
       if (!online) { setLoading(false); return; }
       setLoading(true);
       try {
-        const r = await mesh.thumbnailBlob({ nodeid, maxAgeSec: Math.round(intervalMs / 1000), refresh: force });
+        const r = await fetchThumb(force);
         if (!alive) return;
         if (r) {
           const u = URL.createObjectURL(r.blob);
@@ -84,7 +86,8 @@ const DesktopThumb: React.FC<{ nodeid: string; online: boolean; intervalMs: numb
     bumpRef.current = bump;
     const t = setInterval(() => load(false), intervalMs);
     return () => { alive = false; clearInterval(t); if (objUrl) URL.revokeObjectURL(objUrl); };
-  }, [nodeid, online, intervalMs, bump]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheKey, online, intervalMs, bump]);
 
   return (
     <div className="relative aspect-[16/10] bg-[#0b0e14] overflow-hidden">
@@ -140,7 +143,7 @@ export const RemoteSupportView: React.FC = () => {
     if (tabletsRes.status === 'fulfilled' && tabletsRes.value.configured !== false) {
       for (const t of tabletsRes.value.devices || []) {
         next.push({
-          key: 'tablet:' + t.id, kind: 'tablet', viewerUrl: t.viewerUrl,
+          key: 'tablet:' + t.id, kind: 'tablet', device: t.id, viewerUrl: t.viewerUrl,
           name: t.name, client: t.clientName || '', os: 'android', model: t.model, online: t.online
         });
       }
@@ -249,7 +252,21 @@ export const RemoteSupportView: React.FC = () => {
                 <div key={c.key} className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                   {/* Preview */}
                   {c.kind === 'mesh' && c.nodeid ? (
-                    <DesktopThumb nodeid={c.nodeid} online={c.online} intervalMs={intervalMs} bump={bump} />
+                    <DesktopThumb
+                      cacheKey={'m:' + c.nodeid}
+                      online={c.online}
+                      intervalMs={intervalMs}
+                      bump={bump}
+                      fetchThumb={(f) => mesh.thumbnailBlob({ nodeid: c.nodeid!, maxAgeSec: Math.round(intervalMs / 1000), refresh: f })}
+                    />
+                  ) : c.kind === 'tablet' && c.online && c.device ? (
+                    <DesktopThumb
+                      cacheKey={'t:' + c.device}
+                      online={c.online}
+                      intervalMs={intervalMs}
+                      bump={bump}
+                      fetchThumb={(f) => mdm.thumbnailBlob({ device: c.device!, maxAgeSec: Math.round(intervalMs / 1000), refresh: f })}
+                    />
                   ) : (
                     <div className="relative aspect-[16/10] bg-gradient-to-br from-slate-800 to-slate-900 flex flex-col items-center justify-center gap-1.5 text-slate-300">
                       <Smartphone className={`w-7 h-7 ${c.online ? '' : 'opacity-50'}`} />
@@ -296,7 +313,7 @@ export const RemoteSupportView: React.FC = () => {
                     ) : c.kind === 'mesh' ? (
                       <div className="text-[11px] text-slate-400 py-1">Remote desktop ready · telemetry loading…</div>
                     ) : (
-                      <div className="text-[11px] text-slate-500 py-1">Android tablet · {c.model || 'kiosk'}</div>
+                      <div className="text-[11px] text-slate-500 py-1">{c.model && c.model !== 'Android tablet' ? `Android tablet · ${c.model}` : 'Android tablet'}</div>
                     )}
 
                     <button

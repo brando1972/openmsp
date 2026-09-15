@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
+import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
 
 /**
  * MDM / Managed Tablets proxy.
@@ -95,6 +96,38 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
     const message = err instanceof Error ? err.message : 'relay unreachable';
     res.status(502).json({ configured: true, error: message, devices: [] });
   }
+});
+
+// GET /api/v1/mdm/thumbnail?device=<serial>&maxAge=<sec>&refresh=1 — tablet screenshot (JPEG)
+router.get('/thumbnail', async (req: AuthenticatedRequest, res) => {
+  const device = typeof req.query.device === 'string' ? req.query.device : '';
+  if (!RELAY_ADMIN_TOKEN || !device) { res.status(404).end(); return; }
+  const maxAge = Math.max(30, parseInt(String(req.query.maxAge || '300'), 10) || 300) * 1000;
+  const force = req.query.refresh === '1';
+
+  let entry = getRelayThumb(device);
+  if (force || !entry || Date.now() - entry.ts > maxAge) {
+    // Need a live view token from the relay (only present while the device is connected).
+    let token = '';
+    try {
+      const r = await relayFetch('/api/devices');
+      if (r.ok) {
+        const data = (await r.json()) as { devices?: RelayDevice[] };
+        const dev = (data.devices || []).find((d) => d.device === device);
+        const m = dev?.viewUrl?.match(/[?&]t=([^&]+)/);
+        if (m) token = decodeURIComponent(m[1]);
+      }
+    } catch { /* ignore */ }
+    if (token) {
+      const wsBase = RELAY_URL.replace(/^http/, 'ws') + '/view';
+      entry = await captureRelayThumb(wsBase, device, token);
+    }
+  }
+  if (!entry) { res.status(204).end(); return; }
+  res.setHeader('content-type', 'image/jpeg');
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('x-captured-at', String(entry.ts));
+  res.end(entry.buf);
 });
 
 // PATCH /api/v1/mdm/devices/:id/name — set friendly display name (persists relay-side)

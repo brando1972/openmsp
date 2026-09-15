@@ -540,6 +540,19 @@ export const mdm = {
       method: 'PATCH',
       body: JSON.stringify({ name })
     });
+  },
+  // Authenticated tablet screenshot fetch (null when none available / offline)
+  thumbnailBlob: async (opts: { device: string; maxAgeSec?: number; refresh?: boolean }): Promise<{ blob: Blob; capturedAt: number } | null> => {
+    const p = new URLSearchParams({ device: opts.device });
+    if (opts.maxAgeSec) p.set('maxAge', String(opts.maxAgeSec));
+    if (opts.refresh) p.set('refresh', '1');
+    const token = getStoredToken();
+    const res = await fetch(`${API_V1}/mdm/thumbnail?${p.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (res.status !== 200) return null;
+    const capturedAt = parseInt(res.headers.get('x-captured-at') || '0', 10) || Date.now();
+    return { blob: await res.blob(), capturedAt };
   }
 };
 
