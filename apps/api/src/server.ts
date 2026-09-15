@@ -78,7 +78,10 @@ server.listen(PORT, () => {
   // Warm up the native ApexConnect remote engine (best-effort; no-op if unconfigured).
   if (meshClient.configured()) {
     meshClient.ensureReady().then(
-      () => console.log('[mesh] ApexConnect control channel ready'),
+      () => {
+        console.log('[mesh] ApexConnect control channel ready');
+        meshClient.startThumbnailScheduler(300000); // refresh desktop thumbnails every 5 min
+      },
       (e) => console.log('[mesh] control channel not ready:', e instanceof Error ? e.message : e)
     );
   } else {

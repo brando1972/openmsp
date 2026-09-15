@@ -546,13 +546,27 @@ export const mdm = {
 // ---------------------------------------------------------------------------
 // Native ApexConnect remote desktop (MeshCentral engine, zero MeshCentral UI)
 // ---------------------------------------------------------------------------
+export interface MeshNodeHealth {
+  status: string;
+  cpu: number | null;
+  ram: number | null;
+  disk: number | null;
+  uptimeDays: number | null;
+  lastSeen: string | null;
+}
 export interface MeshNodeInfo {
   nodeid: string;
   name: string;
   rname: string;
   host: string;
-  meshid: string;
+  meshid?: string;
   online: boolean;
+  deviceId?: string | null;
+  clientName?: string;
+  os?: string;
+  serial?: string;
+  health?: MeshNodeHealth | null;
+  thumbAt?: number | null;
 }
 export interface MeshSession {
   relayUrl: string;
@@ -576,7 +590,22 @@ export const mesh = {
   nodes: async (): Promise<{ configured: boolean; connected: boolean; error?: string; nodes: MeshNodeInfo[] }> =>
     request('/mesh/nodes'),
   startSession: async (opts: { deviceId?: string; nodeid?: string }): Promise<MeshSession> =>
-    request<MeshSession>('/mesh/session', { method: 'POST', body: JSON.stringify(opts) })
+    request<MeshSession>('/mesh/session', { method: 'POST', body: JSON.stringify(opts) }),
+  // Authenticated desktop screenshot fetch (null when none available yet)
+  thumbnailBlob: async (opts: { nodeid?: string; deviceId?: string; maxAgeSec?: number; refresh?: boolean }): Promise<{ blob: Blob; capturedAt: number } | null> => {
+    const p = new URLSearchParams();
+    if (opts.nodeid) p.set('nodeid', opts.nodeid);
+    if (opts.deviceId) p.set('deviceId', opts.deviceId);
+    if (opts.maxAgeSec) p.set('maxAge', String(opts.maxAgeSec));
+    if (opts.refresh) p.set('refresh', '1');
+    const token = getStoredToken();
+    const res = await fetch(`${API_V1}/mesh/thumbnail?${p.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (res.status !== 200) return null;
+    const capturedAt = parseInt(res.headers.get('x-captured-at') || '0', 10) || Date.now();
+    return { blob: await res.blob(), capturedAt };
+  }
 };
 
 // ---------------------------------------------------------------------------

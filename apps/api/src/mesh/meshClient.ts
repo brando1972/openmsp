@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import sharp from 'sharp';
 
 /**
  * MeshCentral control-channel client (headless, server-side).
@@ -269,6 +270,148 @@ class MeshClient {
     if (rcookie) value += '&rauth=' + rcookie;
     this.safeSend({ action: 'msg', type: 'tunnel', nodeid, value, usage: protocol });
     return { relayUrl: relayBase(), nodeid, tunnelid, auth: cookie, protocol };
+  }
+
+  // ---- desktop thumbnails (server-side capture + cache) ----
+  private thumbs = new Map<string, { buf: Buffer; ts: number }>();
+  private capturing = new Set<string>();
+  private thumbTimer: ReturnType<typeof setInterval> | null = null;
+
+  public getThumb(nodeid: string): { buf: Buffer; ts: number } | null {
+    return this.thumbs.get(nodeid) || null;
+  }
+
+  /** Grab one desktop frame over KVM and store a JPEG thumbnail. Returns the cached buffer on failure. */
+  public async captureThumbnail(nodeid: string, scaling = 256): Promise<{ buf: Buffer; ts: number } | null> {
+    if (this.capturing.has(nodeid)) return this.thumbs.get(nodeid) || null;
+    this.capturing.add(nodeid);
+    try {
+      const session = await this.openDesktopSession(nodeid, 2);
+      const frame = await this.collectFrame(session, scaling);
+      if (frame && frame.tiles.length > 0) {
+        const buf = await this.compositeFrame(frame);
+        if (buf) { const entry = { buf, ts: Date.now() }; this.thumbs.set(nodeid, entry); return entry; }
+      }
+    } catch { /* fall through to cached */ }
+    finally { this.capturing.delete(nodeid); }
+    return this.thumbs.get(nodeid) || null;
+  }
+
+  /** Periodically refresh thumbnails for all online nodes so cards always have a recent image. */
+  public startThumbnailScheduler(intervalMs = 300000): void {
+    if (this.thumbTimer) return;
+    const tick = async () => {
+      if (!this.authed) return;
+      for (const node of this.nodes.values()) {
+        if (!node.online) continue;
+        try { await this.captureThumbnail(node.nodeid); } catch { /* ignore */ }
+      }
+    };
+    this.thumbTimer = setInterval(() => { void tick(); }, intervalMs);
+    if (this.thumbTimer.unref) this.thumbTimer.unref();
+    setTimeout(() => { void tick(); }, 8000); // warm shortly after boot
+  }
+
+  private handleFrameCmd(
+    cmd: number,
+    view: Buffer,
+    tiles: Array<{ x: number; y: number; jpeg: Buffer }>,
+    setScreen: (w: number, h: number) => void
+  ): void {
+    if (cmd === 7 && view.length >= 8) {
+      setScreen(view.readUInt16BE(4), view.readUInt16BE(6));
+    } else if (cmd === 3 && view.length > 8) {
+      tiles.push({ x: view.readUInt16BE(4), y: view.readUInt16BE(6), jpeg: Buffer.from(view.subarray(8)) });
+    }
+  }
+
+  private collectFrame(
+    session: { relayUrl: string; nodeid: string; tunnelid: string; auth: string; protocol: number },
+    scaling: number
+  ): Promise<{ w: number; h: number; tiles: Array<{ x: number; y: number; jpeg: Buffer }> } | null> {
+    return new Promise((resolve) => {
+      const { relayUrl, nodeid, tunnelid, auth, protocol } = session;
+      const sep = relayUrl.includes('?') ? '&' : '?';
+      const url =
+        `${relayUrl}${sep}browser=1&p=${protocol}&nodeid=${encodeURIComponent(nodeid)}` +
+        `&id=${encodeURIComponent(tunnelid)}&auth=${encodeURIComponent(auth)}`;
+      let ws: WebSocket;
+      try { ws = new WebSocket(url); } catch { resolve(null); return; }
+      let handshook = false;
+      let acc = Buffer.alloc(0);
+      let w = 0, h = 0;
+      const tiles: Array<{ x: number; y: number; jpeg: Buffer }> = [];
+      let done = false;
+      const finish = () => {
+        if (done) return; done = true;
+        clearTimeout(timer);
+        try { ws.close(); } catch { /* ignore */ }
+        resolve(tiles.length ? { w, h, tiles } : null);
+      };
+      const timer = setTimeout(finish, 4000);
+      let earlyDone = false;
+      ws.on('message', (data: Buffer, isBinary: boolean) => {
+        if (!isBinary) {
+          const s = data.toString();
+          if (!handshook && (s === 'c' || s === 'cr')) {
+            handshook = true;
+            try {
+              ws.send('2');
+              ws.send(Buffer.from([0, 5, 0, 10, 1, 50, (scaling >> 8) & 0xff, scaling & 0xff, 0, 100]));
+              ws.send(Buffer.from([0, 8, 0, 5, 0]));
+              ws.send(Buffer.from([0, 6, 0, 4]));
+            } catch { /* ignore */ }
+          }
+          return;
+        }
+        acc = acc.length ? Buffer.concat([acc, data]) : Buffer.from(data);
+        let off = 0;
+        while (acc.length - off >= 4) {
+          const type = acc.readUInt16BE(off);
+          let size = acc.readUInt16BE(off + 2);
+          if (type === 27) {
+            if (acc.length - off < 8) break;
+            const rs = acc.readUInt32BE(off + 4);
+            const tot = rs + 8;
+            if (acc.length - off < tot) break;
+            const inner = acc.subarray(off + 8, off + tot);
+            this.handleFrameCmd(inner.readUInt16BE(0), inner, tiles, (nw, nh) => { w = nw; h = nh; });
+            off += tot; continue;
+          }
+          if (size < 4) size = 4;
+          if (acc.length - off < size) break;
+          this.handleFrameCmd(type, acc.subarray(off, off + size), tiles, (nw, nh) => { w = nw; h = nh; });
+          off += size;
+        }
+        acc = off > 0 ? acc.subarray(off) : acc;
+        // Once we have the screen size and a decent set of tiles, we have a usable frame.
+        if (w > 0 && tiles.length >= 8 && !earlyDone) { earlyDone = true; setTimeout(finish, 600); }
+      });
+      ws.on('close', finish);
+      ws.on('error', finish);
+    });
+  }
+
+  private async compositeFrame(frame: {
+    w: number; h: number; tiles: Array<{ x: number; y: number; jpeg: Buffer }>;
+  }): Promise<Buffer | null> {
+    try {
+      const metas = await Promise.all(
+        frame.tiles.map((t) => sharp(t.jpeg).metadata().catch(() => ({ width: 0, height: 0 } as sharp.Metadata)))
+      );
+      let W = frame.w, H = frame.h;
+      frame.tiles.forEach((t, i) => {
+        W = Math.max(W, t.x + (metas[i].width || 0));
+        H = Math.max(H, t.y + (metas[i].height || 0));
+      });
+      if (W <= 0 || H <= 0) return null;
+      const comps = frame.tiles.map((t) => ({ input: t.jpeg, left: t.x, top: t.y }));
+      const full = await sharp({ create: { width: W, height: H, channels: 3, background: { r: 15, g: 18, b: 24 } } })
+        .composite(comps).png().toBuffer();
+      return await sharp(full).resize({ width: 640, withoutEnlargement: true }).jpeg({ quality: 72 }).toBuffer();
+    } catch {
+      return null;
+    }
   }
 }
 

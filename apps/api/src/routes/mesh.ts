@@ -1,116 +1,137 @@
 import { Router } from 'express';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
-import { meshClient } from '../mesh/meshClient.js';
+import { meshClient, type MeshNode } from '../mesh/meshClient.js';
+import type { ManagedDevice } from '@openmsp/api-types';
 
 /**
- * Native ApexConnect remote-desktop control plane.
+ * Native ApexConnect remote-desktop control plane + device monitoring.
  * ---------------------------------------------------------------------------
- * The browser renders the remote desktop itself (raw meshrelay WebSocket +
- * KVM protocol) — no MeshCentral UI. This route hands the browser a
- * short-lived relay auth cookie and the tunnel id for exactly one node, and
- * asks that node's agent to open its relay side. MeshCentral credentials stay
- * server-side in meshClient.
- *
- * Device -> node mapping: RMM devices and MeshCentral nodes are separate
- * agents, so we correlate by hostname/name. An explicit override can be sent
- * as { nodeid } (used by the mesh-node picker) or seeded in store.meshNodes.
+ * - POST /session   — broker a native KVM session (see ApexConnectDesktop.tsx)
+ * - GET  /nodes     — reachable devices, enriched with RMM health
+ * - GET  /thumbnail — server-captured desktop screenshot (JPEG), cached
+ * - GET  /health    — engine status
  */
 
 const router = Router();
 router.use(authenticate);
 
-// GET /api/v1/mesh/health — is the native remote engine configured & connected?
+// Match a MeshCentral node to its RMM device (separate agents; correlate by hostname/name).
+function rmmDeviceForNode(node: MeshNode): ManagedDevice | null {
+  const names = [node.name, node.rname].map((s) => (s || '').toLowerCase());
+  const bare = names.map((s) => s.split('.')[0]);
+  for (const d of store.devices.values()) {
+    const cands = [d.hostname, d.name].filter(Boolean).map((x) => (x as string).toLowerCase());
+    if (cands.some((c) => names.includes(c) || bare.includes(c.split('.')[0]))) return d;
+  }
+  return null;
+}
+
+// Resolve a target nodeid from an explicit nodeid or a console deviceId.
+function resolveNodeId(deviceId: string, explicit: string): string {
+  if (explicit) return explicit;
+  if (!deviceId) return '';
+  const mapped = store.meshNodes.get(deviceId);
+  if (mapped) return mapped;
+  const device = store.devices.get(deviceId);
+  if (device) {
+    const node = meshClient.resolveNode([device.hostname, device.name].filter(Boolean) as string[]);
+    if (node) { store.meshNodes.set(deviceId, node.nodeid); return node.nodeid; }
+  }
+  return '';
+}
+
 router.get('/health', (_req: AuthenticatedRequest, res) => {
   res.json(meshClient.status());
 });
 
-// GET /api/v1/mesh/nodes — MeshCentral nodes known to the control channel
+// GET /api/v1/mesh/nodes — reachable devices + RMM health + thumbnail freshness
 router.get('/nodes', async (_req: AuthenticatedRequest, res) => {
-  if (!meshClient.configured()) {
-    res.json({ configured: false, connected: false, nodes: [] });
+  if (!meshClient.configured()) { res.json({ configured: false, connected: false, nodes: [] }); return; }
+  try { await meshClient.ensureReady(); }
+  catch (err) {
+    res.json({ configured: true, connected: false, error: err instanceof Error ? err.message : 'not ready', nodes: [] });
     return;
   }
-  try {
-    await meshClient.ensureReady();
-  } catch (err) {
-    res.json({
-      configured: true,
-      connected: false,
-      error: err instanceof Error ? err.message : 'not ready',
-      nodes: []
-    });
-    return;
-  }
-  res.json({ configured: true, connected: true, nodes: meshClient.listNodes() });
+  const nodes = meshClient.listNodes().map((n) => {
+    const d = rmmDeviceForNode(n);
+    const thumb = meshClient.getThumb(n.nodeid);
+    return {
+      nodeid: n.nodeid,
+      name: n.name,
+      rname: n.rname,
+      host: n.host,
+      online: n.online,
+      deviceId: d?.id || null,
+      clientName: d?.clientName || '',
+      os: d?.os || (n.rname && n.rname !== n.name ? 'windows' : 'macos'),
+      serial: d?.serialNumber || '',
+      health: d
+        ? {
+            status: d.health,
+            cpu: d.metrics?.cpuUsage ?? null,
+            ram: d.metrics?.ramUsage ?? null,
+            disk: d.metrics?.diskUsage ?? null,
+            uptimeDays: d.metrics?.uptimeDays ?? null,
+            lastSeen: d.metrics?.lastSeen ?? null
+          }
+        : null,
+      thumbAt: thumb ? thumb.ts : null
+    };
+  });
+  res.json({ configured: true, connected: true, nodes });
 });
 
-// POST /api/v1/mesh/session — start a native remote-desktop session for a device
-// body: { deviceId?: string, nodeid?: string }
+// POST /api/v1/mesh/session — start a native remote-desktop session
 router.post('/session', async (req: AuthenticatedRequest, res) => {
-  if (!meshClient.configured()) {
-    res.status(503).json({ error: 'ApexConnect remote engine not configured' });
-    return;
-  }
-
+  if (!meshClient.configured()) { res.status(503).json({ error: 'ApexConnect remote engine not configured' }); return; }
   const deviceId = typeof req.body?.deviceId === 'string' ? req.body.deviceId : '';
-  let nodeid = typeof req.body?.nodeid === 'string' ? req.body.nodeid : '';
+  const explicit = typeof req.body?.nodeid === 'string' ? req.body.nodeid : '';
+  try { await meshClient.ensureReady(); }
+  catch (err) { res.status(502).json({ error: err instanceof Error ? err.message : 'remote engine unreachable' }); return; }
 
-  try {
-    await meshClient.ensureReady();
-  } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : 'remote engine unreachable' });
+  const nodeid = resolveNodeId(deviceId, explicit);
+  if (!nodeid) {
+    res.status(404).json({ error: 'No ApexConnect agent found for this device. Install/enroll the agent.' });
     return;
   }
-
-  // Resolve the target MeshCentral node.
-  const device = deviceId ? store.devices.get(deviceId) : undefined;
-  if (!nodeid) {
-    const explicit = deviceId ? store.meshNodes.get(deviceId) : undefined;
-    if (explicit) nodeid = explicit;
-  }
-  if (!nodeid && device) {
-    const candidates = [device.hostname, device.name].filter(Boolean) as string[];
-    const node = meshClient.resolveNode(candidates);
-    if (node) {
-      nodeid = node.nodeid;
-      // cache the correlation so future connects are instant
-      if (deviceId) store.meshNodes.set(deviceId, nodeid);
-    }
-  }
-
-  if (!nodeid) {
-    res.status(404).json({
-      error: device
-        ? `No ApexConnect agent found for ${device.name}. Install/enroll the ApexConnect agent on this device.`
-        : 'No target node — provide a deviceId or nodeid.'
-    });
-    return;
-  }
-
   const node = meshClient.getNode(nodeid);
+  const device = deviceId ? store.devices.get(deviceId) : undefined;
   const deviceName = device?.name || node?.name || node?.rname || nodeid;
-
   try {
     const session = await meshClient.openDesktopSession(nodeid, 2);
     store.recordAudit({
-      orgId: req.user!.orgId,
-      userId: req.user!.id,
-      actorName: req.user!.name,
-      action: 'remote.desktop_start',
-      targetType: 'device',
-      targetId: deviceId || nodeid,
-      details: { nodeid, transport: 'apexconnect-native', deviceName },
-      ipAddress: req.ip
+      orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+      action: 'remote.desktop_start', targetType: 'device', targetId: deviceId || nodeid,
+      details: { nodeid, transport: 'apexconnect-native', deviceName }, ipAddress: req.ip
     });
-    res.json({
-      ...session,
-      deviceName,
-      online: node ? node.online : true
-    });
+    res.json({ ...session, deviceName, online: node ? node.online : true });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : 'failed to open remote session' });
   }
+});
+
+// GET /api/v1/mesh/thumbnail?nodeid=..|deviceId=..&maxAge=<sec>&refresh=1
+router.get('/thumbnail', async (req: AuthenticatedRequest, res) => {
+  if (!meshClient.configured()) { res.status(503).end(); return; }
+  try { await meshClient.ensureReady(); } catch { res.status(502).end(); return; }
+  const nodeid = resolveNodeId(
+    typeof req.query.deviceId === 'string' ? req.query.deviceId : '',
+    typeof req.query.nodeid === 'string' ? req.query.nodeid : ''
+  );
+  if (!nodeid) { res.status(404).end(); return; }
+  const maxAge = Math.max(30, parseInt(String(req.query.maxAge || '300'), 10) || 300) * 1000;
+  const force = req.query.refresh === '1';
+
+  let entry = meshClient.getThumb(nodeid);
+  if (force || !entry || Date.now() - entry.ts > maxAge) {
+    entry = await meshClient.captureThumbnail(nodeid);
+  }
+  if (!entry) { res.status(204).end(); return; }
+  res.setHeader('content-type', 'image/jpeg');
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('x-captured-at', String(entry.ts));
+  res.end(entry.buf);
 });
 
 export default router;
