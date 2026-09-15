@@ -359,7 +359,7 @@ export const TopNavbar: React.FC = () => {
               onChange={(e) => setSelectedClientId(e.target.value)}
               className="bg-transparent text-white font-semibold outline-none cursor-pointer text-xs"
             >
-              <option value="all" className="bg-slate-900 text-slate-100">All MSP Clients ({devices.length} Devices)</option>
+              <option value="all" className="bg-slate-900 text-slate-100">All MSP Clients ({clients.reduce((s, c) => s + (c.totalDevices || 0), 0)} Devices)</option>
               {clients.map(c => (
                 <option key={c.id} value={c.id} className="bg-slate-900 text-slate-100">
                   {c.name} ({c.totalDevices} Devices)

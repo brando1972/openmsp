@@ -7,14 +7,24 @@ import type { ClientTenant } from '@openmsp/api-types';
 const router = Router();
 router.use(authenticate);
 
+// Live device count for a client: RMM-enrolled devices + relay/MDM tablets mapped to it.
+function deviceCountForClient(id: string): number {
+  let n = 0;
+  for (const d of store.devices.values()) if (d.clientId === id) n++;
+  for (const m of store.mdmClients.values()) if (m.clientId === id) n++;
+  return n;
+}
+
 // GET /api/v1/clients
 router.get('/', (req: AuthenticatedRequest, res) => {
   const { clientId } = req.query;
-  const allClients = Array.from(store.clients.values());
+  const allClients = Array.from(store.clients.values()).map((c) => ({
+    ...c,
+    totalDevices: deviceCountForClient(c.id)
+  }));
 
   if (clientId && clientId !== 'all') {
-    const filtered = allClients.filter((c) => c.id === clientId);
-    res.json(filtered);
+    res.json(allClients.filter((c) => c.id === clientId));
     return;
   }
 
