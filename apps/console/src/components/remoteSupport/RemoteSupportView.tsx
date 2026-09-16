@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Monitor, RefreshCw, Wifi, ShieldCheck, Laptop, Smartphone, Radio,
   AlertTriangle, Loader2, Cpu, MemoryStick, HardDrive, Clock, ExternalLink, ImageOff,
-  X, Maximize2, Wrench, Building2, Battery, BatteryCharging, SlidersHorizontal
+  X, Maximize2, Wrench, Building2, Battery, BatteryCharging, SlidersHorizontal, RotateCcw, Plus
 } from 'lucide-react';
 import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth, type MeshTelemetry, type MeshAgentStatus, type TabletDetails } from '../../services/api';
 import { useApp } from '../../data/AppContext';
@@ -120,6 +120,8 @@ const TabletPanel: React.FC<{ device: string; model?: string }> = ({ device, mod
   const [d, setD] = useState<TabletDetails | null>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [rebooting, setRebooting] = useState(false);
+  const [showNew, setShowNew] = useState(false);
   useEffect(() => {
     let alive = true;
     const load = async () => { try { const r = await mdm.getDetails(device); if (alive) setD(r); } catch { /* ignore */ } };
@@ -146,6 +148,22 @@ const TabletPanel: React.FC<{ device: string; model?: string }> = ({ device, mod
       const rr = await mdm.getDetails(device); setD(rr);
     } catch { setMsg('Failed to set profile'); }
     finally { setSaving(false); }
+  };
+
+  const doReboot = async () => {
+    if (rebooting) return;
+    if (!window.confirm('Reboot this tablet now? It will restart on its next check-in.')) return;
+    setRebooting(true); setMsg('');
+    try {
+      const r = await mdm.reboot(device);
+      setMsg(r.ok ? 'Reboot queued — restarts on next check-in' : 'Failed to queue reboot');
+    } catch { setMsg('Failed to queue reboot'); }
+    finally { setRebooting(false); }
+  };
+
+  const onProfileCreated = async () => {
+    setShowNew(false);
+    const rr = await mdm.getDetails(device); setD(rr);
   };
 
   return (
@@ -175,18 +193,94 @@ const TabletPanel: React.FC<{ device: string; model?: string }> = ({ device, mod
           <select
             value={curId ?? ''}
             disabled={saving}
-            onChange={(e) => { if (e.target.value) applyProfile(parseInt(e.target.value, 10)); }}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === '__new__') { setShowNew(true); return; }
+              if (v) applyProfile(parseInt(v, 10));
+            }}
             className="flex-1 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 cursor-pointer outline-none focus:border-emerald-500"
             title="Headwind profile"
           >
             {curId == null && <option value="">Set profile…</option>}
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}{p.kioskMode ? ' · kiosk' : ''}</option>)}
+            <option value="__new__">＋ New profile…</option>
           </select>
           {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
         </div>
       )}
+      {/* Reboot */}
+      {d?.configured && d?.device && (
+        <button
+          onClick={doReboot}
+          disabled={rebooting}
+          className="flex items-center justify-center gap-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors disabled:opacity-50"
+          title="Reboot tablet"
+        >
+          {rebooting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+          Reboot
+        </button>
+      )}
       {msg && <div className="text-[10px] text-emerald-600 font-semibold">{msg}</div>}
       {!t && d?.configured && <div className="text-[10px] text-slate-400">Telemetry populates within ~5 min of the next check-in.</div>}
+      {showNew && <NewProfileDialog profiles={profiles} onClose={() => setShowNew(false)} onCreated={onProfileCreated} />}
+    </div>
+  );
+};
+
+// Dialog: create a new Headwind profile by cloning an existing configuration.
+const NewProfileDialog: React.FC<{ profiles: { id: number; name: string; kioskMode: boolean }[]; onClose: () => void; onCreated: () => void }> = ({ profiles, onClose, onCreated }) => {
+  const [name, setName] = useState('');
+  const [baseId, setBaseId] = useState<number | ''>(profiles[0]?.id ?? '');
+  const [kioskMode, setKioskMode] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const create = async () => {
+    if (!name.trim() || baseId === '') { setErr('Name and base profile are required'); return; }
+    setBusy(true); setErr('');
+    try {
+      const r = await mdm.createProfile({ name: name.trim(), baseConfigId: Number(baseId), kioskMode });
+      if (r.ok) onCreated(); else setErr('Failed to create profile');
+    } catch { setErr('Failed to create profile'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-5 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center"><Plus className="w-4 h-4 text-emerald-600" /></div>
+          <div className="text-base font-bold text-slate-800">New profile</div>
+          <button onClick={onClose} className="ml-auto text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Profile name</span>
+          <input
+            value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Front Desk Kiosk"
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-emerald-500"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Clone from</span>
+          <select
+            value={baseId} onChange={(e) => setBaseId(e.target.value ? parseInt(e.target.value, 10) : '')}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white outline-none focus:border-emerald-500 cursor-pointer"
+          >
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}{p.kioskMode ? ' · kiosk' : ''}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={kioskMode} onChange={(e) => setKioskMode(e.target.checked)} className="w-4 h-4 accent-emerald-600" />
+          <span className="text-sm text-slate-700">Kiosk mode (lock to a single app)</span>
+        </label>
+        {err && <div className="text-xs text-red-600 font-semibold">{err}</div>}
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} className="text-sm font-semibold text-slate-500 px-4 py-2 rounded-lg hover:bg-slate-100">Cancel</button>
+          <button onClick={create} disabled={busy} className="text-sm font-semibold text-white px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5">
+            {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Create profile
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -200,7 +294,8 @@ export const RemoteSupportView: React.FC = () => {
   const [intervalMs, setIntervalMs] = useState(300000);
   const [bump, setBump] = useState(0);
   const [target, setTarget] = useState<Card | null>(null);
-  const [tabletViewer, setTabletViewer] = useState<{ url: string; name: string } | null>(null);
+  const [tabletViewer, setTabletViewer] = useState<{ url: string; name: string; device?: string } | null>(null);
+  const [viewerRebooting, setViewerRebooting] = useState(false);
   const [busy, setBusy] = useState<Record<string, string>>({}); // per-card action-in-progress label
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
@@ -280,7 +375,7 @@ export const RemoteSupportView: React.FC = () => {
   };
 
   const connect = (c: Card) => {
-    if (c.kind === 'tablet') { if (c.viewerUrl) setTabletViewer({ url: c.viewerUrl, name: c.name }); }
+    if (c.kind === 'tablet') { if (c.viewerUrl) setTabletViewer({ url: c.viewerUrl, name: c.name, device: c.device }); }
     else setTarget(c);
   };
 
@@ -539,6 +634,22 @@ export const RemoteSupportView: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
+                {tabletViewer.device && (
+                  <button
+                    onClick={async () => {
+                      const dev = tabletViewer.device; if (!dev || viewerRebooting) return;
+                      if (!window.confirm('Reboot this tablet now? It will restart on its next check-in.')) return;
+                      setViewerRebooting(true);
+                      try { const r = await mdm.reboot(dev); setToast({ kind: r.ok ? 'ok' : 'err', text: r.ok ? 'Reboot queued — restarts on next check-in' : 'Failed to queue reboot' }); }
+                      catch { setToast({ kind: 'err', text: 'Failed to queue reboot' }); }
+                      finally { setViewerRebooting(false); }
+                    }}
+                    disabled={viewerRebooting} title="Reboot tablet"
+                    className="h-8 px-2.5 rounded-lg bg-slate-800/70 hover:bg-red-500/30 text-slate-200 hover:text-red-300 flex items-center gap-1.5 text-xs font-semibold transition disabled:opacity-50">
+                    {viewerRebooting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                    <span className="hidden sm:inline">Reboot</span>
+                  </button>
+                )}
                 <a href={tabletViewer.url} target="_blank" rel="noreferrer" title="Open in new tab"
                    className="h-8 w-8 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition">
                   <ExternalLink className="w-4 h-4" />

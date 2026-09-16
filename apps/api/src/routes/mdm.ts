@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
 import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
-import { hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig } from '../mdm/hmdm.js';
+import { hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, cloneConfig } from '../mdm/hmdm.js';
 
 /**
  * MDM / Managed Tablets proxy.
@@ -182,6 +182,40 @@ router.post('/devices/:id/profile', async (req: AuthenticatedRequest, res) => {
     details: { configId, hmdmDeviceId: device.id }, ipAddress: req.ip
   });
   res.status(ok ? 200 : 502).json({ ok, configId });
+});
+
+// POST /api/v1/mdm/devices/:id/reboot — queue a remote reboot for the tablet via Headwind.
+router.post('/devices/:id/reboot', async (req: AuthenticatedRequest, res) => {
+  const serial = String(req.params.id);
+  if (!hmdmConfigured()) { res.status(503).json({ error: 'Headwind not configured' }); return; }
+  const device = await getDeviceBySerial(serial);
+  if (!device) { res.status(404).json({ error: 'device not found in Headwind' }); return; }
+  const ok = await hmdmReboot(device.id);
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'mdm.reboot', targetType: 'device', targetId: serial,
+    details: { hmdmDeviceId: device.id }, ipAddress: req.ip
+  });
+  res.status(ok ? 200 : 502).json({ ok });
+});
+
+// POST /api/v1/mdm/profiles — create a new profile by cloning an existing configuration.
+// Body: { name, baseConfigId, kioskMode }.
+router.post('/profiles', async (req: AuthenticatedRequest, res) => {
+  if (!hmdmConfigured()) { res.status(503).json({ error: 'Headwind not configured' }); return; }
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  const baseConfigId = parseInt(String(req.body?.baseConfigId), 10);
+  const kioskMode = !!req.body?.kioskMode;
+  if (!name) { res.status(400).json({ error: 'name required' }); return; }
+  if (!Number.isFinite(baseConfigId)) { res.status(400).json({ error: 'baseConfigId required' }); return; }
+  const created = await cloneConfig(baseConfigId, name, kioskMode);
+  if (!created) { res.status(502).json({ error: 'failed to create profile' }); return; }
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'mdm.create_profile', targetType: 'config', targetId: String(created.id),
+    details: { name: created.name, baseConfigId, kioskMode }, ipAddress: req.ip
+  });
+  res.json({ ok: true, profile: created });
 });
 
 export default router;

@@ -552,6 +552,14 @@ export const mdm = {
   setProfile: async (device: string, configId: number): Promise<{ ok: boolean; configId: number }> =>
     request(`/mdm/devices/${encodeURIComponent(device)}/profile`, { method: 'POST', body: JSON.stringify({ configId }) }),
 
+  // Queue a remote reboot for the tablet (via Headwind push).
+  reboot: async (device: string): Promise<{ ok: boolean }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/reboot`, { method: 'POST' }),
+
+  // Create a new profile by cloning an existing configuration.
+  createProfile: async (opts: { name: string; baseConfigId: number; kioskMode: boolean }): Promise<{ ok: boolean; profile: HmdmConfig }> =>
+    request(`/mdm/profiles`, { method: 'POST', body: JSON.stringify(opts) }),
+
   renameTablet: async (id: string, name: string): Promise<{ ok: boolean; id: string; name: string }> => {
     return request<{ ok: boolean; id: string; name: string }>(`/mdm/devices/${encodeURIComponent(id)}/name`, {
       method: 'PATCH',

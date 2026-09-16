@@ -133,3 +133,89 @@ export async function setConfig(deviceId: number, configId: number): Promise<boo
     return false;
   }
 }
+
+/**
+ * Queue a remote reboot for a device. Headwind delivers this via its push
+ * channel (mqtt/polling): we insert a 'reboot' push message and a pending-push
+ * row so the agent picks it up on its next contact. Returns true on success.
+ */
+export async function reboot(deviceId: number): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      `insert into pushmessages (messagetype, deviceid, payload) values ('reboot', $1, null) returning id`,
+      [deviceId]
+    );
+    await client.query(
+      `insert into pendingpushes (messageid, status, createtime) values ($1, 0, $2)`,
+      [r.rows[0].id, Date.now()]
+    );
+    await client.query('COMMIT');
+    return true;
+  } catch {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Create a new configuration ("profile") by cloning an existing one. Copies the
+ * base configuration row plus its child rows (applications, app parameters,
+ * files), overriding name + kiosk mode on the new row. qrcodekey carries a
+ * UNIQUE index so it must be nulled on the copy. Returns the new id/name.
+ */
+export async function cloneConfig(baseId: number, name: string, kioskMode: boolean): Promise<{ id: number; name: string } | null> {
+  const p = getPool();
+  if (!p) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    // Column list for configurations minus the identity/unique columns we override.
+    const colRows = await client.query(
+      `select column_name from information_schema.columns
+        where table_name = 'configurations'
+          and column_name not in ('id','name','kioskmode','qrcodekey')
+        order by ordinal_position`
+    );
+    const cols = colRows.rows.map((r: any) => `"${r.column_name}"`);
+    const colList = cols.join(', ');
+    const newRow = await client.query(
+      `insert into configurations (name, kioskmode, qrcodekey${cols.length ? ', ' + colList : ''})
+       select $2, $3, null${cols.length ? ', ' + colList : ''}
+         from configurations where id = $1
+       returning id, name`,
+      [baseId, name, kioskMode]
+    );
+    if (!newRow.rows.length) { await client.query('ROLLBACK'); return null; }
+    const newId = newRow.rows[0].id;
+    // Clone child tables that reference configurationid (skip the id PK column).
+    for (const child of ['configurationapplications', 'configurationapplicationparameters', 'configurationfiles']) {
+      const cc = await client.query(
+        `select column_name from information_schema.columns
+          where table_name = $1 and column_name not in ('id','configurationid')
+          order by ordinal_position`,
+        [child]
+      );
+      const ccols = cc.rows.map((r: any) => `"${r.column_name}"`);
+      if (!ccols.length) continue;
+      const ccList = ccols.join(', ');
+      await client.query(
+        `insert into ${child} (configurationid, ${ccList})
+         select $2, ${ccList} from ${child} where configurationid = $1`,
+        [baseId, newId]
+      );
+    }
+    await client.query('COMMIT');
+    return { id: newId, name: newRow.rows[0].name };
+  } catch {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    return null;
+  } finally {
+    client.release();
+  }
+}
