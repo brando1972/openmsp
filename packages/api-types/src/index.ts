@@ -13,6 +13,7 @@ export type NavigationTab =
   | 'patching'
   | 'automations'
   | 'network-map'
+  | 'mdm'
   | 'settings';
 
 export type DeviceOS = 'windows' | 'macos' | 'linux' | 'network';

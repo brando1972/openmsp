@@ -78,7 +78,7 @@ export const TopNavbar: React.FC = () => {
 
   const handleTabClick = (tab: WorkspaceTab) => {
     setActiveTabId(tab.id);
-    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'settings'].includes(tab.type)) {
+    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'settings'].includes(tab.type)) {
       setActiveTab(tab.type as NavigationTab);
     }
   };

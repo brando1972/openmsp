@@ -183,7 +183,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     if (existing) {
       setActiveTabId(existing.id);
-      if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'settings'].includes(existing.type)) {
+      if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'settings'].includes(existing.type)) {
         setActiveTabState(existing.type as NavigationTab);
       }
       return existing.id;
@@ -199,7 +199,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setTabs(prev => [...prev, created]);
     setActiveTabId(tabId);
-    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'settings'].includes(newTab.type)) {
+    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'settings'].includes(newTab.type)) {
       setActiveTabState(newTab.type as NavigationTab);
     }
     return tabId;
@@ -214,7 +214,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const nextActive = updated[Math.max(0, idx - 1)] || updated[0];
         if (nextActive) {
           setActiveTabId(nextActive.id);
-          if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'settings'].includes(nextActive.type)) {
+          if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'settings'].includes(nextActive.type)) {
             setActiveTabState(nextActive.type as NavigationTab);
           }
         }
@@ -250,6 +250,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'automations': 'Automations',
         'ai-copilot': 'Apex AI Lab',
         'network-map': 'Network Map',
+        'mdm': 'MDM',
         'settings': 'Settings'
       };
       const newId = `tab-${navTab}`;
