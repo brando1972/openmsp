@@ -510,11 +510,150 @@ export type WSMessageType =
   | 'ticket.updated'
   | 'session.started'
   | 'session.ended'
-  | 'relay.health';
+  | 'relay.health'
+  | 'dispatch.job'
+  | 'dispatch.message'
+  | 'dispatch.location'
+  | 'dispatch.shift';
 
 export interface WSEvent<T = any> {
   type: WSMessageType;
   orgId: string;
   timestamp: string;
   payload: T;
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch (mobile field-service PWA: jobs, GPS, per-job messaging)
+// ---------------------------------------------------------------------------
+
+// Lifecycle of a dispatched job. Forward-only in normal use; a dispatcher can
+// reassign or cancel at any point.
+export type DispatchJobStatus =
+  | 'unassigned'   // created, no tech yet
+  | 'assigned'     // assigned to a tech, awaiting their acceptance
+  | 'accepted'     // tech acknowledged
+  | 'en_route'     // tech traveling to site
+  | 'on_site'      // tech arrived / working
+  | 'done'         // completed
+  | 'cancelled';
+
+export type DispatchJobPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+// A geographic point captured with the job or a status change.
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+  accuracy?: number; // meters
+  at?: string;       // ISO timestamp of the fix
+}
+
+export interface DispatchJob {
+  id: string;
+  orgId: string;
+  jobNumber: string;
+  title: string;
+  description: string;
+  clientId?: string;
+  clientName?: string;
+  customerName: string;
+  address: string;
+  location?: GeoPoint;          // geocoded / pinned destination
+  priority: DispatchJobPriority;
+  status: DispatchJobStatus;
+  assignedTechId?: string;
+  assignedTechName?: string;
+  scheduledStart?: string;      // ISO
+  scheduledEnd?: string;        // ISO
+  // Status-change breadcrumbs (each captures where/when the tech was).
+  events: DispatchJobEvent[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+  unreadForTech?: number;       // convenience counters (per requester)
+  unreadForDispatch?: number;
+}
+
+export interface DispatchJobEvent {
+  status: DispatchJobStatus;
+  at: string;
+  byId: string;
+  byName: string;
+  location?: GeoPoint;
+  note?: string;
+}
+
+export interface JobMessage {
+  id: string;
+  jobId: string;
+  orgId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: UserRole;
+  body: string;
+  at: string;
+}
+
+// A tech's most recent known position (dispatcher live map). Kept server-side;
+// only exposed to dispatchers (owner/admin).
+export interface TechLocation {
+  userId: string;
+  userName: string;
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  heading?: number;
+  speedMps?: number;
+  onShift: boolean;
+  updatedAt: string;
+}
+
+export interface ShiftState {
+  userId: string;
+  userName: string;
+  onShift: boolean;
+  since?: string;
+}
+
+// ---- request/response payloads ----
+export interface CreateJobRequest {
+  title: string;
+  description?: string;
+  customerName: string;
+  address: string;
+  location?: GeoPoint;
+  clientId?: string;
+  priority?: DispatchJobPriority;
+  assignedTechId?: string;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+}
+
+export interface UpdateJobStatusRequest {
+  status: DispatchJobStatus;
+  location?: GeoPoint;
+  note?: string;
+}
+
+export interface AssignJobRequest {
+  assignedTechId: string;
+}
+
+export interface LocationReport {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  heading?: number;
+  speedMps?: number;
+}
+
+export interface DispatchTech {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  onShift: boolean;
+  location?: TechLocation;
+  openJobs: number;
 }

@@ -79,13 +79,30 @@ class DataStore {
   // live here server-side only (persisted, never sent to the browser).
   public netScan: Map<string, import('@openmsp/api-types').NetScanConfig> = new Map();
 
+  // ---- dispatch (mobile field-service PWA) ----
+  public dispatchJobs: Map<string, import('@openmsp/api-types').DispatchJob> = new Map();
+  public jobMessages: Map<string, import('@openmsp/api-types').JobMessage> = new Map();
+  public techLocations: Map<string, import('@openmsp/api-types').TechLocation> = new Map(); // key = userId
+  public techShifts: Map<string, import('@openmsp/api-types').ShiftState> = new Map();       // key = userId
+  private jobSeq = 1000;
+
+  public nextJobNumber(): string {
+    // Keep the counter ahead of any restored jobs.
+    for (const j of this.dispatchJobs.values()) {
+      const n = parseInt((j.jobNumber || '').replace(/\D/g, ''), 10);
+      if (Number.isFinite(n) && n >= this.jobSeq) this.jobSeq = n + 1;
+    }
+    return `JOB-${this.jobSeq++}`;
+  }
+
   private initialized = false;
 
   // ---- durable snapshot persistence (survives restarts/redeploys) ----
   private readonly dataFile = path.join(process.env.DATA_DIR || '/data', 'store.json');
   private readonly mapNames = [
     'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
-    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients', 'netScan'
+    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients', 'netScan',
+    'dispatchJobs', 'jobMessages', 'techLocations', 'techShifts'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 

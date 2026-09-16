@@ -19,6 +19,7 @@ import installersRouter from './routes/installers.js';
 import mdmRouter from './routes/mdm.js';
 import meshRouter from './routes/mesh.js';
 import netRouter from './routes/net.js';
+import dispatchRouter from './routes/dispatch.js';
 import { meshClient } from './mesh/meshClient.js';
 import { startWatchdog } from './mesh/heal.js';
 
@@ -67,6 +68,7 @@ app.use('/api/v1/installers', installersRouter);
 app.use('/api/v1/mdm', mdmRouter);
 app.use('/api/v1/mesh', meshRouter);
 app.use('/api/v1/net', netRouter);
+app.use('/api/v1/dispatch', dispatchRouter);
 
 // 404 Handler
 app.use((req, res) => {

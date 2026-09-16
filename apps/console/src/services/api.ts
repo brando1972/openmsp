@@ -1,4 +1,12 @@
 import type {
+  DispatchJob,
+  DispatchJobStatus,
+  DispatchJobPriority,
+  JobMessage,
+  TechLocation,
+  ShiftState,
+  DispatchTech,
+  GeoPoint,
   ClientTenant,
   ManagedDevice,
   DeviceCommand,
@@ -945,9 +953,46 @@ export interface TunnelOpen {
   reason?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Dispatch (mobile field-service PWA)
+// ---------------------------------------------------------------------------
+export const dispatch = {
+  listJobs: async (opts?: { status?: DispatchJobStatus; active?: boolean }): Promise<{ jobs: DispatchJob[] }> => {
+    const q = new URLSearchParams();
+    if (opts?.status) q.set('status', opts.status);
+    if (opts?.active) q.set('active', '1');
+    const qs = q.toString();
+    return request(`/dispatch/jobs${qs ? `?${qs}` : ''}`);
+  },
+  getJob: async (id: string): Promise<{ job: DispatchJob; messages: JobMessage[] }> =>
+    request(`/dispatch/jobs/${id}`),
+  createJob: async (body: {
+    title: string; description?: string; customerName: string; address: string;
+    location?: GeoPoint; clientId?: string; priority?: DispatchJobPriority;
+    assignedTechId?: string; scheduledStart?: string; scheduledEnd?: string;
+  }): Promise<{ job: DispatchJob }> =>
+    request('/dispatch/jobs', { method: 'POST', body: JSON.stringify(body) }),
+  updateStatus: async (id: string, body: { status: DispatchJobStatus; location?: { lat: number; lng: number; accuracy?: number }; note?: string }): Promise<{ job: DispatchJob }> =>
+    request(`/dispatch/jobs/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) }),
+  assign: async (id: string, assignedTechId: string): Promise<{ job: DispatchJob }> =>
+    request(`/dispatch/jobs/${id}/assign`, { method: 'POST', body: JSON.stringify({ assignedTechId }) }),
+  listMessages: async (id: string): Promise<{ messages: JobMessage[] }> =>
+    request(`/dispatch/jobs/${id}/messages`),
+  sendMessage: async (id: string, body: string): Promise<{ message: JobMessage }> =>
+    request(`/dispatch/jobs/${id}/messages`, { method: 'POST', body: JSON.stringify({ body }) }),
+  getShift: async (): Promise<{ shift: ShiftState }> => request('/dispatch/shift'),
+  setShift: async (on: boolean): Promise<{ shift: ShiftState }> =>
+    request('/dispatch/shift', { method: 'POST', body: JSON.stringify({ on }) }),
+  reportLocation: async (loc: { lat: number; lng: number; accuracy?: number; heading?: number; speedMps?: number }): Promise<{ ok: boolean }> =>
+    request('/dispatch/location', { method: 'POST', body: JSON.stringify(loc) }),
+  listLocations: async (): Promise<{ locations: TechLocation[] }> => request('/dispatch/locations'),
+  listTechs: async (): Promise<{ techs: DispatchTech[] }> => request('/dispatch/techs')
+};
+
 // Unified export object
 export const api = {
   auth,
+  dispatch,
   clients,
   devices,
   tickets,

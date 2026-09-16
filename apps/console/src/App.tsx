@@ -9,6 +9,7 @@ import { QuickSearchModal } from './components/layout/QuickSearchModal';
 import { AICopilotDrawer } from './components/ai/AICopilotDrawer';
 
 import { LoginView } from './components/auth/LoginView';
+import { DispatchApp } from './components/dispatch/DispatchApp';
 
 import { DashboardView } from './components/dashboard/DashboardView';
 import { RMMView } from './components/rmm/RMMView';
@@ -67,11 +68,18 @@ const MainAppContent: React.FC = () => {
   );
 };
 
+// Route to the installable mobile dispatch PWA at /dispatch (shares auth + the
+// live WebSocket with the desktop console via AppProvider), else the console.
+const AppRouter: React.FC = () => {
+  const isDispatch = typeof window !== 'undefined' && window.location.pathname.startsWith('/dispatch');
+  return isDispatch ? <DispatchApp /> : <MainAppContent />;
+};
+
 export function App() {
   return (
     <ErrorBoundary>
       <AppProvider>
-        <MainAppContent />
+        <AppRouter />
       </AppProvider>
     </ErrorBoundary>
   );
