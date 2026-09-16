@@ -11,7 +11,8 @@ import type {
   AgentHeartbeatRequest,
   AgentHeartbeatResponse,
   ManagedDevice,
-  DeviceCommand
+  DeviceCommand,
+  PSATicket
 } from '@openmsp/api-types';
 
 const router = Router();
@@ -330,6 +331,60 @@ router.post('/network-scan', (req, res) => {
     });
   }
   res.json({ acknowledged: true });
+});
+
+// POST /api/v1/agents/ticket — an end user files a support request from the
+// agent (e.g. the menu-bar app). Device-authenticated (deviceId + deviceSecret),
+// attributed to the device's client org. Body: { subject, description, priority? }.
+router.post('/ticket', (req, res) => {
+  const { deviceId, deviceSecret, subject, description, priority } = req.body || {};
+  if (!deviceId || !deviceSecret || !subject) {
+    res.status(400).json({ error: 'deviceId, deviceSecret and subject are required' });
+    return;
+  }
+  const device = store.devices.get(deviceId);
+  if (!device) { res.status(404).json({ error: 'Device not found' }); return; }
+  if ((device as any).deviceSecret && (device as any).deviceSecret !== deviceSecret) {
+    res.status(401).json({ error: 'Invalid device secret' });
+    return;
+  }
+  const client = device.clientId ? store.clients.get(device.clientId) : undefined;
+  const pri = ['urgent', 'high', 'medium', 'low'].includes(priority) ? priority : 'medium';
+  const slaHours = pri === 'urgent' ? 2 : pri === 'high' ? 8 : pri === 'low' ? 48 : 24;
+  const id = `tick-${uuidv4().substring(0, 8)}`;
+  const ticket: PSATicket = {
+    id,
+    ticketNumber: `TICK-${1000 + store.tickets.size + 1}`,
+    title: String(subject).slice(0, 200),
+    description: String(description || '').slice(0, 4000),
+    clientId: device.clientId,
+    clientName: client ? client.name : 'Unassigned Client',
+    deviceId: device.id,
+    deviceName: device.name,
+    priority: pri as any,
+    status: 'new',
+    category: 'Support' as any,
+    assignedTech: 'Unassigned',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    slaDueDate: new Date(Date.now() + slaHours * 3600 * 1000).toISOString(),
+    slaBreached: false,
+    comments: [],
+    timeEntries: []
+  };
+  store.tickets.set(id, ticket);
+  if (client) { (client as any).openTickets = ((client as any).openTickets || 0) + 1; store.clients.set(client.id, client); }
+  const scanClient2 = client;
+  const orgId2 = ((scanClient2 as any)?.orgId as string) || Array.from(store.orgs.values())[0]?.id;
+  if (orgId2) {
+    store.recordAudit({
+      orgId: orgId2, actorName: device.name || 'Agent',
+      action: 'ticket.created_by_agent', targetType: 'ticket', targetId: id,
+      details: { deviceId: device.id, subject: ticket.title, priority: pri }, ipAddress: req.ip
+    });
+    wsManager.broadcastToOrg(orgId2, 'ticket.updated', { ticketId: id, ticketNumber: ticket.ticketNumber, status: 'new' });
+  }
+  res.json({ ok: true, ticketNumber: ticket.ticketNumber, id });
 });
 
 // GET /api/v1/agents/download/:os/:arch — stream the latest agent binary for a

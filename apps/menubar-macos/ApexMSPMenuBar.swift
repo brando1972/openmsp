@@ -9,7 +9,51 @@
 import Cocoa
 
 let AGENT_LOG = ("~/.apexmsp/agent.log" as NSString).expandingTildeInPath
+let AGENT_CONFIG = ("~/.apexmsp/agent.json" as NSString).expandingTildeInPath
 let CONSOLE_URL = "https://apexmsp.app"
+
+// MARK: - Agent config (device identity, for device-authenticated API calls).
+struct AgentConfig {
+    var serverUrl: String
+    var deviceId: String
+    var deviceSecret: String
+}
+
+func loadConfig() -> AgentConfig? {
+    guard let data = FileManager.default.contents(atPath: AGENT_CONFIG),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+    let server = (obj["serverUrl"] as? String) ?? "https://api.apexmsp.app"
+    guard let did = obj["deviceId"] as? String, let sec = obj["deviceSecret"] as? String, !did.isEmpty else { return nil }
+    return AgentConfig(serverUrl: server, deviceId: did, deviceSecret: sec)
+}
+
+// Submit a support ticket (device-authenticated). Calls completion on the main queue.
+func submitTicket(subject: String, description: String, priority: String, completion: @escaping (Bool, String) -> Void) {
+    guard let cfg = loadConfig() else { completion(false, "Agent not enrolled on this Mac."); return }
+    guard let url = URL(string: cfg.serverUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v1/agents/ticket") else {
+        completion(false, "Bad server URL."); return
+    }
+    let body: [String: Any] = [
+        "deviceId": cfg.deviceId, "deviceSecret": cfg.deviceSecret,
+        "subject": subject, "description": description, "priority": priority
+    ]
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    req.timeoutInterval = 20
+    URLSession.shared.dataTask(with: req) { data, resp, err in
+        var ok = false; var msg = "Could not reach the server."
+        if let err = err { msg = err.localizedDescription }
+        else if let http = resp as? HTTPURLResponse {
+            if http.statusCode == 200, let d = data,
+               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                ok = true; msg = (o["ticketNumber"] as? String) ?? "created"
+            } else { msg = "Server returned \(http.statusCode)." }
+        }
+        DispatchQueue.main.async { completion(ok, msg) }
+    }.resume()
+}
 
 // MARK: - Sharkfin template image (monochrome outline; the menu bar tints it).
 func sharkfinImage() -> NSImage {
@@ -118,6 +162,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let scan = s.lastScan { menu.addItem(disabledItem("Last scan: \(scan)")) }
 
         menu.addItem(NSMenuItem.separator())
+        let support = actionItem("Request Support…", #selector(requestSupport))
+        support.keyEquivalent = "s"
+        menu.addItem(support)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("Open ApexMSP Console", #selector(openConsole)))
         menu.addItem(actionItem("Network Map", #selector(openNetwork)))
         menu.addItem(actionItem("View Agent Log", #selector(openLog)))
@@ -136,6 +184,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let i = NSMenuItem(title: title, action: sel, keyEquivalent: "")
         i.target = self
         return i
+    }
+
+    @objc func requestSupport() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Request Support"
+        alert.informativeText = "Describe the issue. This opens a ticket for your IT provider, tagged to this Mac."
+        alert.icon = sharkfinImage()
+        alert.addButton(withTitle: "Send")
+        alert.addButton(withTitle: "Cancel")
+
+        // Accessory: subject field + priority popup + description text view.
+        let width: CGFloat = 320
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 168))
+
+        let subject = NSTextField(frame: NSRect(x: 0, y: 138, width: width, height: 24))
+        subject.placeholderString = "Subject (e.g. Printer won't connect)"
+        container.addSubview(subject)
+
+        let priorityLabel = NSTextField(labelWithString: "Priority:")
+        priorityLabel.frame = NSRect(x: 0, y: 108, width: 60, height: 22)
+        container.addSubview(priorityLabel)
+        let priority = NSPopUpButton(frame: NSRect(x: 62, y: 104, width: 130, height: 26), pullsDown: false)
+        priority.addItems(withTitles: ["Low", "Medium", "High", "Urgent"])
+        priority.selectItem(withTitle: "Medium")
+        container.addSubview(priority)
+
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: 96))
+        scroll.borderType = .bezelBorder
+        scroll.hasVerticalScroller = true
+        let textView = NSTextView(frame: scroll.bounds)
+        textView.isRichText = false
+        textView.font = NSFont.systemFont(ofSize: 12)
+        textView.autoresizingMask = [.width]
+        scroll.documentView = textView
+        container.addSubview(scroll)
+
+        alert.accessoryView = container
+        alert.window.initialFirstResponder = subject
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let subj = subject.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if subj.isEmpty {
+            self.notify(false, "A subject is required.")
+            return
+        }
+        let pri = (priority.titleOfSelectedItem ?? "Medium").lowercased()
+        let desc = textView.string
+        submitTicket(subject: subj, description: desc, priority: pri) { ok, msg in
+            self.notify(ok, ok ? "Ticket \(msg) created. Your IT provider has been notified." : "Couldn't file the ticket: \(msg)")
+        }
+    }
+
+    func notify(_ ok: Bool, _ text: String) {
+        let a = NSAlert()
+        a.messageText = ok ? "Support request sent" : "Support request failed"
+        a.informativeText = text
+        a.alertStyle = ok ? .informational : .warning
+        a.icon = sharkfinImage()
+        a.addButton(withTitle: "OK")
+        a.runModal()
     }
 
     @objc func openConsole() { NSWorkspace.shared.open(URL(string: CONSOLE_URL)!) }
