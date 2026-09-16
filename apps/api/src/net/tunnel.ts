@@ -29,6 +29,7 @@ const WEB_PORTS = new Set([80, 443, 8080, 8443, 8000]);
 
 export interface TunnelSession {
   id: string;
+  token: string;      // bearer for the data-plane socket (never in audit/logs)
   siteId: string;
   kind: 'web' | 'ssh';
   ip: string;
@@ -63,7 +64,10 @@ function isKnownTarget(siteId: string, ip: string): boolean {
 export interface OpenResult {
   ok: boolean;
   ready: boolean;      // a collector data-channel is live for this site
-  url: string;         // browser entrypoint (empty until data plane is live)
+  url: string;         // web entrypoint (http reverse-proxy; empty for ssh / not-ready)
+  wsUrl?: string;      // ssh data-plane socket (ws(s); empty until data plane is live)
+  token?: string;      // bearer the browser presents on the data-plane socket
+  kind?: 'web' | 'ssh';
   sessionId?: string;
   reason?: string;
 }
@@ -92,9 +96,10 @@ export function openSession(opts: {
   }
 
   const id = randomBytes(18).toString('base64url');
+  const token = randomBytes(24).toString('base64url');
   const now = Date.now();
   const session: TunnelSession = {
-    id, siteId, kind: opts.kind, ip: opts.ip,
+    id, token, siteId, kind: opts.kind, ip: opts.ip,
     port: opts.kind === 'ssh' ? (opts.port || 22) : opts.port,
     createdAt: now, expiresAt: now + SESSION_TTL_MS
   };
@@ -106,13 +111,24 @@ export function openSession(opts: {
   // clear "collector must be online" message rather than a broken tab.
   const ready = hasCollectorChannel(siteId);
   const base = (opts.publicBase || '').replace(/\/+$/, '');
-  const url = ready
-    ? (opts.kind === 'web'
-        ? `${base}/api/v1/net/tunnel/web/${id}/`
-        : `${base}/api/v1/net/tunnel/ssh/${id}`)
-    : '';
+  const wsBase = base.replace(/^http/, 'ws'); // http→ws, https→wss
 
-  return { ok: ready, ready, url, sessionId: id, reason: ready ? undefined : 'Tunnel data plane not yet active for this site.' };
+  let url = '';
+  let wsUrl: string | undefined;
+  if (ready) {
+    if (opts.kind === 'web') {
+      url = `${base}/api/v1/net/tunnel/web/${id}/`;
+    } else {
+      wsUrl = `${wsBase}/ws/v1/tunnel/session?sid=${id}&token=${token}`;
+    }
+  }
+
+  return {
+    ok: ready, ready, url, wsUrl,
+    token: ready ? token : undefined,
+    kind: opts.kind, sessionId: id,
+    reason: ready ? undefined : 'Tunnel data plane not yet active for this site.'
+  };
 }
 
 export function getSession(id: string): TunnelSession | null {
@@ -120,6 +136,19 @@ export function getSession(id: string): TunnelSession | null {
   if (!s) return null;
   if (s.expiresAt < Date.now()) { sessions.delete(id); return null; }
   return s;
+}
+
+// validateSession returns the live session iff the token matches — the browser
+// presents this on the data-plane socket. Constant-ish comparison is fine here
+// (tokens are 192-bit random and single-use per short-lived session).
+export function validateSession(id: string, token: string): TunnelSession | null {
+  const s = getSession(id);
+  if (!s || !token || s.token !== token) return null;
+  return s;
+}
+
+export function closeSessionById(id: string): void {
+  sessions.delete(id);
 }
 
 function sweep(): void {

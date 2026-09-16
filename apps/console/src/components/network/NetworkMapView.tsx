@@ -5,6 +5,7 @@ import {
   MonitorSmartphone, Search, SlidersHorizontal, Server
 } from 'lucide-react';
 import { net, type NetHost, type NetNeighbor, type NetSite, type NetConfig } from '../../services/api';
+import SshTerminal from './SshTerminal';
 
 // ---- role presentation -------------------------------------------------------
 type Role = 'router' | 'switch' | 'ap' | 'printer' | 'camera' | 'nas' | 'workstation' | 'phone' | 'iot' | 'unknown';
@@ -137,6 +138,7 @@ export const NetworkMapView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [selected, setSelected] = useState<NetHost | null>(null);
+  const [sshHost, setSshHost] = useState<NetHost | null>(null);
   const [tab, setTab] = useState<'map' | 'table'>('map');
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -251,9 +253,10 @@ export const NetworkMapView: React.FC = () => {
           )}
         </div>
 
-        {selected && <DetailDrawer host={selected} onClose={() => setSelected(null)} onToast={(m) => { setToast(m); setTimeout(() => setToast(''), 6000); }} />}
+        {selected && <DetailDrawer host={selected} onClose={() => setSelected(null)} onToast={(m) => { setToast(m); setTimeout(() => setToast(''), 6000); }} onOpenSsh={(h) => setSshHost(h)} />}
       </div>
 
+      {sshHost && <SshTerminal host={sshHost} siteId={siteId} onClose={() => setSshHost(null)} />}
       {showSettings && siteId && <SettingsModal siteId={siteId} onClose={() => setShowSettings(false)} onSaved={() => { setShowSettings(false); loadTopology(siteId); }} />}
       {toast && <div className="fixed bottom-5 right-5 z-[120] max-w-sm px-4 py-3 rounded-xl shadow-lg border border-indigo-200 bg-indigo-50 text-indigo-800 text-sm font-semibold">{toast}</div>}
     </div>
@@ -404,7 +407,7 @@ const DeviceTable: React.FC<{
 );
 
 // ---- detail drawer -----------------------------------------------------------
-const DetailDrawer: React.FC<{ host: NetHost; onClose: () => void; onToast: (m: string) => void }> = ({ host, onClose, onToast }) => {
+const DetailDrawer: React.FC<{ host: NetHost; onClose: () => void; onToast: (m: string) => void; onOpenSsh: (h: NetHost) => void }> = ({ host, onClose, onToast, onOpenSsh }) => {
   const r = ROLE[roleOf(host)];
   const wp = webPort(host);
   const [busy, setBusy] = useState<string>('');
@@ -419,15 +422,9 @@ const DetailDrawer: React.FC<{ host: NetHost; onClose: () => void; onToast: (m: 
     } catch { onToast('Could not open a tunnel to this device.'); }
     finally { setBusy(''); }
   };
-  const openSsh = async () => {
+  const openSsh = () => {
     if (!host.ips?.[0]) return;
-    setBusy('ssh');
-    try {
-      const s = await net.openSSH({ ip: host.ips[0] });
-      if (s.url) window.open(s.url, '_blank', 'noopener');
-      else onToast('SSH tunnel not available yet — the site collector must be online.');
-    } catch { onToast('Could not open an SSH tunnel to this device.'); }
-    finally { setBusy(''); }
+    onOpenSsh(host); // launches the in-browser terminal (it brokers the session itself)
   };
 
   return (

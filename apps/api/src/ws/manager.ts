@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import type { WSEvent, WSMessageType } from '@openmsp/api-types';
+import { handleTunnelUpgrade } from '../net/tunnelWs.js';
 
 class WebSocketManager {
   private wss: WebSocketServer | null = null;
@@ -12,6 +13,11 @@ class WebSocketManager {
     server.on('upgrade', (request, socket, head) => {
       const url = new URL(request.url || '', `http://${request.headers.host}`);
       const pathname = url.pathname;
+
+      // On-LAN tunnel data plane (collector channel + browser terminals).
+      if (handleTunnelUpgrade(pathname, request, socket, head)) {
+        return;
+      }
 
       // Match /ws/v1/org/:orgId
       const match = pathname.match(/^\/ws\/v1\/org\/([^/]+)/);

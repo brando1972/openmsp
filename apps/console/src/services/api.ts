@@ -924,11 +924,26 @@ export const net = {
   // On-LAN tunnel: broker a session to a discovered device's web UI or SSH,
   // reached through the site collector. `url` is the browser-facing entrypoint
   // (empty when no collector is online to carry the tunnel).
-  openWebUI: async (opts: { ip: string; port: number; siteId?: string }): Promise<{ ok: boolean; url: string; sessionId?: string }> =>
+  openWebUI: async (opts: { ip: string; port: number; siteId?: string }): Promise<TunnelOpen> =>
     request('/net/tunnel/web', { method: 'POST', body: JSON.stringify(opts) }),
-  openSSH: async (opts: { ip: string; port?: number; siteId?: string }): Promise<{ ok: boolean; url: string; sessionId?: string }> =>
+  openSSH: async (opts: { ip: string; port?: number; siteId?: string }): Promise<TunnelOpen> =>
     request('/net/tunnel/ssh', { method: 'POST', body: JSON.stringify(opts) })
 };
+
+// Result of brokering a tunnel session. For SSH, `wsUrl` + `token` point the
+// in-browser terminal at the data-plane socket; for web, `url` is the reverse-
+// proxy entrypoint. `ready` is false when no site collector is online to carry
+// the tunnel, and `reason` explains why.
+export interface TunnelOpen {
+  ok: boolean;
+  ready: boolean;
+  url: string;
+  wsUrl?: string;
+  token?: string;
+  kind?: 'web' | 'ssh';
+  sessionId?: string;
+  reason?: string;
+}
 
 // Unified export object
 export const api = {

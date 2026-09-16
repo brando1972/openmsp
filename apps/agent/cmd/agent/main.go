@@ -19,6 +19,7 @@ import (
 	"openmsp/agent/internal/config"
 	"openmsp/agent/internal/executor"
 	"openmsp/agent/internal/netscan"
+	"openmsp/agent/internal/tunnel"
 	"openmsp/agent/internal/updater"
 	"openmsp/agent/internal/version"
 )
@@ -49,6 +50,9 @@ func manageCollector(ctx context.Context, api *client.Client, cfg *config.Config
 	was := siteCollector.active
 	siteCollector.active = resp.Collector
 	siteCollector.mu.Unlock()
+
+	// The on-LAN reach-through data plane runs only on the elected collector.
+	tunnel.Global().SetEnabled(resp.Collector)
 
 	if !resp.Collector {
 		if was {
@@ -227,6 +231,18 @@ func main() {
 	} else {
 		log.Printf("[*] Device already enrolled with ID: %s (Org: %s)", cfg.DeviceId, cfg.OrgId)
 	}
+
+	// Bring up the on-LAN reach-through supervisor. It idles until this agent is
+	// elected collector (manageCollector flips it on), then holds a persistent
+	// channel to the control plane for SSH/web sessions into discovered devices.
+	tunnel.Global().Configure(tunnel.Config{
+		ServerURL:    cfg.ServerURL,
+		DeviceId:     cfg.DeviceId,
+		DeviceSecret: cfg.DeviceSecret,
+		SiteId:       cfg.SiteId,
+		OrgId:        cfg.OrgId,
+	})
+	go tunnel.Global().Run(ctx)
 
 	// 3. Heartbeat & Command Processing
 	sendHeartbeat := func() error {
