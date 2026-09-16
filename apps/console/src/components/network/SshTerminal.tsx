@@ -184,6 +184,7 @@ export const SshTerminal: React.FC<{ host: NetHost; siteId: string; onClose: () 
               <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Username</label>
               <input
                 value={username} onChange={(e) => setUsername(e.target.value)} autoFocus
+                name="apex-ssh-user" autoComplete="off" data-1p-ignore data-lpignore="true"
                 className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-400"
                 placeholder="admin"
               />
@@ -201,6 +202,7 @@ export const SshTerminal: React.FC<{ host: NetHost; siteId: string; onClose: () 
                 <input
                   type="password" value={password} onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') connect(); }}
+                  name="apex-ssh-secret" autoComplete="new-password" data-1p-ignore data-lpignore="true"
                   className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-400"
                   placeholder="Password"
                 />
@@ -214,6 +216,7 @@ export const SshTerminal: React.FC<{ host: NetHost; siteId: string; onClose: () 
                   />
                   <input
                     type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)}
+                    name="apex-ssh-passphrase" autoComplete="new-password" data-1p-ignore data-lpignore="true"
                     className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-400"
                     placeholder="Key passphrase (optional)"
                   />
