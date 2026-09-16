@@ -6,6 +6,7 @@ import {
   Layers,
   Ticket,
   Radio,
+  Network,
   KeyRound,
   ShieldCheck,
   Zap,
@@ -185,6 +186,18 @@ export const MobileNavDrawer: React.FC = () => {
                 <span>ApexConnect</span>
               </div>
               <span className={`w-2 h-2 rounded-full ${rustDeskConfig.onlineState ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+            </button>
+
+            <button
+              onClick={() => navigateTo('network-map', 'Network Map')}
+              className={`w-full flex items-center justify-between p-2.5 rounded-lg transition ${
+                activeTab === 'network-map' ? 'bg-white/15 text-white font-bold' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Network className="w-4 h-4 text-sky-400" />
+                <span>Network Map</span>
+              </div>
             </button>
           </div>
 

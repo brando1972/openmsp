@@ -485,16 +485,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubTicketUpdated = api.ws.on('ticket.updated', (event) => {
       const { ticketId, status, assignedTech, updatedAt } = event.payload || {};
       if (!ticketId) return;
-      setTickets(prev => prev.map(t => (
-        t.id === ticketId
-          ? {
-              ...t,
-              status: status || t.status,
-              assignedTech: assignedTech || t.assignedTech,
-              updatedAt: updatedAt || new Date().toISOString()
-            }
-          : t
-      )));
+      setTickets(prev => {
+        // A ticket we don't have yet (e.g. one filed from an agent's "Request
+        // Support") — pull the fresh list so it appears without a manual refresh.
+        if (!prev.some(t => t.id === ticketId)) {
+          api.tickets.getTickets().then(list => { if (list) setTickets(list); }).catch(() => {});
+          return prev;
+        }
+        return prev.map(t => (
+          t.id === ticketId
+            ? {
+                ...t,
+                status: status || t.status,
+                assignedTech: assignedTech || t.assignedTech,
+                updatedAt: updatedAt || new Date().toISOString()
+              }
+            : t
+        ));
+      });
     });
 
     const unsubSessionStarted = api.ws.on('session.started', (event) => {
