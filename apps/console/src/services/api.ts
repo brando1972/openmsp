@@ -857,6 +857,79 @@ export const createEnrollmentToken = installers.generateToken;
 export const unlockMasterVault = vault.unlockVault;
 export const fetchVaultItems = vault.getVaultItems;
 
+// ---------------------------------------------------------------------------
+// Network discovery + topology
+// ---------------------------------------------------------------------------
+export interface NetHost {
+  mac?: string;
+  ips: string[];
+  hostname?: string;
+  vendor?: string;
+  model?: string;
+  role?: string;
+  openPorts?: number[];
+  services?: string[];
+  latencyMs?: number;
+  online: boolean;
+  sysName?: string;
+  sysDescr?: string;
+  uptimeSec?: number;
+  ifaces?: { index: number; name?: string; mac?: string; speedMb?: number; adminUp: boolean; operUp: boolean }[];
+  source?: string;
+  lastSeen: string;
+  managedDeviceId?: string | null;
+}
+export interface NetNeighbor {
+  aMac?: string; aName?: string; aPort?: string;
+  bMac?: string; bName?: string; bPort?: string;
+  source: string;
+}
+export interface NetSite {
+  siteId: string;
+  clientId: string;
+  prefixes: string[];
+  collectorDeviceId: string;
+  method: string;
+  updatedAt: string;
+  hostCount: number;
+  hosts: NetHost[];
+}
+export interface NetSnmpRedacted {
+  version: string; community: string; user: string; authAlg: string; privAlg: string; hasAuthKey: boolean; hasPrivKey: boolean;
+}
+export interface NetConfig {
+  siteId: string;
+  enabled: boolean;
+  fullIntervalMin: number;
+  liveIntervalMin: number;
+  prefixes: string[];
+  snmp: NetSnmpRedacted[];
+  collectorDeviceId: string | null;
+}
+
+export const net = {
+  inventory: async (): Promise<{ sites: NetSite[] }> => request('/net/inventory'),
+  topology: async (siteId: string): Promise<{ siteId: string; nodes: NetHost[]; edges: NetNeighbor[]; collectorDeviceId: string | null }> =>
+    request(`/net/topology?siteId=${encodeURIComponent(siteId)}`),
+  getConfig: async (siteId: string): Promise<NetConfig> =>
+    request(`/net/config?siteId=${encodeURIComponent(siteId)}`),
+  setConfig: async (cfg: {
+    siteId: string; enabled?: boolean; fullIntervalMin?: number; liveIntervalMin?: number;
+    prefixes?: string[];
+    snmp?: { version: string; community?: string; user?: string; authKey?: string; authAlg?: string; privKey?: string; privAlg?: string }[];
+  }): Promise<{ ok: boolean; siteId: string; snmp: NetSnmpRedacted[] }> =>
+    request('/net/config', { method: 'PUT', body: JSON.stringify(cfg) }),
+  scanNow: async (siteId: string): Promise<{ ok: boolean; siteId: string; collectorDeviceId: string | null }> =>
+    request('/net/scan-now', { method: 'POST', body: JSON.stringify({ siteId }) }),
+  // On-LAN tunnel: broker a session to a discovered device's web UI or SSH,
+  // reached through the site collector. `url` is the browser-facing entrypoint
+  // (empty when no collector is online to carry the tunnel).
+  openWebUI: async (opts: { ip: string; port: number; siteId?: string }): Promise<{ ok: boolean; url: string; sessionId?: string }> =>
+    request('/net/tunnel/web', { method: 'POST', body: JSON.stringify(opts) }),
+  openSSH: async (opts: { ip: string; port?: number; siteId?: string }): Promise<{ ok: boolean; url: string; sessionId?: string }> =>
+    request('/net/tunnel/ssh', { method: 'POST', body: JSON.stringify(opts) })
+};
+
 // Unified export object
 export const api = {
   auth,
@@ -872,6 +945,7 @@ export const api = {
   installers,
   mdm,
   mesh,
+  net,
   ws
 };
 

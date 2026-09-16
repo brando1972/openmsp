@@ -75,6 +75,9 @@ class DataStore {
   // that only has ApexConnect), an operator assigns it here so it filters and
   // counts like any other device.
   public meshNodeClients: Map<string, { clientId: string; clientName: string }> = new Map();
+  // siteId → network-scan config (enable, cadence, SNMP creds). SNMP secrets
+  // live here server-side only (persisted, never sent to the browser).
+  public netScan: Map<string, import('@openmsp/api-types').NetScanConfig> = new Map();
 
   private initialized = false;
 
@@ -82,7 +85,7 @@ class DataStore {
   private readonly dataFile = path.join(process.env.DATA_DIR || '/data', 'store.json');
   private readonly mapNames = [
     'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
-    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients'
+    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients', 'netScan'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 

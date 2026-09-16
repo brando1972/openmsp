@@ -252,9 +252,13 @@ export const Sidebar: React.FC = () => {
 
           {/* Network Probes & Marketplace */}
           <button
-            onClick={() => handleNavClick('rmm')}
-            className="w-10 h-10 rounded-lg flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition cursor-pointer"
-            title="Network Probes & SNMP Discovery"
+            onClick={() => handleNavClick('network-map')}
+            className={`w-10 h-10 rounded-lg flex items-center justify-center transition cursor-pointer ${
+              activeTab === 'network-map'
+                ? 'bg-white/15 text-white font-bold'
+                : 'text-white/60 hover:text-white hover:bg-white/10'
+            }`}
+            title="Network Discovery & Topology"
           >
             <Network className="w-4 h-4" />
           </button>

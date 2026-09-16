@@ -1,5 +1,7 @@
 package client
 
+import "encoding/json"
+
 // DeviceMetric holds system performance telemetry.
 type DeviceMetric struct {
 	CpuUsage   float64 `json:"cpuUsage"`
@@ -76,6 +78,40 @@ type AgentHeartbeatRequest struct {
 	Services      []DeviceService  `json:"services,omitempty"`
 	EventLogs     []SystemEventLog `json:"eventLogs,omitempty"`
 	RustDeskId    string           `json:"rustDeskId,omitempty"`
+	// Collector candidacy — the control plane uses these to elect one collector
+	// per site and hand it back the lease + scan config below.
+	Collector *CollectorCandidacy `json:"collector,omitempty"`
+}
+
+// CollectorCandidacy is the agent's pitch to be (or remain) the site collector.
+type CollectorCandidacy struct {
+	Platform   string  `json:"platform"`   // "macos" | "windows" | "linux"
+	UptimeDays float64 `json:"uptimeDays"` // longer = steadier candidate
+	Wired      bool    `json:"wired"`      // wired preferred over wireless
+	CanRawScan bool    `json:"canRawScan"` // privileged raw sockets available
+	Prefixes   []string `json:"prefixes"`  // CIDRs this host can reach
+	IsCollector bool   `json:"isCollector"` // currently holds the role (helps sticky election)
+}
+
+// ScanConfig is the collector's marching orders, returned in the heartbeat.
+type ScanConfig struct {
+	Enabled         bool       `json:"enabled"`
+	Prefixes        []string   `json:"prefixes,omitempty"`        // empty ⇒ auto-detect
+	FullIntervalMin int        `json:"fullIntervalMin,omitempty"` // default 30
+	LiveIntervalMin int        `json:"liveIntervalMin,omitempty"` // default 5
+	SNMP            []SNMPCred `json:"snmp,omitempty"`
+	ScanNow         bool       `json:"scanNow,omitempty"` // one-shot on-demand trigger
+}
+
+// SNMPCred mirrors netscan.SNMPCred (kept here so the client stays leaf-level).
+type SNMPCred struct {
+	Version   string `json:"version"`
+	Community string `json:"community,omitempty"`
+	User      string `json:"user,omitempty"`
+	AuthKey   string `json:"authKey,omitempty"`
+	AuthAlg   string `json:"authAlg,omitempty"`
+	PrivKey   string `json:"privKey,omitempty"`
+	PrivAlg   string `json:"privAlg,omitempty"`
 }
 
 // DeviceCommand represents an operational command dispatched to the agent.
@@ -96,6 +132,18 @@ type AgentHeartbeatResponse struct {
 	Acknowledged    bool            `json:"acknowledged"`
 	ServerTime      string          `json:"serverTime"`
 	PendingCommands []DeviceCommand `json:"pendingCommands"`
+	// Collector election result.
+	Collector             bool        `json:"collector"`
+	CollectorLeaseSeconds int         `json:"collectorLeaseSeconds,omitempty"`
+	ScanConfig            *ScanConfig `json:"scanConfig,omitempty"`
+}
+
+// NetworkScanRequest payload for POST /api/v1/agents/network-scan. Scan is the
+// netscan.Result, carried as raw JSON so the client package stays dependency-free.
+type NetworkScanRequest struct {
+	DeviceId     string          `json:"deviceId"`
+	DeviceSecret string          `json:"deviceSecret"`
+	Scan         json.RawMessage `json:"scan"`
 }
 
 // CommandResultRequest payload for POST /api/v1/agents/command-result.

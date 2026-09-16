@@ -10,11 +10,133 @@ import (
 	"syscall"
 	"time"
 
+	"encoding/json"
+	"sync"
+
 	"openmsp/agent/internal/client"
 	"openmsp/agent/internal/collector"
 	"openmsp/agent/internal/config"
 	"openmsp/agent/internal/executor"
+	"openmsp/agent/internal/netscan"
 )
+
+// collectorState tracks this agent's site-collector role between heartbeats.
+type collectorState struct {
+	mu       sync.Mutex
+	active   bool
+	scanning bool
+	lastFull time.Time
+	lastLive time.Time
+}
+
+var siteCollector collectorState
+
+func (s *collectorState) isActive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active
+}
+
+// manageCollector reacts to the election result in each heartbeat response. When
+// this agent holds the collector role it runs discovery on the cadence the
+// control plane specified (or on an explicit ScanNow), reporting results back.
+// Scans run in the background so they never block the heartbeat loop.
+func manageCollector(ctx context.Context, api *client.Client, cfg *config.Config, resp *client.AgentHeartbeatResponse) {
+	siteCollector.mu.Lock()
+	was := siteCollector.active
+	siteCollector.active = resp.Collector
+	siteCollector.mu.Unlock()
+
+	if !resp.Collector {
+		if was {
+			log.Printf("[collector] role released for this site")
+		}
+		return
+	}
+	if !was {
+		log.Printf("[collector] elected as site collector for org %s", cfg.OrgId)
+	}
+	sc := resp.ScanConfig
+	if sc == nil || !sc.Enabled {
+		return
+	}
+
+	fullEvery := time.Duration(orDefault(sc.FullIntervalMin, 30)) * time.Minute
+	liveEvery := time.Duration(orDefault(sc.LiveIntervalMin, 5)) * time.Minute
+
+	siteCollector.mu.Lock()
+	if siteCollector.scanning {
+		siteCollector.mu.Unlock()
+		return
+	}
+	needFull := sc.ScanNow || siteCollector.lastFull.IsZero() || time.Since(siteCollector.lastFull) >= fullEvery
+	needLive := !needFull && (siteCollector.lastLive.IsZero() || time.Since(siteCollector.lastLive) >= liveEvery)
+	if !needFull && !needLive {
+		siteCollector.mu.Unlock()
+		return
+	}
+	siteCollector.scanning = true
+	siteCollector.mu.Unlock()
+
+	go func(full bool) {
+		defer func() {
+			siteCollector.mu.Lock()
+			siteCollector.scanning = false
+			if full {
+				siteCollector.lastFull = time.Now()
+			} else {
+				siteCollector.lastLive = time.Now()
+			}
+			siteCollector.mu.Unlock()
+		}()
+
+		opts := netscan.Options{
+			SiteID:   cfg.SiteId,
+			Prefixes: sc.Prefixes,
+			Liveness: !full,
+			SNMP:     toNetscanCreds(sc.SNMP),
+		}
+		kind := "liveness"
+		if full {
+			kind = "full"
+		}
+		log.Printf("[collector] starting %s network scan...", kind)
+		result := netscan.Scan(opts)
+		log.Printf("[collector] %s scan done: %d hosts, %d edges in %s", kind, len(result.Hosts), len(result.Neighbors), result.Duration)
+
+		raw, err := json.Marshal(result)
+		if err != nil {
+			log.Printf("[collector] marshal scan failed: %v", err)
+			return
+		}
+		if err := api.ReportNetworkScan(ctx, client.NetworkScanRequest{
+			DeviceId: cfg.DeviceId, DeviceSecret: cfg.DeviceSecret, Scan: raw,
+		}); err != nil {
+			log.Printf("[collector] report scan failed: %v", err)
+			return
+		}
+		log.Printf("[collector] scan reported to control plane")
+	}(needFull)
+}
+
+func toNetscanCreds(in []client.SNMPCred) []netscan.SNMPCred {
+	out := make([]netscan.SNMPCred, 0, len(in))
+	for _, c := range in {
+		out = append(out, netscan.SNMPCred{
+			Version: c.Version, Community: c.Community,
+			User: c.User, AuthKey: c.AuthKey, AuthAlg: c.AuthAlg,
+			PrivKey: c.PrivKey, PrivAlg: c.PrivAlg,
+		})
+	}
+	return out
+}
+
+func orDefault(v, d int) int {
+	if v <= 0 {
+		return d
+	}
+	return v
+}
 
 func main() {
 	serverFlag := flag.String("server", "http://localhost:3001", "API base URL")
@@ -118,12 +240,23 @@ func main() {
 			Network:       network,
 			InstalledApps: installedApps,
 			Services:      services,
+			Collector: &client.CollectorCandidacy{
+				Platform:    collector.GetSystemInfo().OS,
+				UptimeDays:  metrics.UptimeDays,
+				Wired:       false,
+				CanRawScan:  os.Geteuid() == 0,
+				Prefixes:    netscan.LocalPrefixes(),
+				IsCollector: siteCollector.isActive(),
+			},
 		}
 
 		hbResp, err := apiClient.Heartbeat(ctx, hbReq)
 		if err != nil {
 			return fmt.Errorf("heartbeat API error: %w", err)
 		}
+
+		// Act on the collector election result.
+		manageCollector(ctx, apiClient, cfg, hbResp)
 
 		log.Printf("[+] Heartbeat acknowledged at %s (CPU: %.1f%%, RAM: %.1f%%, Disk: %.1f%%, Uptime: %.2fd)",
 			hbResp.ServerTime, metrics.CpuUsage, metrics.RamUsage, metrics.DiskUsage, metrics.UptimeDays)

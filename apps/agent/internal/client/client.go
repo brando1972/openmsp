@@ -102,6 +102,32 @@ func (c *Client) Heartbeat(ctx context.Context, req AgentHeartbeatRequest) (*Age
 	return &hbResp, nil
 }
 
+// ReportNetworkScan uploads a collector's discovery result to the control plane.
+func (c *Client) ReportNetworkScan(ctx context.Context, req NetworkScanRequest) error {
+	url := fmt.Sprintf("%s/api/v1/agents/network-scan", c.baseURL)
+	bodyBytes, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal network scan request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("create network scan request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("do network scan request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("network scan report failed (status %d): %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
 // ReportCommandResult sends the output and exit status of a completed command back to the API.
 func (c *Client) ReportCommandResult(ctx context.Context, req CommandResultRequest) error {
 	url := fmt.Sprintf("%s/api/v1/agents/command-result", c.baseURL)

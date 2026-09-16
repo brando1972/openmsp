@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { store } from '../db/store.js';
 import { wsManager } from '../ws/manager.js';
+import { electCollector, scanConfigFor, ingestScan } from '../net/discovery.js';
 import type {
   AgentEnrollRequest,
   AgentEnrollResponse,
@@ -110,7 +111,7 @@ router.post('/enroll', (req, res) => {
 
 // POST /api/v1/agents/heartbeat
 router.post('/heartbeat', (req, res) => {
-  const { deviceId, deviceSecret, metrics, network, installedApps, services, eventLogs, rustDeskId } =
+  const { deviceId, deviceSecret, metrics, network, installedApps, services, eventLogs, rustDeskId, collector } =
     req.body as AgentHeartbeatRequest;
 
   if (!deviceId || !deviceSecret) {
@@ -234,10 +235,21 @@ router.post('/heartbeat', (req, res) => {
     store.deviceCommands.set(cmd.id, cmd);
   }
 
+  // Site-collector election: pick one agent per site to run LAN discovery.
+  const siteId = (device.siteId as string) || '_default';
+  let isCollector = false;
+  const leaseSeconds = 90;
+  if (collector) {
+    isCollector = electCollector(siteId, device.id, collector, leaseSeconds);
+  }
+
   const response: AgentHeartbeatResponse = {
     acknowledged: true,
     serverTime: new Date().toISOString(),
-    pendingCommands
+    pendingCommands,
+    collector: isCollector,
+    collectorLeaseSeconds: leaseSeconds,
+    scanConfig: isCollector ? (scanConfigFor(siteId) ?? undefined) : undefined
   };
 
   res.json(response);
@@ -273,6 +285,40 @@ router.post('/command-result', (req, res) => {
   });
 
   res.json({ success: true });
+});
+
+// POST /api/v1/agents/network-scan — a collector uploads a LAN discovery result.
+router.post('/network-scan', (req, res) => {
+  const { deviceId, deviceSecret, scan } = req.body || {};
+  if (!deviceId || !deviceSecret || !scan) {
+    res.status(400).json({ error: 'deviceId, deviceSecret and scan are required' });
+    return;
+  }
+  const device = store.devices.get(deviceId);
+  if (!device) {
+    res.status(404).json({ error: 'Device not found' });
+    return;
+  }
+  if ((device as any).deviceSecret && (device as any).deviceSecret !== deviceSecret) {
+    res.status(401).json({ error: 'Invalid device secret' });
+    return;
+  }
+  try {
+    ingestScan(deviceId, scan);
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+    return;
+  }
+  const scanClient = device.clientId ? store.clients.get(device.clientId) : undefined;
+  const orgId = ((scanClient as any)?.orgId as string) || Array.from(store.orgs.values())[0]?.id;
+  if (orgId) {
+    wsManager.broadcastToOrg(orgId, 'network.scan_updated' as any, {
+      siteId: device.siteId || '_default',
+      hosts: Array.isArray(scan.hosts) ? scan.hosts.length : 0,
+      method: scan.method
+    });
+  }
+  res.json({ acknowledged: true });
 });
 
 export default router;

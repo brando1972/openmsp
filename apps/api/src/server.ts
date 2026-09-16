@@ -18,6 +18,7 @@ import auditRouter from './routes/audit.js';
 import installersRouter from './routes/installers.js';
 import mdmRouter from './routes/mdm.js';
 import meshRouter from './routes/mesh.js';
+import netRouter from './routes/net.js';
 import { meshClient } from './mesh/meshClient.js';
 import { startWatchdog } from './mesh/heal.js';
 
@@ -30,7 +31,7 @@ wsManager.init(server);
 // Middleware
 app.set('trust proxy', true);
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '8mb' })); // network-scan payloads can be large
 
 // Request logging
 app.use((req, res, next) => {
@@ -65,6 +66,7 @@ app.use('/api/v1/audit', auditRouter);
 app.use('/api/v1/installers', installersRouter);
 app.use('/api/v1/mdm', mdmRouter);
 app.use('/api/v1/mesh', meshRouter);
+app.use('/api/v1/net', netRouter);
 
 // 404 Handler
 app.use((req, res) => {

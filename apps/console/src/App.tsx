@@ -14,6 +14,7 @@ import { RMMView } from './components/rmm/RMMView';
 import { AutomationsView } from './components/rmm/AutomationsView';
 import { PatchingView } from './components/rmm/PatchingView';
 import { RemoteSupportView } from './components/remoteSupport/RemoteSupportView';
+import { NetworkMapView } from './components/network/NetworkMapView';
 import { PSATicketsView } from './components/psa/PSATicketsView';
 import { VaultView } from './components/vault/VaultView';
 import { AICopilotView } from './components/ai/AICopilotView';
@@ -44,6 +45,7 @@ const MainAppContent: React.FC = () => {
           {currentViewType === 'automations' && <AutomationsView />}
           {currentViewType === 'patching' && <PatchingView />}
           {currentViewType === 'remote-support' && <RemoteSupportView />}
+          {currentViewType === 'network-map' && <NetworkMapView />}
           {currentViewType === 'psa-tickets' && <PSATicketsView />}
           {currentViewType === 'vault' && <VaultView />}
           {currentViewType === 'ai-copilot' && <AICopilotView />}

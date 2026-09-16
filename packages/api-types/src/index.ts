@@ -12,6 +12,7 @@ export type NavigationTab =
   | 'ai-copilot'
   | 'patching'
   | 'automations'
+  | 'network-map'
   | 'settings';
 
 export type DeviceOS = 'windows' | 'macos' | 'linux' | 'network';
@@ -372,12 +373,104 @@ export interface AgentHeartbeatRequest {
   services?: DeviceService[];
   eventLogs?: SystemEventLog[];
   rustDeskId?: string;
+  collector?: CollectorCandidacy;
 }
 
 export interface AgentHeartbeatResponse {
   acknowledged: boolean;
   serverTime: string;
   pendingCommands: DeviceCommand[];
+  // Site-collector election result + marching orders.
+  collector?: boolean;
+  collectorLeaseSeconds?: number;
+  scanConfig?: NetScanConfig;
+}
+
+// ---------------------------------------------------------------------------
+// Network discovery (collector role) + topology
+// ---------------------------------------------------------------------------
+export interface CollectorCandidacy {
+  platform: string;
+  uptimeDays: number;
+  wired: boolean;
+  canRawScan: boolean;
+  prefixes: string[];
+  isCollector: boolean;
+}
+
+export interface SnmpCred {
+  version: string; // "2c" | "3"
+  community?: string;
+  user?: string;
+  authKey?: string;
+  authAlg?: string;
+  privKey?: string;
+  privAlg?: string;
+}
+
+export interface NetScanConfig {
+  enabled: boolean;
+  prefixes?: string[];
+  fullIntervalMin?: number;
+  liveIntervalMin?: number;
+  snmp?: SnmpCred[];
+  scanNow?: boolean;
+}
+
+export interface DiscoveredInterface {
+  index: number;
+  name?: string;
+  mac?: string;
+  speedMb?: number;
+  adminUp: boolean;
+  operUp: boolean;
+}
+
+export interface DiscoveredHost {
+  mac?: string;
+  ips: string[];
+  hostname?: string;
+  vendor?: string;
+  model?: string;
+  role?: string;
+  openPorts?: number[];
+  services?: string[];
+  latencyMs?: number;
+  online: boolean;
+  sysName?: string;
+  sysDescr?: string;
+  uptimeSec?: number;
+  ifaces?: DiscoveredInterface[];
+  source?: string;
+  lastSeen: string;
+  // set control-plane-side when a discovered host matches a managed device
+  managedDeviceId?: string | null;
+}
+
+export interface DiscoveredNeighbor {
+  aMac?: string;
+  aName?: string;
+  aPort?: string;
+  bMac?: string;
+  bName?: string;
+  bPort?: string;
+  source: string; // lldp|cdp|bridge|inferred
+}
+
+export interface NetworkScanResult {
+  siteId?: string;
+  prefixes: string[];
+  hosts: DiscoveredHost[];
+  neighbors: DiscoveredNeighbor[];
+  startedAt: string;
+  durationMs: string;
+  method: string;
+}
+
+export interface NetworkScanRequest {
+  deviceId: string;
+  deviceSecret: string;
+  scan: NetworkScanResult;
 }
 
 // ---------------------------------------------------------------------------
