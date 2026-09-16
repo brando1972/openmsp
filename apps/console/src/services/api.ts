@@ -530,10 +530,27 @@ export interface ManagedTabletsResponse {
   error?: string;
 }
 
+export interface HmdmTelemetry {
+  batteryLevel: number | null; charging: string | null;
+  ramTotalMb: number | null; ramAvailMb: number | null;
+  wifi: boolean | null; mobiledata: boolean | null; gps: boolean | null; bluetooth: boolean | null;
+  ip: string | null; ssid: string | null; wifiRssi: number | null; carrier: string | null; mobileRssi: number | null;
+  ts: number | null;
+}
+export interface HmdmDeviceInfo { id: number; number: string; description: string; configurationId: number | null; model: string; lastUpdate: number }
+export interface HmdmConfig { id: number; name: string; kioskMode: boolean }
+export interface TabletDetails { configured: boolean; device?: HmdmDeviceInfo | null; telemetry?: HmdmTelemetry | null; profiles: HmdmConfig[] }
+
 export const mdm = {
   getTablets: async (): Promise<ManagedTabletsResponse> => {
     return request<ManagedTabletsResponse>('/mdm/devices');
   },
+  // Headwind profile + live telemetry (battery/RAM/network) for a tablet by serial.
+  getDetails: async (device: string): Promise<TabletDetails> =>
+    request<TabletDetails>(`/mdm/devices/${encodeURIComponent(device)}/details`),
+  // Set the tablet's Headwind configuration ("profile").
+  setProfile: async (device: string, configId: number): Promise<{ ok: boolean; configId: number }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/profile`, { method: 'POST', body: JSON.stringify({ configId }) }),
 
   renameTablet: async (id: string, name: string): Promise<{ ok: boolean; id: string; name: string }> => {
     return request<{ ok: boolean; id: string; name: string }>(`/mdm/devices/${encodeURIComponent(id)}/name`, {

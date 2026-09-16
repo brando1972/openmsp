@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Monitor, RefreshCw, Wifi, ShieldCheck, Laptop, Smartphone, Radio,
   AlertTriangle, Loader2, Cpu, MemoryStick, HardDrive, Clock, ExternalLink, ImageOff,
-  X, Maximize2, Wrench, Building2
+  X, Maximize2, Wrench, Building2, Battery, BatteryCharging, SlidersHorizontal
 } from 'lucide-react';
-import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth, type MeshTelemetry, type MeshAgentStatus } from '../../services/api';
+import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth, type MeshTelemetry, type MeshAgentStatus, type TabletDetails } from '../../services/api';
 import { useApp } from '../../data/AppContext';
 import { ApexConnectDesktop } from './ApexConnectDesktop';
 
@@ -111,6 +111,82 @@ const DesktopThumb: React.FC<{ fetchThumb: ThumbFetch; cacheKey: string; online:
           <Clock className="w-2.5 h-2.5" /> {rel(capturedAt)}
         </div>
       )}
+    </div>
+  );
+};
+
+// Rich telemetry + Headwind profile control for an Android tablet.
+const TabletPanel: React.FC<{ device: string; model?: string }> = ({ device, model }) => {
+  const [d, setD] = useState<TabletDetails | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    let alive = true;
+    const load = async () => { try { const r = await mdm.getDetails(device); if (alive) setD(r); } catch { /* ignore */ } };
+    load(); const t = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, [device]);
+
+  const t = d?.telemetry || null;
+  const bat = t?.batteryLevel ?? null;
+  const charging = !!(t?.charging && /charg|full/i.test(t.charging));
+  const batColor = bat == null ? 'bg-slate-300' : bat <= 15 ? 'bg-red-500' : bat <= 35 ? 'bg-amber-500' : 'bg-emerald-500';
+  const ramPct = t && t.ramTotalMb && t.ramAvailMb != null ? Math.min(100, Math.max(0, Math.round((1 - t.ramAvailMb / t.ramTotalMb) * 100))) : null;
+  const ramUsedGb = t && t.ramTotalMb && t.ramAvailMb != null ? ((t.ramTotalMb - t.ramAvailMb) / 1024).toFixed(1) : null;
+  const ramTotGb = t && t.ramTotalMb ? (t.ramTotalMb / 1024).toFixed(1) : null;
+  const net = t?.wifi ? (t.ssid || 'Wi-Fi') : t?.mobiledata ? (t.carrier || 'Cellular') : null;
+  const curId = d?.device?.configurationId ?? null;
+  const profiles = d?.profiles || [];
+
+  const applyProfile = async (cid: number) => {
+    setSaving(true); setMsg('');
+    try {
+      const r = await mdm.setProfile(device, cid);
+      setMsg(r.ok ? 'Profile queued — applies on next check-in' : 'Failed to set profile');
+      const rr = await mdm.getDetails(device); setD(rr);
+    } catch { setMsg('Failed to set profile'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      {/* Battery gauge */}
+      <div className="flex items-center gap-2">
+        {charging ? <BatteryCharging className="w-4 h-4 text-emerald-600 shrink-0" /> : <Battery className="w-4 h-4 text-slate-400 shrink-0" />}
+        <div className="relative flex-1 h-4 rounded-md bg-slate-100 border border-slate-200 overflow-hidden">
+          {bat != null && <div className={`h-full ${batColor} transition-all`} style={{ width: `${bat}%` }} />}
+          <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-slate-700 tabular-nums">
+            {bat != null ? `${bat}%${charging ? ' · charging' : ''}` : 'battery —'}
+          </span>
+        </div>
+      </div>
+      {/* RAM gauge */}
+      <Metric icon={MemoryStick} label="RAM" value={ramPct} warn={75} crit={90} />
+      {/* facts */}
+      <div className="flex flex-col gap-0.5 text-[10px] text-slate-500 leading-snug">
+        {net && <div className="flex items-center gap-1.5"><Wifi className="w-3 h-3 text-slate-400 shrink-0" /><span className="truncate">{net}{t?.wifiRssi != null ? ` · ${t.wifiRssi} dBm` : ''}</span></div>}
+        {(ramUsedGb && ramTotGb) && <div className="flex items-center gap-1.5"><HardDrive className="w-3 h-3 text-slate-400 shrink-0" /><span>{ramUsedGb} / {ramTotGb} GB RAM</span></div>}
+        <div className="flex items-center gap-1.5"><Smartphone className="w-3 h-3 text-slate-400 shrink-0" /><span className="truncate">{model && model !== 'Android tablet' ? model : 'Android tablet'}</span></div>
+      </div>
+      {/* Profile selector */}
+      {d?.configured && profiles.length > 0 && (
+        <div className="flex items-center gap-1.5">
+          <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <select
+            value={curId ?? ''}
+            disabled={saving}
+            onChange={(e) => { if (e.target.value) applyProfile(parseInt(e.target.value, 10)); }}
+            className="flex-1 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 cursor-pointer outline-none focus:border-emerald-500"
+            title="Headwind profile"
+          >
+            {curId == null && <option value="">Set profile…</option>}
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}{p.kioskMode ? ' · kiosk' : ''}</option>)}
+          </select>
+          {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+        </div>
+      )}
+      {msg && <div className="text-[10px] text-emerald-600 font-semibold">{msg}</div>}
+      {!t && d?.configured && <div className="text-[10px] text-slate-400">Telemetry populates within ~5 min of the next check-in.</div>}
     </div>
   );
 };
@@ -366,6 +442,8 @@ export const RemoteSupportView: React.FC = () => {
                       </div>
                     ) : c.kind === 'mesh' ? (
                       <div className="text-[11px] text-slate-400 py-1">Remote desktop ready · telemetry loading…</div>
+                    ) : c.device ? (
+                      <TabletPanel device={c.device} model={c.model} />
                     ) : (
                       <div className="text-[11px] text-slate-500 py-1">{c.model && c.model !== 'Android tablet' ? `Android tablet · ${c.model}` : 'Android tablet'}</div>
                     )}

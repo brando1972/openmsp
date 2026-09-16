@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
 import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
+import { hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig } from '../mdm/hmdm.js';
 
 /**
  * MDM / Managed Tablets proxy.
@@ -152,6 +153,35 @@ router.patch('/devices/:id/name', async (req: AuthenticatedRequest, res) => {
     const message = err instanceof Error ? err.message : 'relay unreachable';
     res.status(502).json({ error: message });
   }
+});
+
+// GET /api/v1/mdm/devices/:id/details — Headwind profile + live telemetry for a tablet.
+// :id is the relay/hardware serial (e.g. HNQ01Q1C).
+router.get('/devices/:id/details', async (req: AuthenticatedRequest, res) => {
+  const serial = String(req.params.id);
+  if (!hmdmConfigured()) { res.json({ configured: false, profiles: [] }); return; }
+  const device = await getDeviceBySerial(serial);
+  const profiles = await listConfigs();
+  const telemetry = device ? await getTelemetry(device.id) : null;
+  res.json({ configured: true, device, telemetry, profiles });
+});
+
+// POST /api/v1/mdm/devices/:id/profile — set the tablet's Headwind configuration ("profile").
+// Body: { configId }. Swaps devices.configurationid in Headwind; the device applies it on next sync.
+router.post('/devices/:id/profile', async (req: AuthenticatedRequest, res) => {
+  const serial = String(req.params.id);
+  const configId = parseInt(String(req.body?.configId), 10);
+  if (!hmdmConfigured()) { res.status(503).json({ error: 'Headwind not configured' }); return; }
+  if (!Number.isFinite(configId)) { res.status(400).json({ error: 'configId required' }); return; }
+  const device = await getDeviceBySerial(serial);
+  if (!device) { res.status(404).json({ error: 'device not found in Headwind' }); return; }
+  const ok = await setConfig(device.id, configId);
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'mdm.set_profile', targetType: 'device', targetId: serial,
+    details: { configId, hmdmDeviceId: device.id }, ipAddress: req.ip
+  });
+  res.status(ok ? 200 : 502).json({ ok, configId });
 });
 
 export default router;
