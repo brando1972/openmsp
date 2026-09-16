@@ -20,10 +20,27 @@ const ROLE: Record<string, { label: string; Icon: IconCmp; color: string; tier: 
   workstation: { label: 'Workstation', Icon: Laptop,            color: '#10b981', tier: 3 },
   phone:       { label: 'Phone',       Icon: Smartphone,        color: '#14b8a6', tier: 3 },
   iot:         { label: 'IoT',         Icon: Cpu,               color: '#a3a3a3', tier: 3 },
-  unknown:     { label: 'Unknown',     Icon: HelpCircle,        color: '#94a3b8', tier: 3 }
+  unknown:     { label: 'Unknown',     Icon: HelpCircle,        color: '#94a3b8', tier: 3 },
+  // synthetic / derived roles used only for the topology tree
+  gateway:     { label: 'Gateway',     Icon: Router,            color: '#818cf8', tier: 0 },
+  internet:    { label: 'Internet',    Icon: Globe,             color: '#38bdf8', tier: 0 }
 };
 const roleOf = (h: NetHost): Role => (ROLE[h.role || 'unknown'] ? (h.role as Role) : 'unknown');
-const nameOf = (h: NetHost) => h.hostname || h.sysName || (h.ips && h.ips[0]) || h.mac || 'device';
+
+// Best human name we have: hostname / SNMP sysName, else vendor (+ model), else IP.
+const nameOf = (h: NetHost) => {
+  if (h.hostname) return h.hostname;
+  if (h.sysName) return h.sysName;
+  if (h.vendor) return h.model && !/^[a-z0-9/.\- ]{0,4}$/i.test(h.model) ? `${h.vendor} ${h.model}` : h.vendor;
+  return (h.ips && h.ips[0]) || h.mac || 'device';
+};
+// Secondary line under the name (IP, or MAC when the name already is the IP).
+const subOf = (h: NetHost) => {
+  const ip = h.ips && h.ips[0];
+  const nm = nameOf(h);
+  if (ip && ip !== nm) return ip;
+  return h.mac || '';
+};
 
 // A discovered host can carry web / ssh affordances the tunnel can open.
 const webPort = (h: NetHost): number | null => {
@@ -37,80 +54,79 @@ const webPort = (h: NetHost): number | null => {
 const hasSsh = (h: NetHost) => (h.openPorts || []).includes(22);
 
 // ---- layout ------------------------------------------------------------------
-interface Node { h: NetHost; x: number; y: number; }
+interface Node { h: NetHost; x: number; y: number; iconKey: string; }
 interface Edge { a: Node; b: Node; source: string; }
 
 function keyFor(h: NetHost) { return (h.mac || h.ips?.[0] || nameOf(h)).toLowerCase(); }
+function ipNum(h: NetHost): number {
+  const m = ((h.ips && h.ips[0]) || '').match(/(\d+)\.(\d+)\.(\d+)\.(\d+)/);
+  return m ? (+m[1]) * 2 ** 24 + (+m[2]) * 2 ** 16 + (+m[3]) * 256 + (+m[4]) : 1e12;
+}
 
+/**
+ * Left-to-right hierarchical tree: Internet → gateway → switches → APs → clients,
+ * with elbow connectors — the UniFi-style topology. Ordering is stable (by IP) so
+ * the map doesn't reshuffle between scan polls. Real LLDP/CDP edges (when SNMP or
+ * a UniFi integration provides them) override the inferred backbone.
+ */
 function layout(hosts: NetHost[], neighbors: NetNeighbor[]): { nodes: Node[]; edges: Edge[]; width: number; height: number } {
-  const tiers: Record<number, NetHost[]> = { 0: [], 1: [], 2: [], 3: [] };
-  for (const h of hosts) tiers[ROLE[roleOf(h)].tier].push(h);
+  const sorted = [...hosts].sort((a, b) => ipNum(a) - ipNum(b));
 
-  const COL = 150, ROW = 130, PAD = 80;
-  const perRow = Math.max(6, Math.ceil(Math.sqrt(tiers[3].length || 1)) + 3);
+  const gw = sorted.find((h) => roleOf(h) === 'router')
+    || sorted.find((h) => (h.ips || []).some((ip) => /\.1$/.test(ip)))
+    || null;
+  const switches = sorted.filter((h) => roleOf(h) === 'switch' && h !== gw);
+  const aps = sorted.filter((h) => roleOf(h) === 'ap' && h !== gw);
+  const infra = new Set<NetHost>([gw, ...switches, ...aps].filter(Boolean) as NetHost[]);
+  const leaves = sorted.filter((h) => !infra.has(h));
+
+  const COLW = 250, ROWH = 88, PADX = 110, PADY = 60;
   const nodes: Node[] = [];
-  const place = (list: NetHost[], tier: number, yBase: number, wrap: boolean) => {
-    if (!list.length) return yBase;
-    if (!wrap) {
-      const totalW = (list.length - 1) * COL;
-      list.forEach((h, i) => nodes.push({ h, x: PAD + i * COL - totalW / 2, y: yBase }));
-      return yBase + ROW;
-    }
-    let y = yBase;
-    for (let i = 0; i < list.length; i += perRow) {
-      const row = list.slice(i, i + perRow);
-      const totalW = (row.length - 1) * COL;
-      row.forEach((h, j) => nodes.push({ h, x: PAD + j * COL - totalW / 2, y }));
-      y += ROW;
-    }
-    return y;
+  const nodeFor = new Map<NetHost, Node>();
+  const add = (h: NetHost, col: number, row: number, iconKey?: string): Node => {
+    const n: Node = { h, x: PADX + col * COLW, y: PADY + row * ROWH, iconKey: iconKey || roleOf(h) };
+    nodes.push(n); nodeFor.set(h, n); return n;
   };
-  let y = PAD;
-  y = place(tiers[0], 0, y, false);
-  y = place(tiers[1], 1, y, false);
-  y = place(tiers[2], 2, y, false);
-  y = place(tiers[3], 3, y, true);
 
+  // Client grid on the right, in a few tall columns (stable, pannable).
+  const perCol = Math.max(6, Math.min(16, Math.ceil(leaves.length / 3)));
+  const leafCol = 2 + (switches.length ? 1 : 0) + (aps.length ? 1 : 0);
+  leaves.forEach((h, i) => add(h, leafCol + Math.floor(i / perCol), i % perCol));
+
+  const rows = Math.max(perCol, switches.length, aps.length, 1);
+  const mid = (rows - 1) / 2;
+
+  const internet = { role: 'internet', hostname: 'Internet', ips: [], online: true, lastSeen: new Date().toISOString(), openPorts: [] } as unknown as NetHost;
+  const inet = add(internet, 0, mid, 'internet');
+  const gwNode = gw ? add(gw, 1, mid, 'gateway') : null;
+
+  let col = 2;
+  const swNodes = switches.map((h, i) => add(h, col, i + Math.max(0, mid - (switches.length - 1) / 2)));
+  if (switches.length) col++;
+  const apNodes = aps.map((h, i) => add(h, col, i + Math.max(0, mid - (aps.length - 1) / 2)));
+
+  const edges: Edge[] = [];
+  const link = (a?: Node | null, b?: Node | null, source = 'inferred') => { if (a && b && a !== b) edges.push({ a, b, source }); };
+  if (gwNode) link(inet, gwNode);
+  for (const s of swNodes) link(gwNode || inet, s);
+  for (const a of apNodes) link(swNodes[0] || gwNode || inet, a);
+  const leafParent = swNodes[0] || apNodes[0] || gwNode || inet;
+  for (const h of leaves) link(leafParent, nodeFor.get(h));
+
+  // Authoritative neighbor edges override inferred ones where both ends match.
   const byKey = new Map<string, Node>();
   for (const n of nodes) byKey.set(keyFor(n.h), n);
   const byName = new Map<string, Node>();
   for (const n of nodes) { const nm = (n.h.sysName || n.h.hostname || '').toLowerCase(); if (nm) byName.set(nm, n); }
-
-  const edges: Edge[] = [];
-  const seen = new Set<string>();
-  const addEdge = (a?: Node, b?: Node, source = 'inferred') => {
-    if (!a || !b || a === b) return;
-    const k = [keyFor(a.h), keyFor(b.h)].sort().join('|');
-    if (seen.has(k)) return;
-    seen.add(k);
-    edges.push({ a, b, source });
-  };
-
   for (const nb of neighbors) {
-    const a = (nb.aMac && byKey.get(nb.aMac.toLowerCase())) || (nb.aName && byName.get(nb.aName.toLowerCase())) || undefined;
-    const b = (nb.bMac && byKey.get(nb.bMac.toLowerCase())) || (nb.bName && byName.get(nb.bName.toLowerCase())) || undefined;
-    addEdge(a, b, nb.source);
+    const a = (nb.aMac && byKey.get(nb.aMac.toLowerCase())) || (nb.aName && byName.get(nb.aName.toLowerCase()));
+    const b = (nb.bMac && byKey.get(nb.bMac.toLowerCase())) || (nb.bName && byName.get(nb.bName.toLowerCase()));
+    if (a && b) link(a, b, nb.source);
   }
 
-  // Inferred backbone: connect infra tiers, and hang endpoints off the nearest
-  // switch (or router) when we have no authoritative edge for them.
-  const routers = nodes.filter((n) => roleOf(n.h) === 'router');
-  const switches = nodes.filter((n) => roleOf(n.h) === 'switch');
-  const aps = nodes.filter((n) => roleOf(n.h) === 'ap');
-  const gateway = routers[0] || switches[0] || null;
-  for (const sw of switches) addEdge(gateway || undefined, sw, 'inferred');
-  for (const ap of aps) addEdge(switches[0] || gateway || undefined, ap, 'inferred');
-  const hasEdge = (n: Node) => edges.some((e) => e.a === n || e.b === n);
-  const anchor = switches[0] || gateway;
-  if (anchor) for (const n of nodes) { if (ROLE[roleOf(n.h)].tier === 3 && !hasEdge(n)) addEdge(anchor, n, 'inferred'); }
-
-  const xs = nodes.map((n) => n.x);
-  const minX = Math.min(0, ...xs) - PAD;
-  const maxX = Math.max(0, ...xs) + PAD;
-  const width = maxX - minX;
-  // shift so minX -> PAD
-  for (const n of nodes) n.x -= minX;
-  return { nodes, edges, width: width, height: y + PAD };
+  const width = Math.max(...nodes.map((n) => n.x), 0) + PADX;
+  const height = Math.max(...nodes.map((n) => n.y), 0) + PADY + 30;
+  return { nodes, edges, width, height };
 }
 
 // ---- component ---------------------------------------------------------------
@@ -281,25 +297,35 @@ const TopologyCanvas: React.FC<{ graph: ReturnType<typeof layout>; selected: Net
         </pattern>
       </defs>
       <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill="url(#grid)" />
-      {/* edges */}
-      {edges.map((e, i) => (
-        <line key={i} x1={e.a.x} y1={e.a.y} x2={e.b.x} y2={e.b.y}
-          stroke={e.source === 'inferred' ? '#334155' : '#3b82f6'}
-          strokeWidth={e.source === 'inferred' ? 1.2 : 2}
-          strokeDasharray={e.source === 'inferred' ? '5 5' : undefined} opacity={0.8} />
-      ))}
+      {/* elbow edges: parent (left) → child (right) */}
+      {edges.map((e, i) => {
+        const x1 = e.a.x, y1 = e.a.y, x2 = e.b.x, y2 = e.b.y;
+        const midX = (x1 + x2) / 2;
+        const solid = e.source !== 'inferred';
+        return (
+          <path key={i} d={`M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`} fill="none"
+            stroke={solid ? '#3b82f6' : '#273246'} strokeWidth={solid ? 2 : 1.5}
+            strokeDasharray={solid ? undefined : '4 5'} />
+        );
+      })}
       {/* nodes */}
       {nodes.map((n, i) => {
-        const r = ROLE[roleOf(n.h)];
-        const isSel = selected && keyFor(selected) === keyFor(n.h);
+        const r = ROLE[n.iconKey] || ROLE.unknown;
+        const isInternet = n.iconKey === 'internet';
+        const isSel = !isInternet && selected && keyFor(selected) === keyFor(n.h);
+        const nm = isInternet ? 'Internet' : nameOf(n.h);
+        const sub = isInternet ? '' : subOf(n.h);
         return (
-          <g key={i} transform={`translate(${n.x},${n.y})`} className="cursor-pointer" onClick={(ev) => { ev.stopPropagation(); onSelect(n.h); }}>
-            <circle r={26} fill="#111826" stroke={isSel ? '#fff' : r.color} strokeWidth={isSel ? 3 : 2} />
-            {!n.h.online && <circle r={26} fill="#000" opacity={0.45} />}
-            <NodeGlyph role={roleOf(n.h)} color={r.color} />
-            <circle cx={18} cy={-18} r={5} fill={n.h.online ? '#10b981' : '#64748b'} stroke="#111826" strokeWidth={2} />
-            <text y={44} textAnchor="middle" fontSize={12} fill="#cbd5e1" fontWeight={600}>{truncate(nameOf(n.h), 18)}</text>
-            <text y={59} textAnchor="middle" fontSize={10} fill="#64748b">{n.h.vendor || r.label}</text>
+          <g key={i} transform={`translate(${n.x},${n.y})`} className={isInternet ? '' : 'cursor-pointer'}
+             onClick={(ev) => { ev.stopPropagation(); if (!isInternet) onSelect(n.h); }}>
+            <circle r={24} fill="#111826" stroke={isSel ? '#ffffff' : r.color} strokeWidth={isSel ? 3 : 2} />
+            {!n.h.online && !isInternet && <circle r={24} fill="#000" opacity={0.45} />}
+            <NodeGlyph iconKey={n.iconKey} color={r.color} />
+            {!isInternet && (
+              <circle cx={17} cy={-17} r={4.5} fill={n.h.online ? '#10b981' : '#64748b'} stroke="#111826" strokeWidth={2} />
+            )}
+            <text y={41} textAnchor="middle" fontSize={12.5} fill="#e2e8f0" fontWeight={700}>{truncate(nm, 22)}</text>
+            {sub && <text y={56} textAnchor="middle" fontSize={10.5} fill="#64748b">{sub}</text>}
           </g>
         );
       })}
@@ -307,12 +333,12 @@ const TopologyCanvas: React.FC<{ graph: ReturnType<typeof layout>; selected: Net
   );
 };
 
-// SVG glyph per role (foreignObject keeps the lucide icon crisp).
-const NodeGlyph: React.FC<{ role: Role; color: string }> = ({ role, color }) => {
-  const Icon = ROLE[role].Icon;
+// SVG glyph per role/kind (foreignObject keeps the lucide icon crisp).
+const NodeGlyph: React.FC<{ iconKey: string; color: string }> = ({ iconKey, color }) => {
+  const Icon = (ROLE[iconKey] || ROLE.unknown).Icon;
   return (
-    <foreignObject x={-12} y={-12} width={24} height={24}>
-      <div style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color }}>
+    <foreignObject x={-11} y={-11} width={22} height={22}>
+      <div style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color }}>
         <Icon className="w-5 h-5" />
       </div>
     </foreignObject>
