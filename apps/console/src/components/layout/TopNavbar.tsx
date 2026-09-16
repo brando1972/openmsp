@@ -121,6 +121,9 @@ export const TopNavbar: React.FC = () => {
             <span className="font-bold text-white text-xs tracking-tight">
               {whiteLabel.companyName || 'OpenMSP'}
             </span>
+            <span className="font-mono text-[9px] leading-none text-white/30" title={`v${__APP_VERSION__} · ${__BUILD_SHA__}`}>
+              v{__APP_VERSION__}
+            </span>
           </div>
         </div>
 
@@ -400,6 +403,15 @@ export const TopNavbar: React.FC = () => {
           >
             <Sparkles className="w-3.5 h-3.5" />
           </button>
+
+          {/* Build tag — glance to confirm this tab is on the latest deploy.
+              Version bumps per commit; the short git SHA is injected at build. */}
+          <span
+            className="hidden lg:inline-flex items-center font-mono text-[10px] leading-none text-white/35 hover:text-white/60 transition select-text whitespace-nowrap"
+            title={`ApexMSP console v${__APP_VERSION__} · build ${__BUILD_SHA__}`}
+          >
+            v{__APP_VERSION__}<span className="mx-0.5 text-white/20">·</span>{__BUILD_SHA__}
+          </span>
         </div>
       </div>
     </header>
