@@ -68,6 +68,8 @@ export interface ManagedDevice {
   metrics: DeviceMetric;
   rustDeskId: string;
   rustDeskOnline: boolean;
+  agentVersion?: string;
+  arch?: string;
   mdmEnrolled: boolean;
   encryptionStatus: 'encrypted' | 'decrypted' | 'pending';
   encryptionKey?: string; // Recovery key (stored restricted, not sent by default)
@@ -374,6 +376,14 @@ export interface AgentHeartbeatRequest {
   eventLogs?: SystemEventLog[];
   rustDeskId?: string;
   collector?: CollectorCandidacy;
+  agentVersion?: string;
+  arch?: string;
+}
+
+export interface AgentUpdate {
+  version: string;
+  url: string;
+  sha256: string;
 }
 
 export interface AgentHeartbeatResponse {
@@ -384,6 +394,7 @@ export interface AgentHeartbeatResponse {
   collector?: boolean;
   collectorLeaseSeconds?: number;
   scanConfig?: NetScanConfig;
+  update?: AgentUpdate;
 }
 
 // ---------------------------------------------------------------------------

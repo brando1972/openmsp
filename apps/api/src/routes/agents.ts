@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { store } from '../db/store.js';
 import { wsManager } from '../ws/manager.js';
 import { electCollector, scanConfigFor, ingestScan } from '../net/discovery.js';
+import { updateDirectiveFor, artifactPath } from '../releases/manifest.js';
+import { createReadStream } from 'fs';
 import type {
   AgentEnrollRequest,
   AgentEnrollResponse,
@@ -111,7 +113,7 @@ router.post('/enroll', (req, res) => {
 
 // POST /api/v1/agents/heartbeat
 router.post('/heartbeat', (req, res) => {
-  const { deviceId, deviceSecret, metrics, network, installedApps, services, eventLogs, rustDeskId, collector } =
+  const { deviceId, deviceSecret, metrics, network, installedApps, services, eventLogs, rustDeskId, collector, agentVersion, arch } =
     req.body as AgentHeartbeatRequest;
 
   if (!deviceId || !deviceSecret) {
@@ -145,6 +147,8 @@ router.post('/heartbeat', (req, res) => {
   if (installedApps) device.installedApps = installedApps;
   if (services) device.services = services;
   if (eventLogs) device.eventLogs = eventLogs;
+  if (agentVersion) device.agentVersion = agentVersion;
+  if (arch) device.arch = arch;
   if (rustDeskId) {
     device.rustDeskId = rustDeskId;
     device.rustDeskOnline = true;
@@ -243,13 +247,20 @@ router.post('/heartbeat', (req, res) => {
     isCollector = electCollector(siteId, device.id, collector, leaseSeconds);
   }
 
+  // Self-update: advertise a newer build for this agent's os/arch, if any.
+  const publicBase = process.env.API_PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  const update = (agentVersion && arch)
+    ? updateDirectiveFor(device.os, arch, agentVersion, publicBase)
+    : null;
+
   const response: AgentHeartbeatResponse = {
     acknowledged: true,
     serverTime: new Date().toISOString(),
     pendingCommands,
     collector: isCollector,
     collectorLeaseSeconds: leaseSeconds,
-    scanConfig: isCollector ? (scanConfigFor(siteId) ?? undefined) : undefined
+    scanConfig: isCollector ? (scanConfigFor(siteId) ?? undefined) : undefined,
+    update: update ?? undefined
   };
 
   res.json(response);
@@ -319,6 +330,20 @@ router.post('/network-scan', (req, res) => {
     });
   }
   res.json({ acknowledged: true });
+});
+
+// GET /api/v1/agents/download/:os/:arch — stream the latest agent binary for a
+// platform. Integrity is guaranteed by the SHA-256 the agent received over its
+// authenticated heartbeat, so this download is unauthenticated (it is the same
+// binary handed out at install time).
+router.get('/download/:os/:arch', (req, res) => {
+  const os = String(req.params.os).replace(/[^a-z0-9]/gi, '');
+  const arch = String(req.params.arch).replace(/[^a-z0-9]/gi, '');
+  const art = artifactPath(os, arch);
+  if (!art) { res.status(404).json({ error: 'No build available for this platform' }); return; }
+  res.setHeader('content-type', 'application/octet-stream');
+  res.setHeader('content-disposition', `attachment; filename="${art.file}"`);
+  createReadStream(art.path).on('error', () => { if (!res.headersSent) res.status(500).end(); }).pipe(res);
 });
 
 export default router;

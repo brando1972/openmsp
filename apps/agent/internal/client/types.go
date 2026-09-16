@@ -81,6 +81,17 @@ type AgentHeartbeatRequest struct {
 	// Collector candidacy — the control plane uses these to elect one collector
 	// per site and hand it back the lease + scan config below.
 	Collector *CollectorCandidacy `json:"collector,omitempty"`
+	// Self-update: the agent reports its build so the control plane can direct an
+	// update when a newer release exists for this os/arch.
+	AgentVersion string `json:"agentVersion,omitempty"`
+	Arch         string `json:"arch,omitempty"`
+}
+
+// AgentUpdate is the control plane's self-update directive (newer build available).
+type AgentUpdate struct {
+	Version string `json:"version"`
+	URL     string `json:"url"`
+	SHA256  string `json:"sha256"`
 }
 
 // CollectorCandidacy is the agent's pitch to be (or remain) the site collector.
@@ -136,6 +147,8 @@ type AgentHeartbeatResponse struct {
 	Collector             bool        `json:"collector"`
 	CollectorLeaseSeconds int         `json:"collectorLeaseSeconds,omitempty"`
 	ScanConfig            *ScanConfig `json:"scanConfig,omitempty"`
+	// Self-update directive (present only when a newer build is available).
+	Update *AgentUpdate `json:"update,omitempty"`
 }
 
 // NetworkScanRequest payload for POST /api/v1/agents/network-scan. Scan is the

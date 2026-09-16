@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"encoding/json"
+	"runtime"
 	"sync"
 
 	"openmsp/agent/internal/client"
@@ -18,6 +19,8 @@ import (
 	"openmsp/agent/internal/config"
 	"openmsp/agent/internal/executor"
 	"openmsp/agent/internal/netscan"
+	"openmsp/agent/internal/updater"
+	"openmsp/agent/internal/version"
 )
 
 // collectorState tracks this agent's site-collector role between heartbeats.
@@ -147,7 +150,10 @@ func main() {
 
 	flag.Parse()
 
-	log.Println("[*] OpenMSP Device Agent starting...")
+	// Complete any staged Windows self-update from a previous run before anything else.
+	updater.ApplyPendingWindows()
+
+	log.Printf("[*] OpenMSP Device Agent starting (v%s)...", version.Version)
 
 	// 1. Load or initialize configuration
 	cfg, err := config.Load(*configFlag)
@@ -248,6 +254,8 @@ func main() {
 				Prefixes:    netscan.LocalPrefixes(),
 				IsCollector: siteCollector.isActive(),
 			},
+			AgentVersion: version.Version,
+			Arch:         runtime.GOARCH,
 		}
 
 		hbResp, err := apiClient.Heartbeat(ctx, hbReq)
@@ -257,6 +265,16 @@ func main() {
 
 		// Act on the collector election result.
 		manageCollector(ctx, apiClient, cfg, hbResp)
+
+		// Self-update if the control plane advertises a newer build.
+		if hbResp.Update != nil && hbResp.Update.Version != "" && hbResp.Update.Version != version.Version {
+			log.Printf("[update] new version %s available (running %s) — updating...", hbResp.Update.Version, version.Version)
+			go func(u client.AgentUpdate) {
+				if err := updater.Apply(updater.Update{Version: u.Version, URL: u.URL, SHA256: u.SHA256}); err != nil {
+					log.Printf("[update] failed: %v", err)
+				}
+			}(*hbResp.Update)
+		}
 
 		log.Printf("[+] Heartbeat acknowledged at %s (CPU: %.1f%%, RAM: %.1f%%, Disk: %.1f%%, Uptime: %.2fd)",
 			hbResp.ServerTime, metrics.CpuUsage, metrics.RamUsage, metrics.DiskUsage, metrics.UptimeDays)
