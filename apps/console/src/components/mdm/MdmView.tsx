@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useApp } from '../../data/AppContext';
 import { api } from '../../services/api';
-import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview, NativeMdmPolicy, MdmTriState, NativeConfigApp } from '../../services/api';
+import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview, NativeMdmPolicy, NativeMdmDesign, MdmTriState, NativeConfigApp, NativeConfigFile, NativeRepoFile } from '../../services/api';
 import {
   Smartphone, Monitor, Wifi, RefreshCw, Plus, X, ExternalLink, Loader2, Settings as SettingsIcon,
   AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight, Clock
@@ -368,6 +368,11 @@ const DEFAULT_POLICY: NativeMdmPolicy = {
   disableLocation: false, appPermissions: '', pushOptions: ''
 };
 
+const DEFAULT_DESIGN: NativeMdmDesign = {
+  useDefault: true, backgroundColor: '', textColor: '', backgroundImageUrl: '',
+  iconSize: 'SMALL', header: 'NO_HEADER', headerTemplate: ''
+};
+
 // Tri-state radio row (Any / Disabled / Enabled) — mirrors Headwind's Common settings.
 const TriRow: React.FC<{ label: string; value: MdmTriState; onChange: (v: MdmTriState) => void }> = ({ label, value, onChange }) => (
   <div className="flex items-center gap-3 py-1.5">
@@ -397,7 +402,7 @@ const ToggleRow: React.FC<{ label: string; checked: boolean; onChange: (v: boole
 
 const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; onCreated: (c: NativeMdmConfig) => void; qrBase: string }> = ({ existing, onClose, onCreated }) => {
   const isEdit = !!existing;
-  const [tab, setTab] = useState<'general' | 'policy' | 'apps'>('general');
+  const [tab, setTab] = useState<'general' | 'policy' | 'design' | 'apps' | 'files'>('general');
   const [name, setName] = useState(existing?.name || '');
   const [wifiSsid, setWifiSsid] = useState(existing?.wifiSsid || '');
   const [wifiPassword, setWifiPassword] = useState('');
@@ -405,17 +410,19 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
   const [startUrl, setStartUrl] = useState(existing?.startUrl || '');
   const [adminPin, setAdminPin] = useState(existing?.adminPin || '');
   const [policy, setPolicy] = useState<NativeMdmPolicy>(DEFAULT_POLICY);
+  const [design, setDesign] = useState<NativeMdmDesign>(DEFAULT_DESIGN);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
-  // Seed the policy from the config being edited, or from the kiosk template (id 4) for new configs.
+  // Seed the policy + design from the config being edited, or from the kiosk template (id 4) for new configs.
   useEffect(() => {
     let alive = true;
     const seedId = existing?.id ?? 4;
     api.mdm.native.getConfiguration(seedId).then((r) => {
       if (!alive) return;
       if (r.configuration.policy) setPolicy({ ...DEFAULT_POLICY, ...r.configuration.policy });
+      if (r.configuration.design) setDesign({ ...DEFAULT_DESIGN, ...r.configuration.design });
       if (isEdit) {
         setStartUrl(r.configuration.startUrl || '');
         setAdminPin(r.configuration.adminPin || '');
@@ -427,20 +434,21 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
   }, [existing?.id, isEdit]);
 
   const patch = (p: Partial<NativeMdmPolicy>) => setPolicy((prev) => ({ ...prev, ...p }));
+  const patchDesign = (p: Partial<NativeMdmDesign>) => setDesign((prev) => ({ ...prev, ...p }));
 
   const submit = async () => {
     if (!isEdit && !name.trim()) { setErr('A name is required.'); setTab('general'); return; }
     setBusy(true); setErr('');
     try {
-      const genPatch = { wifiSsid, wifiPassword: wifiPassword || undefined, wifiSecurity, startUrl, adminPin, policy };
+      const genPatch = { wifiSsid, wifiPassword: wifiPassword || undefined, wifiSecurity, startUrl, adminPin, policy, design };
       if (isEdit) {
         await api.mdm.native.updateConfiguration(existing!.id, genPatch);
-        onCreated({ ...existing!, wifiSsid, wifiSecurity, startUrl, adminPin, policy });
+        onCreated({ ...existing!, wifiSsid, wifiSecurity, startUrl, adminPin, policy, design });
       } else {
         const r = await api.mdm.native.createConfiguration({ name: name.trim(), wifiSsid, wifiPassword, wifiSecurity, startUrl, adminPin });
-        // Apply the device policy to the freshly-cloned config, then surface the QR.
-        await api.mdm.native.updateConfiguration(r.id, { policy }).catch(() => {});
-        onCreated({ id: r.id, name: name.trim(), wifiSsid, wifiSecurity, wifiPasswordSet: !!wifiPassword, kioskMode: true, mobileEnrollment: true, qrcodeKey: r.qrcodeKey, contentApp: null, deviceCount: 0, startUrl, adminPin, policy });
+        // Apply the device policy + design to the freshly-cloned config, then surface the QR.
+        await api.mdm.native.updateConfiguration(r.id, { policy, design }).catch(() => {});
+        onCreated({ id: r.id, name: name.trim(), wifiSsid, wifiSecurity, wifiPasswordSet: !!wifiPassword, kioskMode: true, mobileEnrollment: true, qrcodeKey: r.qrcodeKey, contentApp: null, deviceCount: 0, startUrl, adminPin, policy, design });
       }
     } catch { setErr('Could not save the configuration.'); setBusy(false); }
   };
@@ -457,7 +465,7 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
         </div>
         {/* Tab strip */}
         <div className="flex gap-1 px-4 pt-3 border-b border-slate-100">
-          {([['general', 'General & Kiosk'], ['policy', 'Device policy'], ['apps', 'Applications']] as const).map(([id, label]) => (
+          {([['general', 'General & Kiosk'], ['policy', 'Device policy'], ['design', 'Design'], ['apps', 'Applications'], ['files', 'Files']] as const).map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`px-3.5 py-2 text-sm font-semibold rounded-t-lg border-b-2 -mb-px transition ${tab === id ? 'text-slate-900 border-fuchsia-500' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>
               {label}
@@ -554,6 +562,59 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
             )
           )}
 
+          {tab === 'design' && (
+            loading ? <Spinner /> : (
+              <div className="space-y-1">
+                <ToggleRow label="Use default design" checked={design.useDefault} onChange={(v) => patchDesign({ useDefault: v })}>
+                  <span className="text-[11px] text-slate-400">Launcher uses Headwind's stock look</span>
+                </ToggleRow>
+                {!design.useDefault && (
+                  <div className="space-y-1 pt-2">
+                    <div className="flex items-center gap-3 py-1.5">
+                      <div className="w-32 shrink-0 text-sm font-semibold text-slate-600">Background</div>
+                      <input type="color" value={design.backgroundColor || '#ffffff'} onChange={(e) => patchDesign({ backgroundColor: e.target.value })} className="w-9 h-9 rounded border border-slate-200 bg-white cursor-pointer" />
+                      <input value={design.backgroundColor} onChange={(e) => patchDesign({ backgroundColor: e.target.value })} placeholder="#RRGGBB" className={smallInput + ' w-28 font-mono'} />
+                    </div>
+                    <div className="flex items-center gap-3 py-1.5">
+                      <div className="w-32 shrink-0 text-sm font-semibold text-slate-600">Icon text</div>
+                      <input type="color" value={design.textColor || '#000000'} onChange={(e) => patchDesign({ textColor: e.target.value })} className="w-9 h-9 rounded border border-slate-200 bg-white cursor-pointer" />
+                      <input value={design.textColor} onChange={(e) => patchDesign({ textColor: e.target.value })} placeholder="#RRGGBB" className={smallInput + ' w-28 font-mono'} />
+                    </div>
+                    <Field label="Background image URL">
+                      <input value={design.backgroundImageUrl} onChange={(e) => patchDesign({ backgroundImageUrl: e.target.value })} placeholder="https://…" inputMode="url" className={inputCls} />
+                    </Field>
+                    <div className="flex items-center gap-3 py-1.5">
+                      <div className="w-32 shrink-0 text-sm font-semibold text-slate-600">Icon size</div>
+                      <div className="flex gap-1.5">
+                        {(['SMALL', 'LARGE'] as const).map((v) => (
+                          <button key={v} type="button" onClick={() => patchDesign({ iconSize: v })}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition ${design.iconSize === v ? 'text-white border-transparent' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+                            style={design.iconSize === v ? { background: MDM_TINT } : undefined}>{v.toLowerCase()}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 py-1.5">
+                      <div className="w-32 shrink-0 text-sm font-semibold text-slate-600">Desktop header</div>
+                      <div className="flex gap-1.5">
+                        {([['NO_HEADER', 'None'], ['CUSTOM', 'Custom']] as const).map(([v, lbl]) => (
+                          <button key={v} type="button" onClick={() => patchDesign({ header: v })}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${design.header === v ? 'text-white border-transparent' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+                            style={design.header === v ? { background: MDM_TINT } : undefined}>{lbl}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {design.header === 'CUSTOM' && (
+                      <Field label="Header template (HTML)">
+                        <textarea value={design.headerTemplate} onChange={(e) => patchDesign({ headerTemplate: e.target.value })} rows={3} placeholder="<div>…</div>" className={inputCls + ' font-mono text-xs'} />
+                      </Field>
+                    )}
+                  </div>
+                )}
+                {design.useDefault && <p className="text-[11px] text-slate-400 pt-1">Turn off “Use default design” to customize the launcher's colors, background, icon size and header.</p>}
+              </div>
+            )
+          )}
+
           {tab === 'apps' && (
             isEdit ? <AppsPanel configId={existing!.id} />
               : <div className="text-center text-slate-400 text-sm py-12">
@@ -562,9 +623,18 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
                   <div className="text-xs mt-1">New profiles inherit the kiosk template's apps. Save, then reopen to manage them here.</div>
                 </div>
           )}
+
+          {tab === 'files' && (
+            isEdit ? <FilesPanel configId={existing!.id} />
+              : <div className="text-center text-slate-400 text-sm py-12">
+                  <FolderOpen className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                  <div className="font-semibold text-slate-600">Create the profile first</div>
+                  <div className="text-xs mt-1">Save the profile, then reopen to push files to its devices.</div>
+                </div>
+          )}
         </div>
 
-        {tab !== 'apps' && (
+        {tab !== 'apps' && tab !== 'files' && (
           <div className="px-5 py-3.5 border-t border-slate-100">
             {err && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-2">{err}</div>}
             <button onClick={submit} disabled={busy}
@@ -676,6 +746,82 @@ const AppsPanel: React.FC<{ configId: number }> = ({ configId }) => {
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+// Per-configuration file push (native Files tab).
+const FilesPanel: React.FC<{ configId: number }> = ({ configId }) => {
+  const [assigned, setAssigned] = useState<NativeConfigFile[] | null>(null);
+  const [available, setAvailable] = useState<NativeRepoFile[]>([]);
+  const [addId, setAddId] = useState('');
+  const [addPath, setAddPath] = useState('');
+
+  const load = useCallback(() => {
+    api.mdm.native.configFiles(configId).then((r) => { setAssigned(r.assigned); setAvailable(r.available); }).catch(() => setAssigned([]));
+  }, [configId]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!assigned) return <Spinner />;
+
+  const toggleRemove = async (f: NativeConfigFile) => {
+    const next = !f.remove;
+    setAssigned((prev) => prev!.map((x) => x.fileId === f.fileId ? { ...x, remove: next } : x));
+    await api.mdm.native.setConfigFile(configId, f.fileId, { remove: next }).catch(() => load());
+  };
+  const savePath = async (f: NativeConfigFile, devicePath: string) => {
+    setAssigned((prev) => prev!.map((x) => x.fileId === f.fileId ? { ...x, devicePath } : x));
+    await api.mdm.native.setConfigFile(configId, f.fileId, { devicePath }).catch(() => load());
+  };
+  const unassign = async (f: NativeConfigFile) => {
+    setAssigned((prev) => prev!.filter((x) => x.fileId !== f.fileId));
+    await api.mdm.native.removeConfigFile(configId, f.fileId).catch(() => {});
+    load();
+  };
+  const add = async () => {
+    const id = parseInt(addId, 10);
+    if (!Number.isFinite(id)) return;
+    setAddId(''); setAddPath('');
+    await api.mdm.native.addConfigFile(configId, id, addPath || undefined).catch(() => {});
+    load();
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Add file */}
+      <div className="flex items-center gap-2">
+        <select value={addId} onChange={(e) => { setAddId(e.target.value); const f = available.find((x) => String(x.id) === e.target.value); if (f && !addPath) setAddPath(f.devicePath); }} className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
+          <option value="">Add a file from the repository…</option>
+          {available.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+        <input value={addPath} onChange={(e) => setAddPath(e.target.value)} placeholder="/sdcard/path" className="w-40 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-mono" />
+        <button onClick={add} disabled={!addId} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-50" style={{ background: MDM_TINT }}>
+          <Plus className="w-4 h-4" /> Add
+        </button>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        {assigned.length ? assigned.map((f) => (
+          <div key={f.fileId} className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-0">
+            <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${MDM_TINT}1f` }}><FolderOpen className="w-4 h-4" style={{ color: MDM_TINT }} /></span>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-slate-800 truncate">{f.name}</div>
+              <input defaultValue={f.devicePath} onBlur={(e) => e.target.value !== f.devicePath && savePath(f, e.target.value)} placeholder="Device path" className="mt-0.5 w-full text-[11px] text-slate-500 font-mono bg-transparent border border-transparent hover:border-slate-200 focus:border-fuchsia-300 rounded px-1 py-0.5 focus:outline-none" />
+            </div>
+            <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 cursor-pointer shrink-0" title="Delete this file from the device">
+              <input type="checkbox" checked={f.remove} onChange={() => toggleRemove(f)} className="w-3.5 h-3.5 accent-rose-500" /> Remove
+            </label>
+            <button onClick={() => unassign(f)} title="Unassign from profile" className="text-slate-300 hover:text-rose-500 shrink-0"><X className="w-4 h-4" /></button>
+          </div>
+        )) : (
+          <div className="text-center text-slate-400 text-sm py-8">
+            <FolderOpen className="w-7 h-7 mx-auto mb-2 text-slate-300" />
+            <div className="font-semibold text-slate-600">No files pushed by this profile</div>
+            <div className="text-xs mt-1">Add one from the repository above. Upload new files from ApexMDM’s Files area.</div>
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-slate-400">Assigned files are copied to each device at the given path on check-in · “Remove” deletes the file from the device.</p>
     </div>
   );
 };

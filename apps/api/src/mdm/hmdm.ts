@@ -215,6 +215,16 @@ export interface HmdmConfigPolicy {
   pushOptions: string;         // '' | mqtt | mqttAlarm | mqttWorker
 }
 
+export interface HmdmConfigDesign {
+  useDefault: boolean;               // usedefaultdesignsettings
+  backgroundColor: string;           // hex or ''
+  textColor: string;                 // hex or ''
+  backgroundImageUrl: string;
+  iconSize: 'SMALL' | 'LARGE';
+  header: 'NO_HEADER' | 'CUSTOM';    // desktopheader
+  headerTemplate: string;            // desktopheadertemplate (when header = CUSTOM)
+}
+
 export interface HmdmConfigDetail {
   id: number; name: string;
   wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean;
@@ -222,6 +232,7 @@ export interface HmdmConfigDetail {
   contentApp: string | null; deviceCount: number;
   startUrl: string | null; adminPin: string | null;
   policy?: HmdmConfigPolicy;   // filled only by getConfig(id)
+  design?: HmdmConfigDesign;   // filled only by getConfig(id)
 }
 
 const triToBool = (t?: TriState): boolean | null => (t === 'enabled' ? true : t === 'disabled' ? false : null);
@@ -268,11 +279,22 @@ export async function getConfig(id: number): Promise<HmdmConfigDetail | null> {
   const pr = await q(
     `select description, password, gps, bluetooth, wifi, mobiledata, usbstorage,
             autobrightness, brightness, managetimeout, timeout, managevolume, volume, lockvolume,
-            disablelocation, apppermissions, pushoptions
+            disablelocation, apppermissions, pushoptions,
+            usedefaultdesignsettings, backgroundcolor, textcolor, backgroundimageurl,
+            iconsize, desktopheader, desktopheadertemplate
        from configurations where id = $1`, [id]
   );
   if (pr.length) {
     const r = pr[0];
+    detail.design = {
+      useDefault: r.usedefaultdesignsettings !== false,
+      backgroundColor: r.backgroundcolor || '',
+      textColor: r.textcolor || '',
+      backgroundImageUrl: r.backgroundimageurl || '',
+      iconSize: r.iconsize === 'LARGE' ? 'LARGE' : 'SMALL',
+      header: r.desktopheader === 'CUSTOM' ? 'CUSTOM' : 'NO_HEADER',
+      headerTemplate: r.desktopheadertemplate || ''
+    };
     detail.policy = {
       description: r.description || '',
       password: r.password || '',
@@ -356,6 +378,7 @@ export async function createConfig(input: CreateConfigInput): Promise<{ id: numb
 export interface UpdateConfigInput {
   wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string; startUrl?: string; adminPin?: string;
   policy?: Partial<HmdmConfigPolicy>;
+  design?: Partial<HmdmConfigDesign>;
 }
 export async function updateConfig(id: number, input: UpdateConfigInput): Promise<boolean> {
   const p = getPool();
@@ -405,6 +428,31 @@ export async function updateConfig(id: number, input: UpdateConfigInput): Promis
           pol.disableLocation ?? null,
           pol.appPermissions ?? null,
           pol.pushOptions ?? null
+        ]
+      );
+    }
+    const des = input.design;
+    if (des) {
+      const header = des.header === 'CUSTOM' ? 'CUSTOM' : des.header === 'NO_HEADER' ? 'NO_HEADER' : undefined;
+      await client.query(
+        `update configurations set
+           usedefaultdesignsettings = coalesce($2, usedefaultdesignsettings),
+           backgroundcolor      = coalesce($3, backgroundcolor),
+           textcolor            = coalesce($4, textcolor),
+           backgroundimageurl   = coalesce($5, backgroundimageurl),
+           iconsize             = coalesce($6, iconsize),
+           desktopheader        = coalesce($7, desktopheader),
+           desktopheadertemplate= coalesce($8, desktopheadertemplate)
+         where id = $1`,
+        [
+          id,
+          des.useDefault ?? null,
+          des.backgroundColor ?? null,
+          des.textColor ?? null,
+          des.backgroundImageUrl ?? null,
+          des.iconSize === 'LARGE' || des.iconSize === 'SMALL' ? des.iconSize : null,
+          header,
+          des.headerTemplate ?? null
         ]
       );
     }
@@ -573,6 +621,80 @@ export async function setConfigApp(configId: number, applicationId: number, flag
          remove   = coalesce($4, remove)
        where configurationid = $1 and applicationid = $2`,
       [configId, applicationId, flags.showIcon ?? null, flags.remove ?? null]
+    );
+    return true;
+  } catch { return false; }
+}
+
+// ---- Per-configuration file push (native Files tab) ------------------------
+export interface HmdmConfigFile { fileId: number; name: string; devicePath: string; remove: boolean; url: string | null; }
+
+/** Files pushed to devices by a configuration. */
+export async function getConfigFiles(configId: number): Promise<HmdmConfigFile[]> {
+  const rows = await q(
+    `select cf.fileid,
+            coalesce(nullif(cf.description,''), uf.description, uf.filepath, '') as name,
+            coalesce(cf.devicepath,'') as devicepath, coalesce(cf.remove,false) as remove,
+            coalesce(cf.externalurl, uf.externalurl, cf.filepath, uf.filepath) as url
+       from configurationfiles cf
+       left join uploadedfiles uf on uf.id = cf.fileid
+      where cf.configurationid = $1
+      order by name`,
+    [configId]
+  );
+  return rows.map((r) => ({ fileId: r.fileid, name: r.name || `file ${r.fileid}`, devicePath: r.devicepath, remove: !!r.remove, url: r.url ?? null }));
+}
+
+/** Repository files not yet assigned to a configuration. */
+export async function getAvailableFiles(configId: number): Promise<{ id: number; name: string; devicePath: string }[]> {
+  const rows = await q(
+    `select uf.id, coalesce(nullif(uf.description,''), uf.filepath, '') as name, coalesce(uf.devicepath,'') as devicepath
+       from uploadedfiles uf
+      where uf.id not in (select fileid from configurationfiles where configurationid = $1 and fileid is not null)
+      order by name`,
+    [configId]
+  );
+  return rows.map((r) => ({ id: r.id, name: r.name || `file ${r.id}`, devicePath: r.devicepath }));
+}
+
+/** Assign a repository file to a configuration; copies its metadata, optional devicePath override. */
+export async function addConfigFile(configId: number, fileId: number, devicePath?: string): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `insert into configurationfiles (configurationid, fileid, description, devicepath, filepath, externalurl, checksum, remove, replacevariables, lastupdate)
+       select $1, uf.id, uf.description,
+              coalesce(nullif($3,''), uf.devicepath), uf.filepath, uf.externalurl, null, false,
+              coalesce(uf.replacevariables,false), $4
+         from uploadedfiles uf where uf.id = $2`,
+      [configId, fileId, devicePath ?? '', Date.now()]
+    );
+    return true;
+  } catch { return false; }
+}
+
+export async function removeConfigFile(configId: number, fileId: number): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(`delete from configurationfiles where configurationid = $1 and fileid = $2`, [configId, fileId]);
+    return true;
+  } catch { return false; }
+}
+
+/** Update an assigned file's device path / remove flag. */
+export async function setConfigFile(configId: number, fileId: number, patch: { devicePath?: string; remove?: boolean }): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `update configurationfiles set
+         devicepath = coalesce($3, devicepath),
+         remove     = coalesce($4, remove),
+         lastupdate = $5
+       where configurationid = $1 and fileid = $2`,
+      [configId, fileId, patch.devicePath ?? null, patch.remove ?? null, Date.now()]
     );
     return true;
   } catch { return false; }

@@ -5,7 +5,8 @@ import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
 import {
   hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, cloneConfig,
   listDevices, getConfigsDetailed, getConfig, createConfig, updateConfig, listApplications, listFiles,
-  getConfigApps, getAvailableApps, addConfigApp, removeConfigApp, setConfigApp
+  getConfigApps, getAvailableApps, addConfigApp, removeConfigApp, setConfigApp,
+  getConfigFiles, getAvailableFiles, addConfigFile, removeConfigFile, setConfigFile
 } from '../mdm/hmdm.js';
 
 /**
@@ -321,13 +322,26 @@ router.put('/native/configurations/:id', async (req: AuthenticatedRequest, res) 
       pushOptions: pb.pushOptions !== undefined ? String(pb.pushOptions) : undefined
     };
   }
+  let design: any = undefined;
+  if (b.design && typeof b.design === 'object') {
+    const db = b.design;
+    design = {
+      useDefault: db.useDefault !== undefined ? !!db.useDefault : undefined,
+      backgroundColor: db.backgroundColor !== undefined ? String(db.backgroundColor) : undefined,
+      textColor: db.textColor !== undefined ? String(db.textColor) : undefined,
+      backgroundImageUrl: db.backgroundImageUrl !== undefined ? String(db.backgroundImageUrl) : undefined,
+      iconSize: db.iconSize === 'LARGE' || db.iconSize === 'SMALL' ? db.iconSize : undefined,
+      header: db.header === 'CUSTOM' || db.header === 'NO_HEADER' ? db.header : undefined,
+      headerTemplate: db.headerTemplate !== undefined ? String(db.headerTemplate) : undefined
+    };
+  }
   const ok = await updateConfig(id, {
     wifiSsid: b.wifiSsid !== undefined ? String(b.wifiSsid) : undefined,
     wifiPassword: b.wifiPassword ? String(b.wifiPassword) : undefined,
     wifiSecurity: b.wifiSecurity !== undefined ? String(b.wifiSecurity) : undefined,
     startUrl: b.startUrl !== undefined ? String(b.startUrl) : undefined,
     adminPin: b.adminPin !== undefined ? String(b.adminPin) : undefined,
-    policy
+    policy, design
   });
   if (!ok) { res.status(502).json({ error: 'update failed' }); return; }
   store.recordAudit({
@@ -379,6 +393,51 @@ router.delete('/native/configurations/:id/apps/:appId', async (req: Authenticate
   const ok = await removeConfigApp(id, appId);
   if (!ok) { res.status(502).json({ error: 'remove failed' }); return; }
   store.recordAudit({ orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name, action: 'mdm.native_config_app_remove', targetType: 'config', targetId: String(id), details: { appId }, ipAddress: req.ip });
+  res.json({ ok: true });
+});
+
+// ---- Per-configuration file push (native Files tab) ------------------------
+// GET /api/v1/mdm/native/configurations/:id/files — assigned + available files
+router.get('/native/configurations/:id/files', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const [assigned, available] = await Promise.all([getConfigFiles(id), getAvailableFiles(id)]);
+  res.json({ assigned, available });
+});
+
+// POST /api/v1/mdm/native/configurations/:id/files — assign a file { fileId, devicePath? }
+router.post('/native/configurations/:id/files', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const fileId = parseInt(String((req.body || {}).fileId), 10);
+  if (!Number.isFinite(id) || !Number.isFinite(fileId) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const ok = await addConfigFile(id, fileId, (req.body || {}).devicePath !== undefined ? String(req.body.devicePath) : undefined);
+  if (!ok) { res.status(502).json({ error: 'assign failed' }); return; }
+  store.recordAudit({ orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name, action: 'mdm.native_config_file_add', targetType: 'config', targetId: String(id), details: { fileId }, ipAddress: req.ip });
+  res.json({ ok: true });
+});
+
+// PUT /api/v1/mdm/native/configurations/:id/files/:fileId — device path / remove flag
+router.put('/native/configurations/:id/files/:fileId', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const fileId = parseInt(String(req.params.fileId), 10);
+  if (!Number.isFinite(id) || !Number.isFinite(fileId) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const b = req.body || {};
+  const ok = await setConfigFile(id, fileId, {
+    devicePath: b.devicePath !== undefined ? String(b.devicePath) : undefined,
+    remove: b.remove !== undefined ? !!b.remove : undefined
+  });
+  if (!ok) { res.status(502).json({ error: 'update failed' }); return; }
+  res.json({ ok: true });
+});
+
+// DELETE /api/v1/mdm/native/configurations/:id/files/:fileId — unassign
+router.delete('/native/configurations/:id/files/:fileId', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const fileId = parseInt(String(req.params.fileId), 10);
+  if (!Number.isFinite(id) || !Number.isFinite(fileId) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const ok = await removeConfigFile(id, fileId);
+  if (!ok) { res.status(502).json({ error: 'remove failed' }); return; }
+  store.recordAudit({ orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name, action: 'mdm.native_config_file_remove', targetType: 'config', targetId: String(id), details: { fileId }, ipAddress: req.ip });
   res.json({ ok: true });
 });
 

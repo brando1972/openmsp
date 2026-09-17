@@ -607,7 +607,15 @@ export const mdm = {
     setConfigApp: async (id: number, appId: number, flags: { showIcon?: boolean; remove?: boolean }): Promise<{ ok: boolean }> =>
       request(`/mdm/native/configurations/${id}/apps/${appId}`, { method: 'PUT', body: JSON.stringify(flags) }),
     removeConfigApp: async (id: number, appId: number): Promise<{ ok: boolean }> =>
-      request(`/mdm/native/configurations/${id}/apps/${appId}`, { method: 'DELETE' })
+      request(`/mdm/native/configurations/${id}/apps/${appId}`, { method: 'DELETE' }),
+    configFiles: async (id: number): Promise<{ assigned: NativeConfigFile[]; available: NativeRepoFile[] }> =>
+      request(`/mdm/native/configurations/${id}/files`),
+    addConfigFile: async (id: number, fileId: number, devicePath?: string): Promise<{ ok: boolean }> =>
+      request(`/mdm/native/configurations/${id}/files`, { method: 'POST', body: JSON.stringify({ fileId, devicePath }) }),
+    setConfigFile: async (id: number, fileId: number, patch: { devicePath?: string; remove?: boolean }): Promise<{ ok: boolean }> =>
+      request(`/mdm/native/configurations/${id}/files/${fileId}`, { method: 'PUT', body: JSON.stringify(patch) }),
+    removeConfigFile: async (id: number, fileId: number): Promise<{ ok: boolean }> =>
+      request(`/mdm/native/configurations/${id}/files/${fileId}`, { method: 'DELETE' })
   }
 };
 
@@ -629,14 +637,23 @@ export interface NativeMdmPolicy {
   appPermissions: string;
   pushOptions: string;
 }
+export interface NativeMdmDesign {
+  useDefault: boolean;
+  backgroundColor: string; textColor: string; backgroundImageUrl: string;
+  iconSize: 'SMALL' | 'LARGE';
+  header: 'NO_HEADER' | 'CUSTOM'; headerTemplate: string;
+}
 export interface NativeMdmConfig {
   id: number; name: string; wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean;
   kioskMode: boolean; mobileEnrollment: boolean; qrcodeKey: string | null;
   contentApp: string | null; deviceCount: number; startUrl: string | null; adminPin: string | null;
   policy?: NativeMdmPolicy;
+  design?: NativeMdmDesign;
 }
 export interface NativeMdmApp { id: number; pkg: string; name: string; system: boolean; useKiosk: boolean; version: string | null; url: string | null; }
 export interface NativeConfigApp { applicationId: number; pkg: string; name: string; version: string | null; system: boolean; showIcon: boolean; remove: boolean; url: string | null; }
+export interface NativeConfigFile { fileId: number; name: string; devicePath: string; remove: boolean; url: string | null; }
+export interface NativeRepoFile { id: number; name: string; devicePath: string; }
 export interface NativeMdmFile { id: number; description: string; devicePath: string; url: string | null; external: boolean; }
 export interface NativeMdmOverview {
   configured: boolean; deviceCount: number; onlineCount: number; configCount: number; appCount: number; recent: NativeMdmDevice[];
@@ -644,6 +661,7 @@ export interface NativeMdmOverview {
 export interface NativeConfigInput {
   name?: string; wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string; startUrl?: string; adminPin?: string; baseId?: number;
   policy?: Partial<NativeMdmPolicy>;
+  design?: Partial<NativeMdmDesign>;
 }
 
 // ---------------------------------------------------------------------------
