@@ -215,6 +215,15 @@ export interface HmdmConfigPolicy {
   pushOptions: string;         // '' | mqtt | mqttAlarm | mqttWorker
 }
 
+export interface HmdmConfigMdm {
+  kioskMode: boolean; kioskScreenOn: boolean; kioskKeyguard: boolean; autostartForeground: boolean;
+  kioskHome: boolean; kioskRecents: boolean; kioskNotifications: boolean; kioskSystemInfo: boolean;
+  kioskLockButtons: boolean; kioskExit: boolean;
+  blockStatusBar: boolean; orientation: 'none' | 'portrait' | 'landscape';
+  runDefaultLauncher: boolean; autoUpdate: boolean; disableScreenshots: boolean;
+  encryptDevice: boolean; lockSafeSettings: boolean;
+}
+
 export interface HmdmConfigDesign {
   useDefault: boolean;               // usedefaultdesignsettings
   backgroundColor: string;           // hex or ''
@@ -233,6 +242,7 @@ export interface HmdmConfigDetail {
   startUrl: string | null; adminPin: string | null;
   policy?: HmdmConfigPolicy;   // filled only by getConfig(id)
   design?: HmdmConfigDesign;   // filled only by getConfig(id)
+  mdm?: HmdmConfigMdm;         // filled only by getConfig(id)
 }
 
 const triToBool = (t?: TriState): boolean | null => (t === 'enabled' ? true : t === 'disabled' ? false : null);
@@ -281,11 +291,26 @@ export async function getConfig(id: number): Promise<HmdmConfigDetail | null> {
             autobrightness, brightness, managetimeout, timeout, managevolume, volume, lockvolume,
             disablelocation, apppermissions, pushoptions,
             usedefaultdesignsettings, backgroundcolor, textcolor, backgroundimageurl,
-            iconsize, desktopheader, desktopheadertemplate
+            iconsize, desktopheader, desktopheadertemplate,
+            kioskmode, kioskscreenon, kioskkeyguard, autostartforeground, kioskhome, kioskrecents,
+            kiosknotifications, kiosksysteminfo, kiosklockbuttons, kioskexit, blockstatusbar,
+            orientation, rundefaultlauncher, autoupdate, disablescreenshots, encryptdevice, locksafesettings
        from configurations where id = $1`, [id]
   );
   if (pr.length) {
     const r = pr[0];
+    detail.mdm = {
+      kioskMode: r.kioskmode === true, kioskScreenOn: r.kioskscreenon === true,
+      kioskKeyguard: r.kioskkeyguard === true, autostartForeground: r.autostartforeground === true,
+      kioskHome: r.kioskhome === true, kioskRecents: r.kioskrecents === true,
+      kioskNotifications: r.kiosknotifications === true, kioskSystemInfo: r.kiosksysteminfo === true,
+      kioskLockButtons: r.kiosklockbuttons === true, kioskExit: r.kioskexit === true,
+      blockStatusBar: r.blockstatusbar === true,
+      orientation: r.orientation === 1 ? 'portrait' : r.orientation === 2 ? 'landscape' : 'none',
+      runDefaultLauncher: r.rundefaultlauncher === true, autoUpdate: r.autoupdate === true,
+      disableScreenshots: r.disablescreenshots === true, encryptDevice: r.encryptdevice === true,
+      lockSafeSettings: r.locksafesettings === true
+    };
     detail.design = {
       useDefault: r.usedefaultdesignsettings !== false,
       backgroundColor: r.backgroundcolor || '',
@@ -379,6 +404,7 @@ export interface UpdateConfigInput {
   wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string; startUrl?: string; adminPin?: string;
   policy?: Partial<HmdmConfigPolicy>;
   design?: Partial<HmdmConfigDesign>;
+  mdm?: Partial<HmdmConfigMdm>;
 }
 export async function updateConfig(id: number, input: UpdateConfigInput): Promise<boolean> {
   const p = getPool();
@@ -453,6 +479,40 @@ export async function updateConfig(id: number, input: UpdateConfigInput): Promis
           des.iconSize === 'LARGE' || des.iconSize === 'SMALL' ? des.iconSize : null,
           header,
           des.headerTemplate ?? null
+        ]
+      );
+    }
+    const m = input.mdm;
+    if (m) {
+      const orient = m.orientation === 'portrait' ? 1 : m.orientation === 'landscape' ? 2 : m.orientation === 'none' ? 0 : undefined;
+      await client.query(
+        `update configurations set
+           kioskmode          = coalesce($2, kioskmode),
+           kioskscreenon      = coalesce($3, kioskscreenon),
+           kioskkeyguard      = coalesce($4, kioskkeyguard),
+           autostartforeground= coalesce($5, autostartforeground),
+           kioskhome          = coalesce($6, kioskhome),
+           kioskrecents       = coalesce($7, kioskrecents),
+           kiosknotifications = coalesce($8, kiosknotifications),
+           kiosksysteminfo    = coalesce($9, kiosksysteminfo),
+           kiosklockbuttons   = coalesce($10, kiosklockbuttons),
+           kioskexit          = coalesce($11, kioskexit),
+           blockstatusbar     = coalesce($12, blockstatusbar),
+           orientation        = coalesce($13, orientation),
+           rundefaultlauncher = coalesce($14, rundefaultlauncher),
+           autoupdate         = coalesce($15, autoupdate),
+           disablescreenshots = coalesce($16, disablescreenshots),
+           encryptdevice      = coalesce($17, encryptdevice),
+           locksafesettings   = coalesce($18, locksafesettings)
+         where id = $1`,
+        [
+          id,
+          m.kioskMode ?? null, m.kioskScreenOn ?? null, m.kioskKeyguard ?? null, m.autostartForeground ?? null,
+          m.kioskHome ?? null, m.kioskRecents ?? null, m.kioskNotifications ?? null, m.kioskSystemInfo ?? null,
+          m.kioskLockButtons ?? null, m.kioskExit ?? null, m.blockStatusBar ?? null,
+          orient ?? null,
+          m.runDefaultLauncher ?? null, m.autoUpdate ?? null, m.disableScreenshots ?? null,
+          m.encryptDevice ?? null, m.lockSafeSettings ?? null
         ]
       );
     }

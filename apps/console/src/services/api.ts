@@ -643,12 +643,21 @@ export interface NativeMdmDesign {
   iconSize: 'SMALL' | 'LARGE';
   header: 'NO_HEADER' | 'CUSTOM'; headerTemplate: string;
 }
+export interface NativeMdmMdm {
+  kioskMode: boolean; kioskScreenOn: boolean; kioskKeyguard: boolean; autostartForeground: boolean;
+  kioskHome: boolean; kioskRecents: boolean; kioskNotifications: boolean; kioskSystemInfo: boolean;
+  kioskLockButtons: boolean; kioskExit: boolean;
+  blockStatusBar: boolean; orientation: 'none' | 'portrait' | 'landscape';
+  runDefaultLauncher: boolean; autoUpdate: boolean; disableScreenshots: boolean;
+  encryptDevice: boolean; lockSafeSettings: boolean;
+}
 export interface NativeMdmConfig {
   id: number; name: string; wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean;
   kioskMode: boolean; mobileEnrollment: boolean; qrcodeKey: string | null;
   contentApp: string | null; deviceCount: number; startUrl: string | null; adminPin: string | null;
   policy?: NativeMdmPolicy;
   design?: NativeMdmDesign;
+  mdm?: NativeMdmMdm;
 }
 export interface NativeMdmApp { id: number; pkg: string; name: string; system: boolean; useKiosk: boolean; version: string | null; url: string | null; }
 export interface NativeConfigApp { applicationId: number; pkg: string; name: string; version: string | null; system: boolean; showIcon: boolean; remove: boolean; url: string | null; }
@@ -662,6 +671,7 @@ export interface NativeConfigInput {
   name?: string; wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string; startUrl?: string; adminPin?: string; baseId?: number;
   policy?: Partial<NativeMdmPolicy>;
   design?: Partial<NativeMdmDesign>;
+  mdm?: Partial<NativeMdmMdm>;
 }
 
 // ---------------------------------------------------------------------------

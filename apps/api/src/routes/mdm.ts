@@ -335,13 +335,27 @@ router.put('/native/configurations/:id', async (req: AuthenticatedRequest, res) 
       headerTemplate: db.headerTemplate !== undefined ? String(db.headerTemplate) : undefined
     };
   }
+  let mdm: any = undefined;
+  if (b.mdm && typeof b.mdm === 'object') {
+    const mb = b.mdm;
+    const bool = (v: any) => (v !== undefined ? !!v : undefined);
+    mdm = {
+      kioskMode: bool(mb.kioskMode), kioskScreenOn: bool(mb.kioskScreenOn), kioskKeyguard: bool(mb.kioskKeyguard),
+      autostartForeground: bool(mb.autostartForeground), kioskHome: bool(mb.kioskHome), kioskRecents: bool(mb.kioskRecents),
+      kioskNotifications: bool(mb.kioskNotifications), kioskSystemInfo: bool(mb.kioskSystemInfo),
+      kioskLockButtons: bool(mb.kioskLockButtons), kioskExit: bool(mb.kioskExit), blockStatusBar: bool(mb.blockStatusBar),
+      orientation: ['none', 'portrait', 'landscape'].includes(mb.orientation) ? mb.orientation : undefined,
+      runDefaultLauncher: bool(mb.runDefaultLauncher), autoUpdate: bool(mb.autoUpdate),
+      disableScreenshots: bool(mb.disableScreenshots), encryptDevice: bool(mb.encryptDevice), lockSafeSettings: bool(mb.lockSafeSettings)
+    };
+  }
   const ok = await updateConfig(id, {
     wifiSsid: b.wifiSsid !== undefined ? String(b.wifiSsid) : undefined,
     wifiPassword: b.wifiPassword ? String(b.wifiPassword) : undefined,
     wifiSecurity: b.wifiSecurity !== undefined ? String(b.wifiSecurity) : undefined,
     startUrl: b.startUrl !== undefined ? String(b.startUrl) : undefined,
     adminPin: b.adminPin !== undefined ? String(b.adminPin) : undefined,
-    policy, design
+    policy, design, mdm
   });
   if (!ok) { res.status(502).json({ error: 'update failed' }); return; }
   store.recordAudit({

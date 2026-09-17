@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useApp } from '../../data/AppContext';
 import { api } from '../../services/api';
-import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview, NativeMdmPolicy, NativeMdmDesign, MdmTriState, NativeConfigApp, NativeConfigFile, NativeRepoFile } from '../../services/api';
+import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview, NativeMdmPolicy, NativeMdmDesign, NativeMdmMdm, MdmTriState, NativeConfigApp, NativeConfigFile, NativeRepoFile } from '../../services/api';
 import {
   Smartphone, Monitor, Wifi, RefreshCw, Plus, X, ExternalLink, Loader2, Settings as SettingsIcon,
   AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight, Clock
@@ -373,6 +373,13 @@ const DEFAULT_DESIGN: NativeMdmDesign = {
   iconSize: 'SMALL', header: 'NO_HEADER', headerTemplate: ''
 };
 
+const DEFAULT_MDM: NativeMdmMdm = {
+  kioskMode: false, kioskScreenOn: false, kioskKeyguard: false, autostartForeground: false,
+  kioskHome: false, kioskRecents: false, kioskNotifications: false, kioskSystemInfo: false,
+  kioskLockButtons: false, kioskExit: false, blockStatusBar: false, orientation: 'none',
+  runDefaultLauncher: false, autoUpdate: false, disableScreenshots: false, encryptDevice: false, lockSafeSettings: false
+};
+
 // Tri-state radio row (Any / Disabled / Enabled) — mirrors Headwind's Common settings.
 const TriRow: React.FC<{ label: string; value: MdmTriState; onChange: (v: MdmTriState) => void }> = ({ label, value, onChange }) => (
   <div className="flex items-center gap-3 py-1.5">
@@ -402,7 +409,7 @@ const ToggleRow: React.FC<{ label: string; checked: boolean; onChange: (v: boole
 
 const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; onCreated: (c: NativeMdmConfig) => void; qrBase: string }> = ({ existing, onClose, onCreated }) => {
   const isEdit = !!existing;
-  const [tab, setTab] = useState<'general' | 'policy' | 'design' | 'apps' | 'files'>('general');
+  const [tab, setTab] = useState<'general' | 'policy' | 'design' | 'mdm' | 'apps' | 'files'>('general');
   const [name, setName] = useState(existing?.name || '');
   const [wifiSsid, setWifiSsid] = useState(existing?.wifiSsid || '');
   const [wifiPassword, setWifiPassword] = useState('');
@@ -411,6 +418,7 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
   const [adminPin, setAdminPin] = useState(existing?.adminPin || '');
   const [policy, setPolicy] = useState<NativeMdmPolicy>(DEFAULT_POLICY);
   const [design, setDesign] = useState<NativeMdmDesign>(DEFAULT_DESIGN);
+  const [mdm, setMdm] = useState<NativeMdmMdm>(DEFAULT_MDM);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -423,6 +431,7 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
       if (!alive) return;
       if (r.configuration.policy) setPolicy({ ...DEFAULT_POLICY, ...r.configuration.policy });
       if (r.configuration.design) setDesign({ ...DEFAULT_DESIGN, ...r.configuration.design });
+      if (r.configuration.mdm) setMdm({ ...DEFAULT_MDM, ...r.configuration.mdm });
       if (isEdit) {
         setStartUrl(r.configuration.startUrl || '');
         setAdminPin(r.configuration.adminPin || '');
@@ -435,20 +444,21 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
 
   const patch = (p: Partial<NativeMdmPolicy>) => setPolicy((prev) => ({ ...prev, ...p }));
   const patchDesign = (p: Partial<NativeMdmDesign>) => setDesign((prev) => ({ ...prev, ...p }));
+  const patchMdm = (p: Partial<NativeMdmMdm>) => setMdm((prev) => ({ ...prev, ...p }));
 
   const submit = async () => {
     if (!isEdit && !name.trim()) { setErr('A name is required.'); setTab('general'); return; }
     setBusy(true); setErr('');
     try {
-      const genPatch = { wifiSsid, wifiPassword: wifiPassword || undefined, wifiSecurity, startUrl, adminPin, policy, design };
+      const genPatch = { wifiSsid, wifiPassword: wifiPassword || undefined, wifiSecurity, startUrl, adminPin, policy, design, mdm };
       if (isEdit) {
         await api.mdm.native.updateConfiguration(existing!.id, genPatch);
-        onCreated({ ...existing!, wifiSsid, wifiSecurity, startUrl, adminPin, policy, design });
+        onCreated({ ...existing!, wifiSsid, wifiSecurity, startUrl, adminPin, policy, design, mdm });
       } else {
         const r = await api.mdm.native.createConfiguration({ name: name.trim(), wifiSsid, wifiPassword, wifiSecurity, startUrl, adminPin });
-        // Apply the device policy + design to the freshly-cloned config, then surface the QR.
-        await api.mdm.native.updateConfiguration(r.id, { policy, design }).catch(() => {});
-        onCreated({ id: r.id, name: name.trim(), wifiSsid, wifiSecurity, wifiPasswordSet: !!wifiPassword, kioskMode: true, mobileEnrollment: true, qrcodeKey: r.qrcodeKey, contentApp: null, deviceCount: 0, startUrl, adminPin, policy, design });
+        // Apply the device policy + design + MDM settings to the freshly-cloned config, then surface the QR.
+        await api.mdm.native.updateConfiguration(r.id, { policy, design, mdm }).catch(() => {});
+        onCreated({ id: r.id, name: name.trim(), wifiSsid, wifiSecurity, wifiPasswordSet: !!wifiPassword, kioskMode: true, mobileEnrollment: true, qrcodeKey: r.qrcodeKey, contentApp: null, deviceCount: 0, startUrl, adminPin, policy, design, mdm });
       }
     } catch { setErr('Could not save the configuration.'); setBusy(false); }
   };
@@ -465,7 +475,7 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
         </div>
         {/* Tab strip */}
         <div className="flex gap-1 px-4 pt-3 border-b border-slate-100">
-          {([['general', 'General & Kiosk'], ['policy', 'Device policy'], ['design', 'Design'], ['apps', 'Applications'], ['files', 'Files']] as const).map(([id, label]) => (
+          {([['general', 'General & Kiosk'], ['policy', 'Device policy'], ['design', 'Design'], ['mdm', 'MDM Settings'], ['apps', 'Applications'], ['files', 'Files']] as const).map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`px-3.5 py-2 text-sm font-semibold rounded-t-lg border-b-2 -mb-px transition ${tab === id ? 'text-slate-900 border-fuchsia-500' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>
               {label}
@@ -611,6 +621,44 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
                   </div>
                 )}
                 {design.useDefault && <p className="text-[11px] text-slate-400 pt-1">Turn off “Use default design” to customize the launcher's colors, background, icon size and header.</p>}
+              </div>
+            )
+          )}
+
+          {tab === 'mdm' && (
+            loading ? <Spinner /> : (
+              <div className="space-y-1">
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pb-1">Kiosk mode</div>
+                <ToggleRow label="Kiosk mode" checked={mdm.kioskMode} onChange={(v) => patchMdm({ kioskMode: v })}>
+                  <span className="text-[11px] text-slate-400">Lock the device to the kiosk app</span>
+                </ToggleRow>
+                <ToggleRow label="Auto-start on boot" checked={mdm.autostartForeground} onChange={(v) => patchMdm({ autostartForeground: v })} />
+                <ToggleRow label="Keep screen on" checked={mdm.kioskScreenOn} onChange={(v) => patchMdm({ kioskScreenOn: v })} />
+                <ToggleRow label="Disable lock screen" checked={mdm.kioskKeyguard} onChange={(v) => patchMdm({ kioskKeyguard: v })} />
+                <ToggleRow label="Show home button" checked={mdm.kioskHome} onChange={(v) => patchMdm({ kioskHome: v })} />
+                <ToggleRow label="Show recents" checked={mdm.kioskRecents} onChange={(v) => patchMdm({ kioskRecents: v })} />
+                <ToggleRow label="Show notifications" checked={mdm.kioskNotifications} onChange={(v) => patchMdm({ kioskNotifications: v })} />
+                <ToggleRow label="Show system info" checked={mdm.kioskSystemInfo} onChange={(v) => patchMdm({ kioskSystemInfo: v })} />
+                <ToggleRow label="Lock hardware buttons" checked={mdm.kioskLockButtons} onChange={(v) => patchMdm({ kioskLockButtons: v })} />
+                <ToggleRow label="Allow admin exit" checked={mdm.kioskExit} onChange={(v) => patchMdm({ kioskExit: v })} />
+
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pt-3 pb-1">Device</div>
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="w-40 shrink-0 text-sm font-semibold text-slate-600">Screen orientation</div>
+                  <div className="flex gap-1.5">
+                    {([['none', 'Auto'], ['portrait', 'Portrait'], ['landscape', 'Landscape']] as const).map(([v, lbl]) => (
+                      <button key={v} type="button" onClick={() => patchMdm({ orientation: v })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${mdm.orientation === v ? 'text-white border-transparent' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+                        style={mdm.orientation === v ? { background: MDM_TINT } : undefined}>{lbl}</button>
+                    ))}
+                  </div>
+                </div>
+                <ToggleRow label="Block status bar" checked={mdm.blockStatusBar} onChange={(v) => patchMdm({ blockStatusBar: v })} />
+                <ToggleRow label="Run default launcher" checked={mdm.runDefaultLauncher} onChange={(v) => patchMdm({ runDefaultLauncher: v })} />
+                <ToggleRow label="Auto-update apps" checked={mdm.autoUpdate} onChange={(v) => patchMdm({ autoUpdate: v })} />
+                <ToggleRow label="Disable screenshots" checked={mdm.disableScreenshots} onChange={(v) => patchMdm({ disableScreenshots: v })} />
+                <ToggleRow label="Encrypt device" checked={mdm.encryptDevice} onChange={(v) => patchMdm({ encryptDevice: v })} />
+                <ToggleRow label="Lock safe settings" checked={mdm.lockSafeSettings} onChange={(v) => patchMdm({ lockSafeSettings: v })} />
               </div>
             )
           )}
