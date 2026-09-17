@@ -163,6 +163,31 @@ export async function reboot(deviceId: number): Promise<boolean> {
   }
 }
 
+/** Queue a 'configUpdated' push so the device re-pulls its profile immediately (via MQTT). */
+export async function syncDevice(deviceId: number): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      `insert into pushmessages (messagetype, deviceid, payload) values ('configUpdated', $1, null) returning id`,
+      [deviceId]
+    );
+    await client.query(
+      `insert into pendingpushes (messageid, status, createtime) values ($1, 0, $2)`,
+      [r.rows[0].id, Date.now()]
+    );
+    await client.query('COMMIT');
+    return true;
+  } catch {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Create a new configuration ("profile") by cloning an existing one. Copies the
  * base configuration row plus its child rows (applications, app parameters,

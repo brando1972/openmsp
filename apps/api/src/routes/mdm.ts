@@ -3,7 +3,7 @@ import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
 import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
 import {
-  hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, cloneConfig,
+  hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, syncDevice as hmdmSync, cloneConfig,
   listDevices, getConfigsDetailed, getConfig, createConfig, updateConfig, listApplications, listFiles,
   getConfigApps, getAvailableApps, addConfigApp, removeConfigApp, setConfigApp,
   getConfigFiles, getAvailableFiles, addConfigFile, removeConfigFile, setConfigFile
@@ -199,6 +199,21 @@ router.post('/devices/:id/reboot', async (req: AuthenticatedRequest, res) => {
   store.recordAudit({
     orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
     action: 'mdm.reboot', targetType: 'device', targetId: serial,
+    details: { hmdmDeviceId: device.id }, ipAddress: req.ip
+  });
+  res.status(ok ? 200 : 502).json({ ok });
+});
+
+// POST /api/v1/mdm/devices/:id/sync — queue a config-refresh push so the tablet re-pulls its profile now.
+router.post('/devices/:id/sync', async (req: AuthenticatedRequest, res) => {
+  const serial = String(req.params.id);
+  if (!hmdmConfigured()) { res.status(503).json({ error: 'Headwind not configured' }); return; }
+  const device = await getDeviceBySerial(serial);
+  if (!device) { res.status(404).json({ error: 'device not found in Headwind' }); return; }
+  const ok = await hmdmSync(device.id);
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'mdm.sync', targetType: 'device', targetId: serial,
     details: { hmdmDeviceId: device.id }, ipAddress: req.ip
   });
   res.status(ok ? 200 : 502).json({ ok });

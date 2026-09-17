@@ -563,6 +563,9 @@ export const mdm = {
   // Queue a remote reboot for the tablet (via Headwind push).
   reboot: async (device: string): Promise<{ ok: boolean }> =>
     request(`/mdm/devices/${encodeURIComponent(device)}/reboot`, { method: 'POST' }),
+  // Queue a config-refresh push so the tablet re-pulls its profile immediately.
+  sync: async (device: string): Promise<{ ok: boolean }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/sync`, { method: 'POST' }),
 
   // Create a new profile by cloning an existing configuration.
   createProfile: async (opts: { name: string; baseConfigId: number; kioskMode: boolean }): Promise<{ ok: boolean; profile: HmdmConfig }> =>

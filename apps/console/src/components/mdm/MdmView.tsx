@@ -138,7 +138,7 @@ const DeviceCard: React.FC<{
   onChanged: () => void;
   notify: (t: string) => void;
 }> = ({ device, configs, onOpen, onChanged, notify }) => {
-  const [busy, setBusy] = useState<'' | 'profile' | 'reboot'>('');
+  const [busy, setBusy] = useState<'' | 'profile' | 'reboot' | 'sync'>('');
 
   const setProfile = async (configId: number) => {
     setBusy('profile');
@@ -150,6 +150,12 @@ const DeviceCard: React.FC<{
     setBusy('reboot');
     try { await api.mdm.reboot(device.number); notify(`Reboot queued for ${device.name} — restarts on next check-in.`); }
     catch { notify(`Couldn't queue a reboot for ${device.name}.`); }
+    finally { setBusy(''); }
+  };
+  const doSync = async () => {
+    setBusy('sync');
+    try { await api.mdm.sync(device.number); notify(`Sync sent to ${device.name} — it pulls the latest profile in a few seconds.`); }
+    catch { notify(`Couldn't sync ${device.name}.`); }
     finally { setBusy(''); }
   };
 
@@ -191,6 +197,10 @@ const DeviceCard: React.FC<{
           {busy === 'profile' && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={doSync} disabled={busy === 'sync'} title="Push the latest profile to the tablet now"
+            className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 hover:bg-fuchsia-50 hover:text-fuchsia-700 hover:border-fuchsia-200 transition disabled:opacity-50">
+            {busy === 'sync' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Sync
+          </button>
           <button onClick={doReboot} disabled={busy === 'reboot'}
             className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition disabled:opacity-50">
             {busy === 'reboot' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />} Reboot
@@ -262,6 +272,7 @@ const DeviceDrawer: React.FC<{ device: NativeMdmDevice; configs: NativeMdmConfig
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
   const doReboot = async () => { setBusy('reboot'); try { await api.mdm.reboot(device.number); setMsg('Reboot queued — the tablet reboots on its next check-in.'); } catch { setMsg('Could not queue reboot.'); } finally { setBusy(''); } };
+  const doSync = async () => { setBusy('sync'); try { await api.mdm.sync(device.number); setMsg('Sync sent — the tablet pulls the latest profile in a few seconds.'); } catch { setMsg('Could not sync.'); } finally { setBusy(''); } };
   const setProfile = async (configId: number) => { setBusy('profile'); try { await api.mdm.setProfile(device.number, configId); setMsg('Profile updated.'); onChanged(); } catch { setMsg('Could not set profile.'); } finally { setBusy(''); } };
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/30" onMouseDown={onClose}>
@@ -287,6 +298,11 @@ const DeviceDrawer: React.FC<{ device: NativeMdmDevice; configs: NativeMdmConfig
               {configs.map((c) => <option key={c.id} value={c.id}>{c.name}{c.kioskMode ? ' · kiosk' : ''}</option>)}
             </select>
           </div>
+
+          <button onClick={doSync} disabled={busy === 'sync'}
+            className="w-full flex items-center justify-center gap-2 text-white font-semibold rounded-lg py-2.5 text-sm disabled:opacity-60" style={{ background: MDM_TINT }}>
+            {busy === 'sync' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Sync profile now
+          </button>
 
           <button onClick={doReboot} disabled={busy === 'reboot'}
             className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-lg py-2.5 text-sm disabled:opacity-60">
