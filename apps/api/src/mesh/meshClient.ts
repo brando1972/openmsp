@@ -500,7 +500,7 @@ class MeshClient {
   }): Promise<Buffer | null> {
     try {
       const metas = await Promise.all(
-        frame.tiles.map((t) => sharp(t.jpeg).metadata().catch(() => ({ width: 0, height: 0 } as sharp.Metadata)))
+        frame.tiles.map((t) => sharp(t.jpeg).metadata().catch(() => ({ width: 0, height: 0 })))
       );
       let W = frame.w, H = frame.h;
       frame.tiles.forEach((t, i) => {
