@@ -586,8 +586,41 @@ export const mdm = {
     if (res.status !== 200) return null;
     const capturedAt = parseInt(res.headers.get('x-captured-at') || '0', 10) || Date.now();
     return { blob: await res.blob(), capturedAt };
+  },
+
+  // --- native MDM module (no-iframe console screens) ---
+  native: {
+    overview: async (): Promise<NativeMdmOverview> => request('/mdm/native/overview'),
+    devices: async (): Promise<{ devices: NativeMdmDevice[] }> => request('/mdm/native/devices'),
+    applications: async (): Promise<{ applications: NativeMdmApp[] }> => request('/mdm/native/applications'),
+    files: async (): Promise<{ files: NativeMdmFile[] }> => request('/mdm/native/files'),
+    configurations: async (): Promise<{ configurations: NativeMdmConfig[]; qrBase: string }> => request('/mdm/native/configurations'),
+    getConfiguration: async (id: number): Promise<{ configuration: NativeMdmConfig; qrBase: string }> => request(`/mdm/native/configurations/${id}`),
+    createConfiguration: async (body: NativeConfigInput): Promise<{ ok: boolean; id: number; qrcodeKey: string; qrBase: string }> =>
+      request('/mdm/native/configurations', { method: 'POST', body: JSON.stringify(body) }),
+    updateConfiguration: async (id: number, body: NativeConfigInput): Promise<{ ok: boolean }> =>
+      request(`/mdm/native/configurations/${id}`, { method: 'PUT', body: JSON.stringify(body) })
   }
 };
+
+export interface NativeMdmDevice {
+  id: number; number: string; name: string; model: string;
+  configId: number | null; configName: string | null;
+  lastUpdate: number; online: boolean; publicIp: string | null; enrollTime: number | null;
+}
+export interface NativeMdmConfig {
+  id: number; name: string; wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean;
+  kioskMode: boolean; mobileEnrollment: boolean; qrcodeKey: string | null;
+  contentApp: string | null; deviceCount: number; startUrl: string | null; adminPin: string | null;
+}
+export interface NativeMdmApp { id: number; pkg: string; name: string; system: boolean; useKiosk: boolean; version: string | null; url: string | null; }
+export interface NativeMdmFile { id: number; description: string; devicePath: string; url: string | null; external: boolean; }
+export interface NativeMdmOverview {
+  configured: boolean; deviceCount: number; onlineCount: number; configCount: number; appCount: number; recent: NativeMdmDevice[];
+}
+export interface NativeConfigInput {
+  name?: string; wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string; startUrl?: string; adminPin?: string; baseId?: number;
+}
 
 // ---------------------------------------------------------------------------
 // Native ApexConnect remote desktop (MeshCentral engine, zero MeshCentral UI)

@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
 import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
-import { hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, cloneConfig } from '../mdm/hmdm.js';
+import {
+  hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, cloneConfig,
+  listDevices, getConfigsDetailed, getConfig, createConfig, updateConfig, listApplications, listFiles
+} from '../mdm/hmdm.js';
 
 /**
  * MDM / Managed Tablets proxy.
@@ -216,6 +219,99 @@ router.post('/profiles', async (req: AuthenticatedRequest, res) => {
     details: { name: created.name, baseConfigId, kioskMode }, ipAddress: req.ip
   });
   res.json({ ok: true, profile: created });
+});
+
+// ---------------------------------------------------------------------------
+// Native MDM module (no-iframe console screens) — Devices / Configurations /
+// Applications / Files, backed directly by the Headwind DB (hmdm.ts).
+// ---------------------------------------------------------------------------
+const QR_PUBLIC_BASE = (process.env.HMDM_PUBLIC_URL || 'https://android.apexmsp.app').replace(/\/+$/, '');
+
+// GET /api/v1/mdm/native/overview — summary stats for the MDM home.
+router.get('/native/overview', async (_req: AuthenticatedRequest, res) => {
+  if (!hmdmConfigured()) { res.json({ configured: false }); return; }
+  const [devices, configs, apps] = await Promise.all([listDevices(), getConfigsDetailed(), listApplications()]);
+  res.json({
+    configured: true,
+    deviceCount: devices.length,
+    onlineCount: devices.filter((d) => d.online).length,
+    configCount: configs.length,
+    appCount: apps.filter((a) => !a.system).length,
+    recent: devices.slice(0, 6)
+  });
+});
+
+// GET /api/v1/mdm/native/devices
+router.get('/native/devices', async (_req: AuthenticatedRequest, res) => {
+  res.json({ devices: hmdmConfigured() ? await listDevices() : [] });
+});
+
+// GET /api/v1/mdm/native/applications
+router.get('/native/applications', async (_req: AuthenticatedRequest, res) => {
+  res.json({ applications: hmdmConfigured() ? await listApplications() : [] });
+});
+
+// GET /api/v1/mdm/native/files
+router.get('/native/files', async (_req: AuthenticatedRequest, res) => {
+  res.json({ files: hmdmConfigured() ? await listFiles() : [] });
+});
+
+// GET /api/v1/mdm/native/configurations
+router.get('/native/configurations', async (_req: AuthenticatedRequest, res) => {
+  const configs = hmdmConfigured() ? await getConfigsDetailed() : [];
+  res.json({ configurations: configs, qrBase: QR_PUBLIC_BASE });
+});
+
+// GET /api/v1/mdm/native/configurations/:id
+router.get('/native/configurations/:id', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const cfg = Number.isFinite(id) && hmdmConfigured() ? await getConfig(id) : null;
+  if (!cfg) { res.status(404).json({ error: 'not found' }); return; }
+  res.json({ configuration: cfg, qrBase: QR_PUBLIC_BASE });
+});
+
+// POST /api/v1/mdm/native/configurations — create a new profile (clone kiosk template + WiFi + start URL/PIN + QR).
+router.post('/native/configurations', async (req: AuthenticatedRequest, res) => {
+  const b = req.body || {};
+  const name = String(b.name || '').trim();
+  if (!name) { res.status(400).json({ error: 'name required' }); return; }
+  if (!hmdmConfigured()) { res.status(503).json({ error: 'MDM not configured' }); return; }
+  const created = await createConfig({
+    name,
+    wifiSsid: b.wifiSsid ? String(b.wifiSsid) : undefined,
+    wifiPassword: b.wifiPassword ? String(b.wifiPassword) : undefined,
+    wifiSecurity: b.wifiSecurity ? String(b.wifiSecurity) : undefined,
+    startUrl: b.startUrl ? String(b.startUrl) : undefined,
+    adminPin: b.adminPin ? String(b.adminPin) : undefined,
+    baseId: Number.isFinite(parseInt(String(b.baseId), 10)) ? parseInt(String(b.baseId), 10) : undefined
+  });
+  if (!created) { res.status(502).json({ error: 'failed to create configuration' }); return; }
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'mdm.native_create_config', targetType: 'config', targetId: String(created.id),
+    details: { name, wifiSsid: b.wifiSsid || '' }, ipAddress: req.ip
+  });
+  res.status(201).json({ ok: true, id: created.id, qrcodeKey: created.qrcodeKey, qrBase: QR_PUBLIC_BASE });
+});
+
+// PUT /api/v1/mdm/native/configurations/:id — edit WiFi / start URL / PIN.
+router.put('/native/configurations/:id', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const b = req.body || {};
+  const ok = await updateConfig(id, {
+    wifiSsid: b.wifiSsid !== undefined ? String(b.wifiSsid) : undefined,
+    wifiPassword: b.wifiPassword ? String(b.wifiPassword) : undefined,
+    wifiSecurity: b.wifiSecurity !== undefined ? String(b.wifiSecurity) : undefined,
+    startUrl: b.startUrl !== undefined ? String(b.startUrl) : undefined,
+    adminPin: b.adminPin !== undefined ? String(b.adminPin) : undefined
+  });
+  if (!ok) { res.status(502).json({ error: 'update failed' }); return; }
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'mdm.native_update_config', targetType: 'config', targetId: String(id), details: {}, ipAddress: req.ip
+  });
+  res.json({ ok: true });
 });
 
 export default router;

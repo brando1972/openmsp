@@ -169,6 +169,205 @@ export async function reboot(deviceId: number): Promise<boolean> {
  * files), overriding name + kiosk mode on the new row. qrcodekey carries a
  * UNIQUE index so it must be nulled on the copy. Returns the new id/name.
  */
+// ---------------------------------------------------------------------------
+// Native MDM module — list/detail/create for the in-console (no-iframe) screens.
+// ---------------------------------------------------------------------------
+
+export interface HmdmDeviceRow {
+  id: number; number: string; name: string; model: string;
+  configId: number | null; configName: string | null;
+  lastUpdate: number; online: boolean; publicIp: string | null; enrollTime: number | null;
+}
+const ONLINE_MS = 10 * 60 * 1000;
+
+/** All enrolled devices with their configuration name (native Devices screen). */
+export async function listDevices(): Promise<HmdmDeviceRow[]> {
+  const rows = await q(
+    `select d.id, d.number, coalesce(d.description,'') as description, d.configurationid,
+            d.lastupdate, d.enrolltime, d.publicip, c.name as configname,
+            coalesce((case when d.infojson ~ '^\\s*[{]' then (d.infojson::json)->>'model' else null end),'') as model
+       from devices d
+       left join configurations c on c.id = d.configurationid
+      order by d.lastupdate desc nulls last`
+  );
+  const now = Date.now();
+  return rows.map((r) => ({
+    id: r.id, number: r.number, name: r.description || r.number, model: r.model || '',
+    configId: r.configurationid ?? null, configName: r.configname ?? null,
+    lastUpdate: Number(r.lastupdate) || 0,
+    online: !!r.lastupdate && now - Number(r.lastupdate) < ONLINE_MS,
+    publicIp: r.publicip ?? null, enrollTime: r.enrolltime != null ? Number(r.enrolltime) : null
+  }));
+}
+
+export interface HmdmConfigDetail {
+  id: number; name: string;
+  wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean;
+  kioskMode: boolean; mobileEnrollment: boolean; qrcodeKey: string | null;
+  contentApp: string | null; deviceCount: number;
+  startUrl: string | null; adminPin: string | null;
+}
+
+async function configSettings(configId: number): Promise<Record<string, string>> {
+  const rows = await q(`select name, value from configurationapplicationsettings where extrefid = $1`, [configId]);
+  const m: Record<string, string> = {};
+  for (const r of rows) m[r.name] = r.value;
+  return m;
+}
+
+function detailRow(r: any, settings: Record<string, string>): HmdmConfigDetail {
+  return {
+    id: r.id, name: r.name,
+    wifiSsid: r.wifissid || '', wifiSecurity: r.wifisecuritytype || '', wifiPasswordSet: !!r.wifipwset,
+    kioskMode: !!r.kioskmode, mobileEnrollment: !!r.mobileenrollment, qrcodeKey: r.qrcodekey || null,
+    contentApp: r.contentapp || null, deviceCount: Number(r.devicecount) || 0,
+    startUrl: settings.startUrl ?? null, adminPin: settings.adminPin ?? null
+  };
+}
+
+const CONFIG_SELECT = `
+  select c.id, c.name, c.wifissid, c.wifisecuritytype,
+         (c.wifipassword is not null and c.wifipassword <> '') as wifipwset,
+         c.kioskmode, c.mobileenrollment, c.qrcodekey,
+         (select a.name from applicationversions av join applications a on a.id = av.applicationid
+           where av.id = c.contentappid) as contentapp,
+         (select count(*) from devices d where d.configurationid = c.id) as devicecount
+    from configurations c`;
+
+/** Configurations ("profiles") with WiFi/kiosk/QR + device counts (native list). */
+export async function getConfigsDetailed(): Promise<HmdmConfigDetail[]> {
+  const rows = await q(`${CONFIG_SELECT} order by c.name`);
+  const out: HmdmConfigDetail[] = [];
+  for (const r of rows) out.push(detailRow(r, await configSettings(r.id)));
+  return out;
+}
+
+export async function getConfig(id: number): Promise<HmdmConfigDetail | null> {
+  const rows = await q(`${CONFIG_SELECT} where c.id = $1`, [id]);
+  if (!rows.length) return null;
+  return detailRow(rows[0], await configSettings(id));
+}
+
+/** Upsert a kiosk-app managed setting (startUrl / adminPin) on a configuration. */
+async function upsertSetting(client: pg.PoolClient, configId: number, appId: number | null, key: string, value: string) {
+  const upd = await client.query(
+    `update configurationapplicationsettings set value = $3, type = 'STRING', lastupdate = $4
+       where extrefid = $1 and name = $2`,
+    [configId, key, value, Date.now()]
+  );
+  if (upd.rowCount === 0 && appId != null) {
+    await client.query(
+      `insert into configurationapplicationsettings (applicationid, name, type, value, extrefid, lastupdate)
+       values ($1, $2, 'STRING', $3, $4, $5)`,
+      [appId, key, value, configId, Date.now()]
+    );
+  }
+}
+
+export interface CreateConfigInput {
+  name: string; wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string;
+  startUrl?: string; adminPin?: string; baseId?: number;
+}
+
+/**
+ * Create a new configuration by cloning the proven kiosk template (default id 4,
+ * which carries the launcher+kiosk apps, boot flags and app settings wired
+ * correctly), then applying WiFi + start-URL + admin-PIN and minting a fresh QR
+ * key + self-registration. Returns the new id + qrcodeKey. This keeps us clear
+ * of Headwind's provisioning landmines (main app = launcher, etc.).
+ */
+export async function createConfig(input: CreateConfigInput): Promise<{ id: number; qrcodeKey: string } | null> {
+  const p = getPool();
+  if (!p) return null;
+  const base = input.baseId ?? 4;
+  const cloned = await cloneConfig(base, input.name, true);
+  if (!cloned) return null;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      `update configurations
+          set wifissid = $2, wifipassword = $3, wifisecuritytype = $4,
+              mobileenrollment = true,
+              qrcodekey = md5(random()::text || clock_timestamp()::text || $1::text)
+        where id = $1
+      returning qrcodekey`,
+      [cloned.id, input.wifiSsid || null, input.wifiPassword || null, input.wifiSecurity || 'WPA']
+    );
+    const appRow = await client.query(
+      `select applicationid from configurationapplicationsettings where extrefid = $1 order by id limit 1`,
+      [cloned.id]
+    );
+    const appId: number | null = appRow.rows[0]?.applicationid ?? null;
+    if (input.startUrl) await upsertSetting(client, cloned.id, appId, 'startUrl', input.startUrl);
+    if (input.adminPin) await upsertSetting(client, cloned.id, appId, 'adminPin', input.adminPin);
+    await client.query('COMMIT');
+    return { id: cloned.id, qrcodeKey: r.rows[0].qrcodekey };
+  } catch {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+export interface UpdateConfigInput {
+  wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string; startUrl?: string; adminPin?: string;
+}
+export async function updateConfig(id: number, input: UpdateConfigInput): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    if (input.wifiSsid !== undefined || input.wifiSecurity !== undefined || input.wifiPassword !== undefined) {
+      await client.query(
+        `update configurations set
+           wifissid = coalesce($2, wifissid),
+           wifisecuritytype = coalesce($3, wifisecuritytype),
+           wifipassword = case when $4::text is not null and $4 <> '' then $4 else wifipassword end
+         where id = $1`,
+        [id, input.wifiSsid ?? null, input.wifiSecurity ?? null, input.wifiPassword ?? null]
+      );
+    }
+    const appRow = await client.query(
+      `select applicationid from configurationapplicationsettings where extrefid = $1 order by id limit 1`, [id]
+    );
+    const appId: number | null = appRow.rows[0]?.applicationid ?? null;
+    if (input.startUrl !== undefined) await upsertSetting(client, id, appId, 'startUrl', input.startUrl);
+    if (input.adminPin !== undefined) await upsertSetting(client, id, appId, 'adminPin', input.adminPin);
+    await client.query('COMMIT');
+    return true;
+  } catch {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+export interface HmdmApp { id: number; pkg: string; name: string; system: boolean; useKiosk: boolean; version: string | null; url: string | null; }
+export async function listApplications(): Promise<HmdmApp[]> {
+  const rows = await q(
+    `select a.id, a.pkg, coalesce(a.name,'') as name, coalesce(a.system,false) as system,
+            coalesce(a.usekiosk,false) as usekiosk, av.version, av.url
+       from applications a
+       left join applicationversions av on av.id = a.latestversion
+      order by a.system nulls first, a.name`
+  );
+  return rows.map((r) => ({ id: r.id, pkg: r.pkg, name: r.name || r.pkg, system: !!r.system, useKiosk: !!r.usekiosk, version: r.version ?? null, url: r.url ?? null }));
+}
+
+export interface HmdmFile { id: number; description: string; devicePath: string; url: string | null; external: boolean; }
+export async function listFiles(): Promise<HmdmFile[]> {
+  const rows = await q(
+    `select id, coalesce(description,'') as description, coalesce(devicepath,'') as devicepath,
+            external, externalurl, filepath
+       from uploadedfiles order by uploadtime desc nulls last, id desc`
+  );
+  return rows.map((r) => ({ id: r.id, description: r.description, devicePath: r.devicepath, url: r.external ? (r.externalurl || null) : (r.filepath || null), external: !!r.external }));
+}
+
 export async function cloneConfig(baseId: number, name: string, kioskMode: boolean): Promise<{ id: number; name: string } | null> {
   const p = getPool();
   if (!p) return null;
