@@ -496,3 +496,84 @@ export async function cloneConfig(baseId: number, name: string, kioskMode: boole
     client.release();
   }
 }
+
+// ---- Per-configuration application assignment (native Applications tab) -----
+export interface HmdmConfigApp {
+  applicationId: number; pkg: string; name: string; version: string | null;
+  system: boolean; showIcon: boolean; remove: boolean; url: string | null;
+}
+
+/** Apps assigned to a configuration, custom (uploaded) apps first, then system packages. */
+export async function getConfigApps(configId: number): Promise<HmdmConfigApp[]> {
+  const rows = await q(
+    `select a.id as applicationid, a.pkg, coalesce(a.name,'') as name,
+            coalesce(a.system,false) as system,
+            coalesce(ca.showicon,false) as showicon, coalesce(ca.remove,false) as remove,
+            av.version, av.url
+       from configurationapplications ca
+       join applications a on a.id = ca.applicationid
+       left join applicationversions av on av.id = coalesce(ca.applicationversionid, a.latestversion)
+      where ca.configurationid = $1
+      order by coalesce(a.system,false), a.name`,
+    [configId]
+  );
+  return rows.map((r) => ({
+    applicationId: r.applicationid, pkg: r.pkg, name: r.name || r.pkg,
+    system: !!r.system, showIcon: !!r.showicon, remove: !!r.remove,
+    version: r.version ?? null, url: r.url ?? null
+  }));
+}
+
+/** Repository apps not yet assigned to a configuration (for the "add app" picker). */
+export async function getAvailableApps(configId: number): Promise<HmdmApp[]> {
+  const rows = await q(
+    `select a.id, a.pkg, coalesce(a.name,'') as name, coalesce(a.system,false) as system,
+            coalesce(a.usekiosk,false) as usekiosk, av.version, av.url
+       from applications a
+       left join applicationversions av on av.id = a.latestversion
+      where a.id not in (select applicationid from configurationapplications where configurationid = $1)
+      order by a.system nulls first, a.name`,
+    [configId]
+  );
+  return rows.map((r) => ({ id: r.id, pkg: r.pkg, name: r.name || r.pkg, system: !!r.system, useKiosk: !!r.usekiosk, version: r.version ?? null, url: r.url ?? null }));
+}
+
+/** Assign an app to a configuration (idempotent). Uses the app's latest version, action=install. */
+export async function addConfigApp(configId: number, applicationId: number): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `insert into configurationapplications (configurationid, applicationid, applicationversionid, action, showicon, remove)
+       select $1, $2, a.latestversion, 1, false, false from applications a where a.id = $2
+       on conflict do nothing`,
+      [configId, applicationId]
+    );
+    return true;
+  } catch { return false; }
+}
+
+export async function removeConfigApp(configId: number, applicationId: number): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(`delete from configurationapplications where configurationid = $1 and applicationid = $2`, [configId, applicationId]);
+    return true;
+  } catch { return false; }
+}
+
+/** Toggle per-app flags (showIcon / remove) for an assigned app. */
+export async function setConfigApp(configId: number, applicationId: number, flags: { showIcon?: boolean; remove?: boolean }): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  try {
+    await p.query(
+      `update configurationapplications set
+         showicon = coalesce($3, showicon),
+         remove   = coalesce($4, remove)
+       where configurationid = $1 and applicationid = $2`,
+      [configId, applicationId, flags.showIcon ?? null, flags.remove ?? null]
+    );
+    return true;
+  } catch { return false; }
+}

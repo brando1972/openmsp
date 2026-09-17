@@ -599,7 +599,15 @@ export const mdm = {
     createConfiguration: async (body: NativeConfigInput): Promise<{ ok: boolean; id: number; qrcodeKey: string; qrBase: string }> =>
       request('/mdm/native/configurations', { method: 'POST', body: JSON.stringify(body) }),
     updateConfiguration: async (id: number, body: NativeConfigInput): Promise<{ ok: boolean }> =>
-      request(`/mdm/native/configurations/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+      request(`/mdm/native/configurations/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    configApps: async (id: number): Promise<{ assigned: NativeConfigApp[]; available: NativeMdmApp[] }> =>
+      request(`/mdm/native/configurations/${id}/apps`),
+    addConfigApp: async (id: number, applicationId: number): Promise<{ ok: boolean }> =>
+      request(`/mdm/native/configurations/${id}/apps`, { method: 'POST', body: JSON.stringify({ applicationId }) }),
+    setConfigApp: async (id: number, appId: number, flags: { showIcon?: boolean; remove?: boolean }): Promise<{ ok: boolean }> =>
+      request(`/mdm/native/configurations/${id}/apps/${appId}`, { method: 'PUT', body: JSON.stringify(flags) }),
+    removeConfigApp: async (id: number, appId: number): Promise<{ ok: boolean }> =>
+      request(`/mdm/native/configurations/${id}/apps/${appId}`, { method: 'DELETE' })
   }
 };
 
@@ -628,6 +636,7 @@ export interface NativeMdmConfig {
   policy?: NativeMdmPolicy;
 }
 export interface NativeMdmApp { id: number; pkg: string; name: string; system: boolean; useKiosk: boolean; version: string | null; url: string | null; }
+export interface NativeConfigApp { applicationId: number; pkg: string; name: string; version: string | null; system: boolean; showIcon: boolean; remove: boolean; url: string | null; }
 export interface NativeMdmFile { id: number; description: string; devicePath: string; url: string | null; external: boolean; }
 export interface NativeMdmOverview {
   configured: boolean; deviceCount: number; onlineCount: number; configCount: number; appCount: number; recent: NativeMdmDevice[];

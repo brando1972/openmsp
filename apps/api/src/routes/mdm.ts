@@ -4,7 +4,8 @@ import { store } from '../db/store.js';
 import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
 import {
   hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, cloneConfig,
-  listDevices, getConfigsDetailed, getConfig, createConfig, updateConfig, listApplications, listFiles
+  listDevices, getConfigsDetailed, getConfig, createConfig, updateConfig, listApplications, listFiles,
+  getConfigApps, getAvailableApps, addConfigApp, removeConfigApp, setConfigApp
 } from '../mdm/hmdm.js';
 
 /**
@@ -333,6 +334,51 @@ router.put('/native/configurations/:id', async (req: AuthenticatedRequest, res) 
     orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
     action: 'mdm.native_update_config', targetType: 'config', targetId: String(id), details: {}, ipAddress: req.ip
   });
+  res.json({ ok: true });
+});
+
+// ---- Per-configuration application assignment (native Applications tab) -----
+// GET /api/v1/mdm/native/configurations/:id/apps — assigned + available apps
+router.get('/native/configurations/:id/apps', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const [assigned, available] = await Promise.all([getConfigApps(id), getAvailableApps(id)]);
+  res.json({ assigned, available });
+});
+
+// POST /api/v1/mdm/native/configurations/:id/apps — assign an app { applicationId }
+router.post('/native/configurations/:id/apps', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const appId = parseInt(String((req.body || {}).applicationId), 10);
+  if (!Number.isFinite(id) || !Number.isFinite(appId) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const ok = await addConfigApp(id, appId);
+  if (!ok) { res.status(502).json({ error: 'assign failed' }); return; }
+  store.recordAudit({ orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name, action: 'mdm.native_config_app_add', targetType: 'config', targetId: String(id), details: { appId }, ipAddress: req.ip });
+  res.json({ ok: true });
+});
+
+// PUT /api/v1/mdm/native/configurations/:id/apps/:appId — toggle showIcon / remove
+router.put('/native/configurations/:id/apps/:appId', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const appId = parseInt(String(req.params.appId), 10);
+  if (!Number.isFinite(id) || !Number.isFinite(appId) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const b = req.body || {};
+  const ok = await setConfigApp(id, appId, {
+    showIcon: b.showIcon !== undefined ? !!b.showIcon : undefined,
+    remove: b.remove !== undefined ? !!b.remove : undefined
+  });
+  if (!ok) { res.status(502).json({ error: 'update failed' }); return; }
+  res.json({ ok: true });
+});
+
+// DELETE /api/v1/mdm/native/configurations/:id/apps/:appId — unassign
+router.delete('/native/configurations/:id/apps/:appId', async (req: AuthenticatedRequest, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  const appId = parseInt(String(req.params.appId), 10);
+  if (!Number.isFinite(id) || !Number.isFinite(appId) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
+  const ok = await removeConfigApp(id, appId);
+  if (!ok) { res.status(502).json({ error: 'remove failed' }); return; }
+  store.recordAudit({ orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name, action: 'mdm.native_config_app_remove', targetType: 'config', targetId: String(id), details: { appId }, ipAddress: req.ip });
   res.json({ ok: true });
 });
 

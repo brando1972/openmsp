@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useApp } from '../../data/AppContext';
 import { api } from '../../services/api';
-import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview, NativeMdmPolicy, MdmTriState } from '../../services/api';
+import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview, NativeMdmPolicy, MdmTriState, NativeConfigApp } from '../../services/api';
 import {
   Smartphone, Monitor, Wifi, RefreshCw, Plus, X, ExternalLink, Loader2, Settings as SettingsIcon,
   AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight, Clock
@@ -397,7 +397,7 @@ const ToggleRow: React.FC<{ label: string; checked: boolean; onChange: (v: boole
 
 const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; onCreated: (c: NativeMdmConfig) => void; qrBase: string }> = ({ existing, onClose, onCreated }) => {
   const isEdit = !!existing;
-  const [tab, setTab] = useState<'general' | 'policy'>('general');
+  const [tab, setTab] = useState<'general' | 'policy' | 'apps'>('general');
   const [name, setName] = useState(existing?.name || '');
   const [wifiSsid, setWifiSsid] = useState(existing?.wifiSsid || '');
   const [wifiPassword, setWifiPassword] = useState('');
@@ -457,7 +457,7 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
         </div>
         {/* Tab strip */}
         <div className="flex gap-1 px-4 pt-3 border-b border-slate-100">
-          {([['general', 'General & Kiosk'], ['policy', 'Device policy']] as const).map(([id, label]) => (
+          {([['general', 'General & Kiosk'], ['policy', 'Device policy'], ['apps', 'Applications']] as const).map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`px-3.5 py-2 text-sm font-semibold rounded-t-lg border-b-2 -mb-px transition ${tab === id ? 'text-slate-900 border-fuchsia-500' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>
               {label}
@@ -553,15 +553,26 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
               </div>
             )
           )}
+
+          {tab === 'apps' && (
+            isEdit ? <AppsPanel configId={existing!.id} />
+              : <div className="text-center text-slate-400 text-sm py-12">
+                  <AppWindow className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                  <div className="font-semibold text-slate-600">Create the profile first</div>
+                  <div className="text-xs mt-1">New profiles inherit the kiosk template's apps. Save, then reopen to manage them here.</div>
+                </div>
+          )}
         </div>
 
-        <div className="px-5 py-3.5 border-t border-slate-100">
-          {err && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-2">{err}</div>}
-          <button onClick={submit} disabled={busy}
-            className="w-full text-white font-bold rounded-lg py-3 flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: MDM_TINT }}>
-            {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : isEdit ? 'Save changes' : 'Create & generate QR'}
-          </button>
-        </div>
+        {tab !== 'apps' && (
+          <div className="px-5 py-3.5 border-t border-slate-100">
+            {err && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-2">{err}</div>}
+            <button onClick={submit} disabled={busy}
+              className="w-full text-white font-bold rounded-lg py-3 flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: MDM_TINT }}>
+              {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : isEdit ? 'Save changes' : 'Create & generate QR'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -573,6 +584,101 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
     {children}
   </label>
 );
+
+// Per-configuration application assignment (native Applications tab).
+const AppsPanel: React.FC<{ configId: number }> = ({ configId }) => {
+  const [assigned, setAssigned] = useState<NativeConfigApp[] | null>(null);
+  const [available, setAvailable] = useState<NativeMdmApp[]>([]);
+  const [showSystem, setShowSystem] = useState(false);
+  const [addId, setAddId] = useState('');
+
+  const load = useCallback(() => {
+    api.mdm.native.configApps(configId).then((r) => { setAssigned(r.assigned); setAvailable(r.available); }).catch(() => setAssigned([]));
+  }, [configId]);
+  useEffect(() => { load(); }, [load]);
+
+  if (!assigned) return <Spinner />;
+  const custom = assigned.filter((a) => !a.system);
+  const system = assigned.filter((a) => a.system);
+  const customAvail = available.filter((a) => !a.system);
+  const systemAvail = available.filter((a) => a.system);
+
+  const toggle = async (a: NativeConfigApp, field: 'showIcon' | 'remove') => {
+    const next = !a[field];
+    setAssigned((prev) => prev!.map((x) => x.applicationId === a.applicationId ? { ...x, [field]: next } : x));
+    await api.mdm.native.setConfigApp(configId, a.applicationId, { [field]: next }).catch(() => load());
+  };
+  const unassign = async (a: NativeConfigApp) => {
+    setAssigned((prev) => prev!.filter((x) => x.applicationId !== a.applicationId));
+    await api.mdm.native.removeConfigApp(configId, a.applicationId).catch(() => {});
+    load();
+  };
+  const add = async () => {
+    const id = parseInt(addId, 10);
+    if (!Number.isFinite(id)) return;
+    setAddId('');
+    await api.mdm.native.addConfigApp(configId, id).catch(() => {});
+    load();
+  };
+
+  const Row: React.FC<{ a: NativeConfigApp }> = ({ a }) => (
+    <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 last:border-0">
+      <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${a.system ? 'bg-slate-100' : ''}`} style={a.system ? undefined : { background: `${MDM_TINT}1f` }}>
+        <AppWindow className={`w-4 h-4 ${a.system ? 'text-slate-400' : ''}`} style={a.system ? undefined : { color: MDM_TINT }} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold text-slate-800 truncate">{a.name}</div>
+        <div className="text-[11px] text-slate-400 font-mono truncate">{a.pkg}{a.version && a.version !== '0' ? ` · v${a.version}` : ''}</div>
+      </div>
+      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 cursor-pointer shrink-0" title="Show launcher icon">
+        <input type="checkbox" checked={a.showIcon} onChange={() => toggle(a, 'showIcon')} className="w-3.5 h-3.5 accent-fuchsia-600" /> Icon
+      </label>
+      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 cursor-pointer shrink-0" title="Uninstall from device">
+        <input type="checkbox" checked={a.remove} onChange={() => toggle(a, 'remove')} className="w-3.5 h-3.5 accent-rose-500" /> Remove
+      </label>
+      <button onClick={() => unassign(a)} title="Unassign from profile" className="text-slate-300 hover:text-rose-500 shrink-0"><X className="w-4 h-4" /></button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Add app */}
+      <div className="flex items-center gap-2">
+        <select value={addId} onChange={(e) => setAddId(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
+          <option value="">Add an application…</option>
+          {customAvail.length > 0 && <optgroup label="Custom apps">{customAvail.map((a) => <option key={a.id} value={a.id}>{a.name}{a.version ? ` · v${a.version}` : ''}</option>)}</optgroup>}
+          {systemAvail.length > 0 && <optgroup label="System packages">{systemAvail.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</optgroup>}
+        </select>
+        <button onClick={add} disabled={!addId} className="flex items-center gap-1.5 text-sm font-semibold text-white rounded-lg px-3 py-2 disabled:opacity-50" style={{ background: MDM_TINT }}>
+          <Plus className="w-4 h-4" /> Add
+        </button>
+      </div>
+
+      {/* Custom apps */}
+      <div>
+        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Managed apps <span className="text-slate-300">({custom.length})</span></div>
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          {custom.length ? custom.map((a) => <Row key={a.applicationId} a={a} />)
+            : <div className="text-center text-slate-400 text-sm py-6">No custom apps assigned. Add one above.</div>}
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1.5">“Icon” shows the app on the launcher · “Remove” uninstalls it from the device on next check-in.</p>
+      </div>
+
+      {/* System apps (collapsed) */}
+      <div>
+        <button onClick={() => setShowSystem((s) => !s)} className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex items-center gap-1 hover:text-slate-600">
+          System packages <span className="text-slate-300">({system.length})</span>
+          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showSystem ? 'rotate-90' : ''}`} />
+        </button>
+        {showSystem && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mt-1.5 max-h-72 overflow-y-auto">
+            {system.map((a) => <Row key={a.applicationId} a={a} />)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const QrModal: React.FC<{ name: string; url: string; wifi: string; onClose: () => void }> = ({ name, url, wifi, onClose }) => (
   <div className="fixed inset-0 z-[60] bg-slate-900/50 flex items-center justify-center p-4" onMouseDown={onClose}>
