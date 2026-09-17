@@ -4,7 +4,7 @@ import { api } from '../../services/api';
 import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview } from '../../services/api';
 import {
   Smartphone, Monitor, Wifi, RefreshCw, Plus, X, ExternalLink, Loader2, Settings as SettingsIcon,
-  AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight
+  AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight, Clock
 } from 'lucide-react';
 
 /* ==========================================================================
@@ -124,51 +124,136 @@ const Overview: React.FC = () => {
 };
 
 // ---- Devices ----------------------------------------------------------------
+const StatusPill: React.FC<{ online: boolean }> = ({ online }) => (
+  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${online ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+    {online ? 'online' : 'offline'}
+  </span>
+);
+
+// One manageable device card — mirrors the Remote Support layout: header, facts, inline controls.
+const DeviceCard: React.FC<{
+  device: NativeMdmDevice;
+  configs: NativeMdmConfig[];
+  onOpen: () => void;
+  onChanged: () => void;
+  notify: (t: string) => void;
+}> = ({ device, configs, onOpen, onChanged, notify }) => {
+  const [busy, setBusy] = useState<'' | 'profile' | 'reboot'>('');
+
+  const setProfile = async (configId: number) => {
+    setBusy('profile');
+    try { await api.mdm.setProfile(device.number, configId); notify(`Profile queued for ${device.name} — applies on next check-in.`); onChanged(); }
+    catch { notify(`Couldn't set the profile for ${device.name}.`); }
+    finally { setBusy(''); }
+  };
+  const doReboot = async () => {
+    setBusy('reboot');
+    try { await api.mdm.reboot(device.number); notify(`Reboot queued for ${device.name} — restarts on next check-in.`); }
+    catch { notify(`Couldn't queue a reboot for ${device.name}.`); }
+    finally { setBusy(''); }
+  };
+
+  return (
+    <div className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+      {/* Header band */}
+      <button onClick={onOpen} className="flex items-start gap-2.5 px-3.5 pt-3.5 pb-3 text-left hover:bg-slate-50/60 transition">
+        <span className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${MDM_TINT}1f` }}>
+          <Smartphone className="w-4 h-4" style={{ color: MDM_TINT }} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-bold text-slate-900 text-sm truncate leading-tight">{device.name}</div>
+          <div className="text-[11px] text-slate-500 truncate leading-tight">{device.model || 'Android device'}</div>
+        </div>
+        <StatusPill online={device.online} />
+      </button>
+
+      {/* Facts */}
+      <div className="px-3.5 flex flex-col gap-1 text-[11px] text-slate-500 leading-snug">
+        <div className="flex items-center gap-1.5"><ShieldCheck className="w-3 h-3 text-slate-400 shrink-0" /><span className="truncate">{device.configName || <span className="text-slate-300">No profile assigned</span>}</span></div>
+        <div className="flex items-center gap-1.5"><Clock className="w-3 h-3 text-slate-400 shrink-0" /><span>Last seen {timeAgo(device.lastUpdate)}</span></div>
+        {device.publicIp && <div className="flex items-center gap-1.5"><Wifi className="w-3 h-3 text-slate-400 shrink-0" /><span className="font-mono truncate">{device.publicIp}</span></div>}
+      </div>
+
+      {/* Inline management */}
+      <div className="px-3.5 py-3 mt-2 flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <SettingsIcon className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <select
+            value={device.configId ?? ''}
+            disabled={busy === 'profile'}
+            onChange={(e) => e.target.value && setProfile(parseInt(e.target.value, 10))}
+            className="flex-1 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 cursor-pointer outline-none focus:border-fuchsia-400"
+            title="Assign profile"
+          >
+            {device.configId == null && <option value="">Set profile…</option>}
+            {configs.map((c) => <option key={c.id} value={c.id}>{c.name}{c.kioskMode ? ' · kiosk' : ''}</option>)}
+          </select>
+          {busy === 'profile' && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={doReboot} disabled={busy === 'reboot'}
+            className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition disabled:opacity-50">
+            {busy === 'reboot' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />} Reboot
+          </button>
+          <button onClick={onOpen}
+            className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold rounded-lg px-2 py-1.5 text-white transition" style={{ background: MDM_TINT }}>
+            Details
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const DevicesView: React.FC = () => {
   const [devices, setDevices] = useState<NativeMdmDevice[] | null>(null);
   const [configs, setConfigs] = useState<NativeMdmConfig[]>([]);
   const [open, setOpen] = useState<NativeMdmDevice | null>(null);
   const [q, setQ] = useState('');
+  const [toast, setToast] = useState('');
 
   const load = useCallback(() => { api.mdm.native.devices().then((r) => setDevices(r.devices)).catch(() => setDevices([])); }, []);
   useEffect(() => { load(); api.mdm.native.configurations().then((r) => setConfigs(r.configurations)).catch(() => {}); }, [load]);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 4000); return () => clearTimeout(t); }, [toast]);
 
   if (!devices) return <Spinner />;
   const filtered = devices.filter((d) => !q || d.name.toLowerCase().includes(q.toLowerCase()) || d.model.toLowerCase().includes(q.toLowerCase()));
+  const sorted = [...filtered].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
 
   return (
     <div className="p-5">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search devices…"
             className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-fuchsia-300" />
         </div>
-        <div className="text-xs text-slate-400 ml-auto">{devices.length} enrolled</div>
+        <button onClick={load} title="Refresh" className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white hover:bg-slate-50">
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </button>
+        <div className="text-xs text-slate-400 ml-1">{devices.length} enrolled</div>
       </div>
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wide">
-          <div>Device</div><div>Profile</div><div>Status</div><div>Last seen</div>
+
+      {sorted.length === 0 ? (
+        <div className="text-center text-slate-400 text-sm py-16">
+          <Smartphone className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+          <div className="font-semibold text-slate-600">No devices enrolled</div>
+          <div className="text-xs mt-1">Enroll a tablet from Configurations to see it here.</div>
         </div>
-        <div className="divide-y divide-slate-100">
-          {filtered.map((d) => (
-            <button key={d.id} onClick={() => setOpen(d)} className="w-full grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2.5 items-center text-left hover:bg-slate-50">
-              <div className="flex items-center gap-2 min-w-0">
-                <Smartphone className="w-4 h-4 text-slate-400 shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-slate-800 truncate">{d.name}</div>
-                  <div className="text-[11px] text-slate-400 truncate">{d.model || '—'}</div>
-                </div>
-              </div>
-              <div className="text-xs text-slate-600">{d.configName || <span className="text-slate-300">None</span>}</div>
-              <StatusDot online={d.online} />
-              <div className="text-[11px] text-slate-400 w-16 text-right">{timeAgo(d.lastUpdate)}</div>
-            </button>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {sorted.map((d) => (
+            <DeviceCard key={d.id} device={d} configs={configs} onOpen={() => setOpen(d)} onChanged={load} notify={setToast} />
           ))}
-          {filtered.length === 0 && <div className="text-center text-slate-400 text-sm py-8">No devices.</div>}
         </div>
-      </div>
+      )}
+
       {open && <DeviceDrawer device={open} configs={configs} onClose={() => setOpen(null)} onChanged={load} />}
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-[120] max-w-sm px-4 py-3 rounded-xl shadow-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 flex items-start gap-2">
+          <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" style={{ color: MDM_TINT }} /><span>{toast}</span>
+        </div>
+      )}
     </div>
   );
 };
