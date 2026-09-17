@@ -4,7 +4,8 @@ import { api } from '../../services/api';
 import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview, NativeMdmPolicy, NativeMdmDesign, NativeMdmMdm, MdmTriState, NativeConfigApp, NativeConfigFile, NativeRepoFile } from '../../services/api';
 import {
   Smartphone, Monitor, Wifi, RefreshCw, Plus, X, ExternalLink, Loader2, Settings as SettingsIcon,
-  AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight, Clock
+  AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight, Clock,
+  Lock, Unlock, MonitorPlay
 } from 'lucide-react';
 
 /* ==========================================================================
@@ -138,7 +139,7 @@ const DeviceCard: React.FC<{
   onChanged: () => void;
   notify: (t: string) => void;
 }> = ({ device, configs, onOpen, onChanged, notify }) => {
-  const [busy, setBusy] = useState<'' | 'profile' | 'reboot' | 'sync'>('');
+  const [busy, setBusy] = useState<'' | 'profile' | 'reboot' | 'sync' | 'kiosk' | 'relaunch'>('');
 
   const setProfile = async (configId: number) => {
     setBusy('profile');
@@ -156,6 +157,23 @@ const DeviceCard: React.FC<{
     setBusy('sync');
     try { await api.mdm.sync(device.number); notify(`Sync sent to ${device.name} — it pulls the latest profile in a few seconds.`); }
     catch { notify(`Couldn't sync ${device.name}.`); }
+    finally { setBusy(''); }
+  };
+  const doKiosk = async (lock: boolean) => {
+    setBusy('kiosk');
+    try {
+      await api.mdm.setKiosk(device.number, lock, lock ? device.oldConfigId : undefined);
+      notify(lock
+        ? `Locking ${device.name} into kiosk — it re-locks on its next check-in.`
+        : `Unlocking ${device.name} to the Recovery profile — it exits kiosk on its next check-in.`);
+      onChanged();
+    } catch { notify(`Couldn't ${lock ? 'lock' : 'unlock'} ${device.name}. Assign a kiosk profile first if none exists.`); }
+    finally { setBusy(''); }
+  };
+  const doRelaunch = async () => {
+    setBusy('relaunch');
+    try { await api.mdm.runApp(device.number); notify(`Relaunching ApexBrowser on ${device.name}.`); }
+    catch { notify(`Couldn't relaunch ApexBrowser on ${device.name}.`); }
     finally { setBusy(''); }
   };
 
@@ -195,6 +213,23 @@ const DeviceCard: React.FC<{
             {configs.map((c) => <option key={c.id} value={c.id}>{c.name}{c.kioskMode ? ' · kiosk' : ''}</option>)}
           </select>
           {busy === 'profile' && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+        </div>
+        <div className="flex items-center gap-2">
+          {device.configKiosk ? (
+            <button onClick={() => doKiosk(false)} disabled={busy === 'kiosk'} title="Unlock the tablet out of kiosk to the Recovery profile"
+              className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold border border-amber-200 rounded-lg px-2 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 transition disabled:opacity-50">
+              {busy === 'kiosk' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Unlock className="w-3.5 h-3.5" />} Unlock
+            </button>
+          ) : (
+            <button onClick={() => doKiosk(true)} disabled={busy === 'kiosk'} title="Lock the tablet back into its kiosk profile"
+              className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold border border-emerald-200 rounded-lg px-2 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition disabled:opacity-50">
+              {busy === 'kiosk' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />} Lock
+            </button>
+          )}
+          <button onClick={doRelaunch} disabled={busy === 'relaunch'} title="Relaunch the ApexBrowser kiosk app on the tablet"
+            className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 hover:bg-fuchsia-50 hover:text-fuchsia-700 hover:border-fuchsia-200 transition disabled:opacity-50">
+            {busy === 'relaunch' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MonitorPlay className="w-3.5 h-3.5" />} ApexBrowser
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={doSync} disabled={busy === 'sync'} title="Push the latest profile to the tablet now"
@@ -274,6 +309,8 @@ const DeviceDrawer: React.FC<{ device: NativeMdmDevice; configs: NativeMdmConfig
   const doReboot = async () => { setBusy('reboot'); try { await api.mdm.reboot(device.number); setMsg('Reboot queued — the tablet reboots on its next check-in.'); } catch { setMsg('Could not queue reboot.'); } finally { setBusy(''); } };
   const doSync = async () => { setBusy('sync'); try { await api.mdm.sync(device.number); setMsg('Sync sent — the tablet pulls the latest profile in a few seconds.'); } catch { setMsg('Could not sync.'); } finally { setBusy(''); } };
   const setProfile = async (configId: number) => { setBusy('profile'); try { await api.mdm.setProfile(device.number, configId); setMsg('Profile updated.'); onChanged(); } catch { setMsg('Could not set profile.'); } finally { setBusy(''); } };
+  const doKiosk = async (lock: boolean) => { setBusy('kiosk'); try { await api.mdm.setKiosk(device.number, lock, lock ? device.oldConfigId : undefined); setMsg(lock ? 'Locking into kiosk — re-locks on next check-in.' : 'Unlocking to Recovery — exits kiosk on next check-in.'); onChanged(); } catch { setMsg(`Could not ${lock ? 'lock' : 'unlock'}. Assign a kiosk profile first if none exists.`); } finally { setBusy(''); } };
+  const doRelaunch = async () => { setBusy('relaunch'); try { await api.mdm.runApp(device.number); setMsg('Relaunching ApexBrowser on the tablet.'); } catch { setMsg('Could not relaunch ApexBrowser.'); } finally { setBusy(''); } };
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/30" onMouseDown={onClose}>
       <div className="w-96 max-w-full h-full bg-white shadow-xl flex flex-col" onMouseDown={(e) => e.stopPropagation()}>
@@ -303,6 +340,24 @@ const DeviceDrawer: React.FC<{ device: NativeMdmDevice; configs: NativeMdmConfig
             className="w-full flex items-center justify-center gap-2 text-white font-semibold rounded-lg py-2.5 text-sm disabled:opacity-60" style={{ background: MDM_TINT }}>
             {busy === 'sync' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Sync profile now
           </button>
+
+          <div className="flex gap-2">
+            {device.configKiosk ? (
+              <button onClick={() => doKiosk(false)} disabled={busy === 'kiosk'}
+                className="flex-1 flex items-center justify-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 font-semibold rounded-lg py-2.5 text-sm disabled:opacity-60">
+                {busy === 'kiosk' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unlock className="w-4 h-4" />} Unlock kiosk
+              </button>
+            ) : (
+              <button onClick={() => doKiosk(true)} disabled={busy === 'kiosk'}
+                className="flex-1 flex items-center justify-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 font-semibold rounded-lg py-2.5 text-sm disabled:opacity-60">
+                {busy === 'kiosk' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />} Lock kiosk
+              </button>
+            )}
+            <button onClick={doRelaunch} disabled={busy === 'relaunch'}
+              className="flex-1 flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-600 hover:bg-fuchsia-50 hover:text-fuchsia-700 hover:border-fuchsia-200 font-semibold rounded-lg py-2.5 text-sm disabled:opacity-60">
+              {busy === 'relaunch' ? <Loader2 className="w-4 h-4 animate-spin" /> : <MonitorPlay className="w-4 h-4" />} ApexBrowser
+            </button>
+          </div>
 
           <button onClick={doReboot} disabled={busy === 'reboot'}
             className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-lg py-2.5 text-sm disabled:opacity-60">

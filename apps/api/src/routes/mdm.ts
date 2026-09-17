@@ -3,7 +3,8 @@ import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
 import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
 import {
-  hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, syncDevice as hmdmSync, cloneConfig,
+  hmdmConfigured, getDeviceBySerial, getTelemetry, listConfigs, setConfig, reboot as hmdmReboot, syncDevice as hmdmSync,
+  runApp as hmdmRunApp, getRecoveryConfigId, getDeviceConfigIds, cloneConfig,
   listDevices, getConfigsDetailed, getConfig, createConfig, updateConfig, listApplications, listFiles,
   getConfigApps, getAvailableApps, addConfigApp, removeConfigApp, setConfigApp,
   getConfigFiles, getAvailableFiles, addConfigFile, removeConfigFile, setConfigFile
@@ -217,6 +218,44 @@ router.post('/devices/:id/sync', async (req: AuthenticatedRequest, res) => {
     details: { hmdmDeviceId: device.id }, ipAddress: req.ip
   });
   res.status(ok ? 200 : 502).json({ ok });
+});
+
+// POST /api/v1/mdm/devices/:id/runapp — (re)launch an app on the tablet. Body: { pkg? } (default kiosk browser).
+router.post('/devices/:id/runapp', async (req: AuthenticatedRequest, res) => {
+  const serial = String(req.params.id);
+  if (!hmdmConfigured()) { res.status(503).json({ error: 'Headwind not configured' }); return; }
+  const device = await getDeviceBySerial(serial);
+  if (!device) { res.status(404).json({ error: 'device not found in Headwind' }); return; }
+  const pkg = String((req.body || {}).pkg || 'app.apexmsp.kiosk');
+  const ok = await hmdmRunApp(device.id, pkg);
+  store.recordAudit({ orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name, action: 'mdm.run_app', targetType: 'device', targetId: serial, details: { pkg }, ipAddress: req.ip });
+  res.status(ok ? 200 : 502).json({ ok });
+});
+
+// POST /api/v1/mdm/devices/:id/kiosk — lock into kiosk or unlock to Recovery. Body: { lock: boolean, configId? }.
+router.post('/devices/:id/kiosk', async (req: AuthenticatedRequest, res) => {
+  const serial = String(req.params.id);
+  if (!hmdmConfigured()) { res.status(503).json({ error: 'Headwind not configured' }); return; }
+  const device = await getDeviceBySerial(serial);
+  if (!device) { res.status(404).json({ error: 'device not found in Headwind' }); return; }
+  const lock = !!(req.body || {}).lock;
+  const configs = await getConfigsDetailed();
+  const isKiosk = (cid: number | null) => !!cid && !!configs.find((c) => c.id === cid)?.kioskMode;
+  let target: number | null = null;
+  if (lock) {
+    const bodyTarget = parseInt(String((req.body || {}).configId), 10);
+    const { oldConfigId } = await getDeviceConfigIds(device.id);
+    target = Number.isFinite(bodyTarget) && isKiosk(bodyTarget) ? bodyTarget
+      : isKiosk(oldConfigId) ? oldConfigId
+      : (configs.find((c) => c.kioskMode)?.id ?? null);
+    if (!target) { res.status(409).json({ error: 'no kiosk profile to lock into — assign one from the dropdown' }); return; }
+  } else {
+    target = await getRecoveryConfigId();
+    if (!target) { res.status(409).json({ error: 'Recovery profile not found' }); return; }
+  }
+  const ok = await setConfig(device.id, target) && await hmdmSync(device.id);
+  store.recordAudit({ orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name, action: lock ? 'mdm.kiosk_lock' : 'mdm.kiosk_unlock', targetType: 'device', targetId: serial, details: { target }, ipAddress: req.ip });
+  res.status(ok ? 200 : 502).json({ ok, configId: target });
 });
 
 // POST /api/v1/mdm/profiles — create a new profile by cloning an existing configuration.

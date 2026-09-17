@@ -188,6 +188,43 @@ export async function syncDevice(deviceId: number): Promise<boolean> {
   }
 }
 
+/** Queue a 'runApp' push so the device (re)launches an app to the foreground. */
+export async function runApp(deviceId: number, pkg: string): Promise<boolean> {
+  const p = getPool();
+  if (!p) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      `insert into pushmessages (messagetype, deviceid, payload) values ('runApp', $1, $2::jsonb) returning id`,
+      [deviceId, JSON.stringify({ pkg })]
+    );
+    await client.query(
+      `insert into pendingpushes (messageid, status, createtime) values ($1, 0, $2)`,
+      [r.rows[0].id, Date.now()]
+    );
+    await client.query('COMMIT');
+    return true;
+  } catch {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+/** The dedicated non-kiosk "Recovery" configuration id, if it exists. */
+export async function getRecoveryConfigId(): Promise<number | null> {
+  const rows = await q(`select id from configurations where name = $1 order by id limit 1`, ['Recovery (no kiosk)']);
+  return rows[0]?.id ?? null;
+}
+
+/** Current + previous configuration ids for a device (for kiosk lock/unlock). */
+export async function getDeviceConfigIds(deviceId: number): Promise<{ configId: number | null; oldConfigId: number | null }> {
+  const rows = await q(`select configurationid, oldconfigurationid from devices where id = $1`, [deviceId]);
+  return { configId: rows[0]?.configurationid ?? null, oldConfigId: rows[0]?.oldconfigurationid ?? null };
+}
+
 /**
  * Create a new configuration ("profile") by cloning an existing one. Copies the
  * base configuration row plus its child rows (applications, app parameters,
@@ -201,6 +238,9 @@ export async function syncDevice(deviceId: number): Promise<boolean> {
 export interface HmdmDeviceRow {
   id: number; number: string; name: string; model: string;
   configId: number | null; configName: string | null;
+  configKiosk: boolean;            // is the assigned config a kiosk profile?
+  oldConfigId: number | null;      // Headwind's previous config (lock-back target)
+  oldConfigKiosk: boolean;         // was the previous config a kiosk profile?
   lastUpdate: number; online: boolean; publicIp: string | null; enrollTime: number | null;
 }
 const ONLINE_MS = 10 * 60 * 1000;
@@ -209,16 +249,21 @@ const ONLINE_MS = 10 * 60 * 1000;
 export async function listDevices(): Promise<HmdmDeviceRow[]> {
   const rows = await q(
     `select d.id, d.number, coalesce(d.description,'') as description, d.configurationid,
-            d.lastupdate, d.enrolltime, d.publicip, c.name as configname,
+            d.oldconfigurationid, d.lastupdate, d.enrolltime, d.publicip,
+            c.name as configname, coalesce(c.kioskmode,false) as configkiosk,
+            coalesce(oc.kioskmode,false) as oldconfigkiosk,
             coalesce(d.infojson->>'model','') as model
        from devices d
        left join configurations c on c.id = d.configurationid
+       left join configurations oc on oc.id = d.oldconfigurationid
       order by d.lastupdate desc nulls last`
   );
   const now = Date.now();
   return rows.map((r) => ({
     id: r.id, number: r.number, name: r.description || r.number, model: r.model || '',
     configId: r.configurationid ?? null, configName: r.configname ?? null,
+    configKiosk: !!r.configkiosk,
+    oldConfigId: r.oldconfigurationid ?? null, oldConfigKiosk: !!r.oldconfigkiosk,
     lastUpdate: Number(r.lastupdate) || 0,
     online: !!r.lastupdate && now - Number(r.lastupdate) < ONLINE_MS,
     publicIp: r.publicip ?? null, enrollTime: r.enrolltime != null ? Number(r.enrolltime) : null

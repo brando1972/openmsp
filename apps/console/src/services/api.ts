@@ -567,6 +567,17 @@ export const mdm = {
   sync: async (device: string): Promise<{ ok: boolean }> =>
     request(`/mdm/devices/${encodeURIComponent(device)}/sync`, { method: 'POST' }),
 
+  // (Re)launch an app on the tablet — defaults to the ApexBrowser kiosk app.
+  runApp: async (device: string, pkg?: string): Promise<{ ok: boolean }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/runapp`, {
+      method: 'POST', body: JSON.stringify(pkg ? { pkg } : {})
+    }),
+  // Lock the tablet into a kiosk profile (lock=true) or unlock it to the Recovery profile (lock=false).
+  setKiosk: async (device: string, lock: boolean, configId?: number | null): Promise<{ ok: boolean; configId: number }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/kiosk`, {
+      method: 'POST', body: JSON.stringify(configId != null ? { lock, configId } : { lock })
+    }),
+
   // Create a new profile by cloning an existing configuration.
   createProfile: async (opts: { name: string; baseConfigId: number; kioskMode: boolean }): Promise<{ ok: boolean; profile: HmdmConfig }> =>
     request(`/mdm/profiles`, { method: 'POST', body: JSON.stringify(opts) }),
@@ -625,6 +636,7 @@ export const mdm = {
 export interface NativeMdmDevice {
   id: number; number: string; name: string; model: string;
   configId: number | null; configName: string | null;
+  configKiosk: boolean; oldConfigId: number | null; oldConfigKiosk: boolean;
   lastUpdate: number; online: boolean; publicIp: string | null; enrollTime: number | null;
 }
 export type MdmTriState = 'any' | 'disabled' | 'enabled';
