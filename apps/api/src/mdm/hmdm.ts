@@ -603,6 +603,13 @@ export async function cloneConfig(baseId: number, name: string, kioskMode: boole
     );
     if (!newRow.rows.length) { await client.query('ROLLBACK'); return null; }
     const newId = newRow.rows[0].id;
+    // Headwind seeds many rows with explicit ids, leaving the id sequences behind
+    // max(id); a clone that omits id then collides. Resync each table's sequence first.
+    const resyncSeq = async (tbl: string) => {
+      await client.query(
+        `select setval(pg_get_serial_sequence('${tbl}', 'id'), (select coalesce(max(id), 1) from ${tbl}))`
+      );
+    };
     // Clone child tables that reference configurationid (skip the id PK column).
     for (const child of ['configurationapplications', 'configurationapplicationparameters', 'configurationfiles']) {
       const cc = await client.query(
@@ -614,6 +621,7 @@ export async function cloneConfig(baseId: number, name: string, kioskMode: boole
       const ccols = cc.rows.map((r: any) => `"${r.column_name}"`);
       if (!ccols.length) continue;
       const ccList = ccols.join(', ');
+      await resyncSeq(child);
       await client.query(
         `insert into ${child} (configurationid, ${ccList})
          select $2, ${ccList} from ${child} where configurationid = $1`,
@@ -621,8 +629,9 @@ export async function cloneConfig(baseId: number, name: string, kioskMode: boole
       );
     }
     // configurationapplicationsettings links to the config via extrefid (not configurationid),
-    // so it isn't caught by the loop above. It holds the kiosk app's startUrl / adminPin, so
-    // clone it too — otherwise a new profile has no settings row and startUrl can't be saved.
+    // so it isn't caught by the loop above. It holds the kiosk app's startUrl / adminPin and the
+    // relay agent's relayBase / agentToken, so clone it too — otherwise a new profile has no
+    // settings row (startUrl can't be saved, and remote-in details are missing).
     {
       const sc = await client.query(
         `select column_name from information_schema.columns
@@ -632,6 +641,7 @@ export async function cloneConfig(baseId: number, name: string, kioskMode: boole
       const scols = sc.rows.map((r: any) => `"${r.column_name}"`);
       if (scols.length) {
         const scList = scols.join(', ');
+        await resyncSeq('configurationapplicationsettings');
         await client.query(
           `insert into configurationapplicationsettings (extrefid, ${scList})
            select $2, ${scList} from configurationapplicationsettings where extrefid = $1`,
