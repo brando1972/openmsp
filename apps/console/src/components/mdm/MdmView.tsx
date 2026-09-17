@@ -373,6 +373,9 @@ const DEFAULT_DESIGN: NativeMdmDesign = {
   iconSize: 'SMALL', header: 'NO_HEADER', headerTemplate: ''
 };
 
+// Android's max screen-off timeout in seconds (~24.8 days = effectively never).
+const NEVER_SLEEP_SECS = 2147483;
+
 const DEFAULT_MDM: NativeMdmMdm = {
   kioskMode: false, kioskScreenOn: false, kioskKeyguard: false, autostartForeground: false,
   kioskHome: false, kioskRecents: false, kioskNotifications: false, kioskSystemInfo: false,
@@ -628,6 +631,29 @@ const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; 
           {tab === 'mdm' && (
             loading ? <Spinner /> : (
               <div className="space-y-1">
+                {/* One-click "never sleep" — forces the Android screen-off timeout to max + keep-screen-on + no lock screen. */}
+                {(() => {
+                  const alwaysOn = policy.manageTimeout && policy.timeout >= 86400;
+                  return (
+                    <div className="rounded-xl border p-3 mb-2" style={{ borderColor: `${MDM_TINT}55`, background: `${MDM_TINT}0d` }}>
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input type="checkbox" checked={alwaysOn} className="w-4 h-4 accent-fuchsia-600"
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              patch({ manageTimeout: true, timeout: NEVER_SLEEP_SECS });
+                              patchMdm({ kioskScreenOn: true, kioskKeyguard: true });
+                            } else {
+                              patch({ manageTimeout: false, timeout: 60 });
+                            }
+                          }} />
+                        <div>
+                          <div className="text-sm font-bold text-slate-800">Screen always on (never sleep)</div>
+                          <div className="text-[11px] text-slate-500">Forces no screen timeout, keeps the display on, and disables the lock screen — the tablet stays on the ApexBrowser.</div>
+                        </div>
+                      </label>
+                    </div>
+                  );
+                })()}
                 <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pb-1">Kiosk mode</div>
                 <ToggleRow label="Kiosk mode" checked={mdm.kioskMode} onChange={(v) => patchMdm({ kioskMode: v })}>
                   <span className="text-[11px] text-slate-400">Lock the device to the kiosk app</span>
