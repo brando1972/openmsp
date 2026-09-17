@@ -4,7 +4,7 @@ import { api } from '../../services/api';
 import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview } from '../../services/api';
 import {
   Smartphone, Monitor, Wifi, RefreshCw, Plus, X, ExternalLink, Loader2, Settings as SettingsIcon,
-  AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package
+  AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight
 } from 'lucide-react';
 
 /* ==========================================================================
@@ -74,34 +74,39 @@ const StatusDot: React.FC<{ online: boolean }> = ({ online }) => (
 
 // ---- Overview ---------------------------------------------------------------
 const Overview: React.FC = () => {
+  const { setActiveSubRailView } = useApp();
   const [data, setData] = useState<NativeMdmOverview | null>(null);
   useEffect(() => { api.mdm.native.overview().then(setData).catch(() => setData(null)); }, []);
   if (!data) return <Spinner />;
   const stats = [
-    { label: 'Enrolled devices', value: data.deviceCount, Icon: Smartphone, tint: MDM_TINT },
-    { label: 'Online now', value: data.onlineCount, Icon: CircleDot, tint: '#22c55e' },
-    { label: 'Configurations', value: data.configCount, Icon: SettingsIcon, tint: '#6366f1' },
-    { label: 'Applications', value: data.appCount, Icon: Package, tint: '#f59e0b' }
+    { label: 'Enrolled devices', value: data.deviceCount, Icon: Smartphone, tint: MDM_TINT, to: 'mdm-devices' },
+    { label: 'Online now', value: data.onlineCount, Icon: CircleDot, tint: '#22c55e', to: 'mdm-devices' },
+    { label: 'Configurations', value: data.configCount, Icon: SettingsIcon, tint: '#6366f1', to: 'mdm-configurations' },
+    { label: 'Applications', value: data.appCount, Icon: Package, tint: '#f59e0b', to: 'mdm-applications' }
   ];
   return (
     <div className="p-5 space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {stats.map((s) => (
-          <div key={s.label} className="bg-white border border-slate-200 rounded-xl p-4">
+          <button key={s.label} onClick={() => setActiveSubRailView(s.to)}
+            className="bg-white border border-slate-200 rounded-xl p-4 text-left hover:border-slate-300 hover:shadow-sm transition group">
             <div className="flex items-center gap-2">
               <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${s.tint}1f` }}><s.Icon className="w-4 h-4" style={{ color: s.tint }} /></span>
               <div className="text-3xl font-black text-slate-800 tabular-nums ml-auto">{s.value}</div>
             </div>
-            <div className="text-xs text-slate-500 mt-2">{s.label}</div>
-          </div>
+            <div className="text-xs text-slate-500 mt-2 flex items-center gap-1">{s.label}<ChevronRight className="w-3 h-3 text-slate-300 group-hover:text-slate-400" /></div>
+          </button>
         ))}
       </div>
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 text-sm font-bold text-slate-700">Recent devices</div>
+        <div className="px-4 py-3 border-b border-slate-100 text-sm font-bold text-slate-700 flex items-center">
+          Recent devices
+          <button onClick={() => setActiveSubRailView('mdm-devices')} className="ml-auto text-xs font-semibold text-fuchsia-700 hover:text-fuchsia-800">View all</button>
+        </div>
         {data.recent.length === 0 ? <div className="text-center text-slate-400 text-sm py-8">No devices enrolled yet.</div> : (
           <div className="divide-y divide-slate-100">
             {data.recent.map((d) => (
-              <div key={d.id} className="flex items-center gap-3 px-4 py-2.5">
+              <button key={d.id} onClick={() => setActiveSubRailView('mdm-devices')} className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50">
                 <Smartphone className="w-4 h-4 text-slate-400 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-semibold text-slate-800 truncate">{d.name}</div>
@@ -109,7 +114,7 @@ const Overview: React.FC = () => {
                 </div>
                 <StatusDot online={d.online} />
                 <div className="text-[11px] text-slate-400 w-16 text-right">{timeAgo(d.lastUpdate)}</div>
-              </div>
+              </button>
             ))}
           </div>
         )}
