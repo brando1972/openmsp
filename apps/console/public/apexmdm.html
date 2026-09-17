@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ApexMDM Console - Next-Gen MSP Edition</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .tab-active { border-bottom: 2px solid #d946ef; color: #fdf4ff; font-weight: 600; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased min-h-screen flex flex-col font-sans selection:bg-fuchsia-500 selection:text-white">
+
+  <!-- TOP CONSOLE NAV BAR -->
+  <header class="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur px-5 flex items-center justify-between sticky top-0 z-30">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-fuchsia-600 to-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-fuchsia-950/50">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs uppercase tracking-wider font-semibold text-slate-400">OpenMSP</span>
+          <span class="text-slate-600">/</span>
+          <span class="text-sm font-bold text-white">ApexMDM Control Plane</span>
+          <span class="text-[10px] bg-fuchsia-500/20 text-fuchsia-300 font-mono px-1.5 py-0.5 rounded border border-fuchsia-500/30">Next-Gen RMM</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Client Tenant Selector & Action Buttons -->
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs text-slate-300 hover:border-slate-600 cursor-pointer transition">
+        <span class="text-slate-400">Client Org:</span>
+        <span class="font-medium text-white flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+          Apex Logistics Corp
+        </span>
+        <svg class="w-3.5 h-3.5 text-slate-400 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+
+      <button onclick="triggerBroadcastModal()" class="bg-indigo-600/90 hover:bg-indigo-500 text-white font-medium text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition shadow-sm">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+        Broadcast Alert
+      </button>
+
+      <button onclick="switchTab('enrollment')" class="bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-sm shadow-fuchsia-900 transition active:scale-95">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        Provision Tablet (QR)
+      </button>
+    </div>
+  </header>
+
+  <!-- SUB-RAIL NAV TABS -->
+  <div class="bg-slate-900 border-b border-slate-800 px-6 flex items-center gap-8 text-xs text-slate-400 sticky top-14 z-20 overflow-x-auto">
+    <button onclick="switchTab('devices')" id="tab-btn-devices" class="py-3 px-1 tab-active flex items-center gap-2 hover:text-white transition whitespace-nowrap">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      Fleet & Health
+      <span class="ml-1 bg-slate-800 text-slate-300 font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-slate-700">18</span>
+    </button>
+
+    <button onclick="switchTab('geofence')" id="tab-btn-geofence" class="py-3 px-1 flex items-center gap-2 hover:text-white transition whitespace-nowrap">
+      <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+      Geofence & Anti-Theft
+      <span class="ml-1 bg-emerald-950 text-emerald-300 font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-800/60">Live GPS</span>
+    </button>
+
+    <button onclick="switchTab('shell')" id="tab-btn-shell" class="py-3 px-1 flex items-center gap-2 hover:text-white transition whitespace-nowrap">
+      <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Android Shell & Scripts
+    </button>
+
+    <button onclick="switchTab('policies')" id="tab-btn-policies" class="py-3 px-1 flex items-center gap-2 hover:text-white transition whitespace-nowrap">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+      Configurations & Kiosk
+      <span class="ml-1 bg-slate-800 text-slate-300 font-mono text-[10px] px-1.5 py-0.5 rounded-full border border-slate-700">4</span>
+    </button>
+
+    <button onclick="switchTab('apps')" id="tab-btn-apps" class="py-3 px-1 flex items-center gap-2 hover:text-white transition whitespace-nowrap">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+      APK Applications
+    </button>
+
+    <button onclick="switchTab('files')" id="tab-btn-files" class="py-3 px-1 flex items-center gap-2 hover:text-white transition whitespace-nowrap">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+      File Distribution
+    </button>
+
+    <button onclick="switchTab('enrollment')" id="tab-btn-enrollment" class="py-3 px-1 flex items-center gap-2 hover:text-white transition whitespace-nowrap">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
+      Zero-Touch
+    </button>
+  </div>
+
+  <!-- MAIN CONTENT CONTAINER -->
+  <main class="flex-1 p-6 max-w-7xl w-full mx-auto">
+
+    <!-- VIEW 1: FLEET & HEALTH -->
+    <div id="view-devices" class="space-y-5">
+      <!-- Toolbar -->
+      <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div class="flex items-center gap-2 flex-wrap">
+          <div class="relative">
+            <input type="text" placeholder="Filter by tablet, serial, model..." class="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-fuchsia-500 w-64" />
+            <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          </div>
+
+          <div class="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px]">
+            <button class="px-2.5 py-1 rounded bg-slate-800 text-white font-medium">All (18)</button>
+            <button class="px-2.5 py-1 rounded text-slate-400 hover:text-white">Online (16)</button>
+            <button class="px-2.5 py-1 rounded text-slate-400 hover:text-white">Watchdog Healthy (17)</button>
+            <button class="px-2.5 py-1 rounded text-slate-400 hover:text-white">Attention (1)</button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 text-xs">
+          <button onclick="triggerAction('Running fleet battery health diagnostics...')" class="bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-800 text-xs font-medium flex items-center gap-1.5 transition">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            Watchdog Autopilot: Active
+          </button>
+        </div>
+      </div>
+
+      <!-- Tablets Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <!-- Tablet Card 1 (Normal + Battery Degradation Monitor) -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition flex flex-col justify-between shadow-sm group relative">
+          <div>
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-300">
+                  <svg class="w-5 h-5 text-fuchsia-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                </div>
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <h3 class="text-sm font-semibold text-white">Forklift Terminal #104</h3>
+                    <span class="w-2 h-2 rounded-full bg-emerald-400" title="Online"></span>
+                  </div>
+                  <p class="text-[11px] font-mono text-slate-400">Tab Active4 • <span class="text-slate-300">HNQ01Q1C</span></p>
+                </div>
+              </div>
+              <span class="text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800/60 px-2 py-0.5 rounded-full">Inside Geofence</span>
+            </div>
+
+            <!-- Health & Watchdog Badges -->
+            <div class="flex items-center gap-2 mt-3 text-[10px]">
+              <span class="bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">Health: 94% Capacity</span>
+              <span class="bg-fuchsia-950 text-fuchsia-300 px-2 py-0.5 rounded border border-fuchsia-800/50">Watchdog: 0 crashes</span>
+            </div>
+
+            <!-- Live Stats Row -->
+            <div class="grid grid-cols-3 gap-2 my-3 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 text-xs">
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">Battery</div>
+                <div class="font-medium text-emerald-400 flex items-center gap-1">92% (Chg)</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">Wi-Fi RSSI</div>
+                <div class="font-medium text-slate-200">-54 dBm</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">Foreground</div>
+                <div class="font-medium text-fuchsia-400 truncate">WMS Scanner</div>
+              </div>
+            </div>
+
+            <div class="h-28 bg-slate-950 rounded-lg border border-slate-800 relative overflow-hidden flex items-center justify-center cursor-pointer group-hover:border-fuchsia-500/50 transition" onclick="openRemoteModal('Forklift Terminal #104', 'HNQ01Q1C')">
+              <div class="text-center p-3">
+                <div class="inline-flex p-2 rounded-full bg-slate-900 border border-slate-700 text-fuchsia-400 mb-1 group-hover:scale-110 transition">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                </div>
+                <div class="text-[11px] font-medium text-slate-300">Live Screen & AI Diagnostics</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+            <span class="text-[11px] text-slate-500 font-mono">192.168.10.42</span>
+            <div class="flex items-center gap-1.5">
+              <button onclick="runQuickShell('HNQ01Q1C', 'dumpsys battery')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition text-[11px]">Shell</button>
+              <button onclick="openRemoteModal('Forklift Terminal #104', 'HNQ01Q1C')" class="px-2.5 py-1 rounded bg-fuchsia-600/90 hover:bg-fuchsia-500 text-white font-medium transition">View</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tablet Card 2 (Self-Healing Incident Demo) -->
+        <div class="bg-slate-900/90 border border-indigo-500/40 rounded-xl p-4 hover:border-indigo-500/70 transition flex flex-col justify-between shadow-sm group relative">
+          <div>
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <h3 class="text-sm font-semibold text-white">POS Register #02</h3>
+                    <span class="w-2 h-2 rounded-full bg-emerald-400" title="Online"></span>
+                  </div>
+                  <p class="text-[11px] font-mono text-slate-400">Lenovo Tab M10 • <span class="text-slate-300">HA1A99Z2</span></p>
+                </div>
+              </div>
+              <span class="text-[10px] font-semibold bg-indigo-950 text-indigo-300 border border-indigo-800/60 px-2 py-0.5 rounded-full">Self-Healed 2m ago</span>
+            </div>
+
+            <div class="flex items-center gap-2 mt-3 text-[10px]">
+              <span class="bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-800/50">Auto-Relaunched Square POS</span>
+              <span class="bg-slate-800 text-slate-400 px-2 py-0.5 rounded">PSA Ticket #4102 Logged</span>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 my-3 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 text-xs">
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">Battery</div>
+                <div class="font-medium text-emerald-400">100% (AC)</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">Cellular/Wi-Fi</div>
+                <div class="font-medium text-slate-200">Store_POS</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">Health</div>
+                <div class="font-medium text-emerald-400">89% Health</div>
+              </div>
+            </div>
+
+            <div class="h-28 bg-slate-950 rounded-lg border border-slate-800 relative overflow-hidden flex items-center justify-center cursor-pointer group-hover:border-indigo-500/50 transition" onclick="openRemoteModal('POS Register #02', 'HA1A99Z2')">
+              <div class="text-center p-3">
+                <div class="inline-flex p-2 rounded-full bg-slate-900 border border-slate-700 text-indigo-400 mb-1 group-hover:scale-110 transition">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                </div>
+                <div class="text-[11px] font-medium text-slate-300">Live Kiosk Active (Single App)</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+            <span class="text-[11px] text-slate-500 font-mono">192.168.20.15</span>
+            <div class="flex items-center gap-1.5">
+              <button onclick="runQuickShell('HA1A99Z2', 'pm list packages')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition text-[11px]">Shell</button>
+              <button onclick="openRemoteModal('POS Register #02', 'HA1A99Z2')" class="px-2.5 py-1 rounded bg-fuchsia-600/90 hover:bg-fuchsia-500 text-white font-medium transition">View</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tablet Card 3 (Geofence Breach & Critical Battery Warning) -->
+        <div class="bg-slate-900/90 border border-rose-500/50 rounded-xl p-4 hover:border-rose-500 transition flex flex-col justify-between shadow-sm group relative">
+          <div>
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                </div>
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <h3 class="text-sm font-semibold text-white">Delivery Van #3 Tablet</h3>
+                    <span class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+                  </div>
+                  <p class="text-[11px] font-mono text-slate-400">Zebra ET40 • <span class="text-slate-300">ZB88410X</span></p>
+                </div>
+              </div>
+              <span class="text-[10px] font-semibold bg-rose-950 text-rose-300 border border-rose-800/60 px-2 py-0.5 rounded-full">Perimeter Alert</span>
+            </div>
+
+            <div class="flex items-center gap-2 mt-3 text-[10px]">
+              <span class="bg-rose-950 text-rose-300 px-2 py-0.5 rounded border border-rose-800/50">Left Geofence Zone</span>
+              <span class="bg-amber-950 text-amber-300 px-2 py-0.5 rounded">Battery Crit: 14%</span>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 my-3 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 text-xs">
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">Battery</div>
+                <div class="font-medium text-rose-400">14% (Degraded 64%)</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">LTE</div>
+                <div class="font-medium text-slate-200">Verizon 4G</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-500 uppercase">GPS Ping</div>
+                <div class="font-medium text-rose-400 font-mono">15s Live</div>
+              </div>
+            </div>
+
+            <div class="h-28 bg-slate-950 rounded-lg border border-slate-800 relative overflow-hidden flex items-center justify-center cursor-pointer group-hover:border-rose-500/50 transition" onclick="switchTab('geofence')">
+              <div class="text-center p-3">
+                <div class="inline-flex p-2 rounded-full bg-slate-900 border border-slate-700 text-rose-400 mb-1 group-hover:scale-110 transition">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>
+                </div>
+                <div class="text-[11px] font-medium text-rose-300">Tracking Outside Perimeter</div>
+                <div class="text-[10px] text-slate-500">Click to View Map</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+            <span class="text-[11px] text-rose-400 font-mono">Siren Sounding</span>
+            <div class="flex items-center gap-1.5">
+              <button onclick="triggerAction('Remote siren silenced for 5 minutes')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition text-[11px]">Mute</button>
+              <button onclick="openRemoteModal('Delivery Van #3 Tablet', 'ZB88410X')" class="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-medium transition">Lock Device</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- VIEW 2: GEOFENCING & ANTI-THEFT MAP (NEW KILLER FEATURE) -->
+    <div id="view-geofence" class="space-y-6 hidden">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-semibold text-white">Geofencing & Fleet Perimeter Security</h2>
+          <p class="text-xs text-slate-400">Enforce geographic boundaries. Automatically lock screens and sound sirens when devices leave authorized premises.</p>
+        </div>
+        <button onclick="triggerAction('Geofence boundary saved: Chicago Distribution Hub')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs px-4 py-2 rounded-lg transition shadow-md shadow-emerald-950">
+          Save Geofence Polygon
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Interactive Simulated Map Canvas -->
+        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-4 overflow-hidden relative flex flex-col justify-between h-[480px]">
+          <!-- Map Grid Background SVG -->
+          <div class="absolute inset-0 bg-[#0b1120] opacity-90">
+            <svg class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.8"/>
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#grid)" />
+              
+              <!-- Road Lines -->
+              <path d="M 0 150 Q 200 180 500 130 T 900 200" fill="none" stroke="#334155" stroke-width="4" opacity="0.6"/>
+              <path d="M 300 0 L 350 480" fill="none" stroke="#334155" stroke-width="3" opacity="0.6"/>
+
+              <!-- Green Geofence Polygon (Chicago Warehouse) -->
+              <polygon points="120,80 420,70 450,280 150,310" fill="rgba(16, 185, 129, 0.15)" stroke="#10b981" stroke-width="2" stroke-dasharray="4" />
+
+              <!-- Enclosed Devices (Green Pins) -->
+              <circle cx="220" cy="160" r="7" fill="#10b981" />
+              <circle cx="220" cy="160" r="14" fill="none" stroke="#10b981" opacity="0.5" class="animate-ping" />
+              <text x="235" y="165" fill="#f1f5f9" font-size="10" font-family="sans-serif">Terminal #104 (In Zone)</text>
+
+              <circle cx="310" cy="210" r="7" fill="#10b981" />
+              <text x="325" y="215" fill="#f1f5f9" font-size="10" font-family="sans-serif">Register #02 (In Zone)</text>
+
+              <!-- Escaped Device (Red Pin Outside Polygon) -->
+              <circle cx="580" cy="360" r="8" fill="#ef4444" />
+              <circle cx="580" cy="360" r="20" fill="none" stroke="#ef4444" opacity="0.7" class="animate-ping" />
+              <text x="595" y="365" fill="#f87171" font-size="11" font-weight="bold" font-family="sans-serif">Delivery Van #3 (BREACH)</text>
+              <line x1="450" y1="280" x2="580" y2="360" stroke="#ef4444" stroke-width="2" stroke-dasharray="3" />
+            </svg>
+          </div>
+
+          <!-- Top Map Controls Overlay -->
+          <div class="relative z-10 flex justify-between items-center bg-slate-900/90 backdrop-blur border border-slate-800 p-2.5 rounded-xl text-xs">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-emerald-400 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                Active Zone: Chicago Main Facility
+              </span>
+              <span class="text-slate-500">•</span>
+              <span class="text-slate-300">Radius: 420m²</span>
+            </div>
+            <div class="text-[11px] text-slate-400 font-mono">
+              Live GPS Refresh: 15s
+            </div>
+          </div>
+
+          <!-- Bottom Map Legend Overlay -->
+          <div class="relative z-10 flex justify-between items-center bg-slate-900/90 backdrop-blur border border-slate-800 p-2.5 rounded-xl text-xs">
+            <div class="flex items-center gap-4 text-[11px]">
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> 17 Authorized in Zone</span>
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> 1 Breach Detected</span>
+            </div>
+            <button onclick="triggerAction('Locking escaped device ZB88410X with warning siren!')" class="bg-rose-600 hover:bg-rose-500 text-white px-3 py-1 rounded text-xs font-semibold shadow">
+              Lock Escaped Device
+            </button>
+          </div>
+        </div>
+
+        <!-- Perimeter Rules Panel -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 text-xs">
+          <h3 class="font-semibold text-white text-sm">Automated Breach Policy</h3>
+          
+          <div class="space-y-3">
+            <label class="flex items-start gap-2.5 p-3 rounded-lg bg-slate-950/60 border border-slate-800 cursor-pointer">
+              <input type="checkbox" checked class="mt-0.5 rounded bg-slate-800 border-slate-700 text-fuchsia-500" />
+              <div>
+                <div class="font-medium text-white">Trigger Loud Siren on Tablet</div>
+                <div class="text-[11px] text-slate-400">Plays maximum volume alert sound over tablet speaker, bypassing mute.</div>
+              </div>
+            </label>
+
+            <label class="flex items-start gap-2.5 p-3 rounded-lg bg-slate-950/60 border border-slate-800 cursor-pointer">
+              <input type="checkbox" checked class="mt-0.5 rounded bg-slate-800 border-slate-700 text-fuchsia-500" />
+              <div>
+                <div class="font-medium text-white">Full-Screen Anti-Theft Lock</div>
+                <div class="text-[11px] text-slate-400">Displays un-dismissible message: "Property of Apex. Return to Dispatch."</div>
+              </div>
+            </label>
+
+            <label class="flex items-start gap-2.5 p-3 rounded-lg bg-slate-950/60 border border-slate-800 cursor-pointer">
+              <input type="checkbox" checked class="mt-0.5 rounded bg-slate-800 border-slate-700 text-fuchsia-500" />
+              <div>
+                <div class="font-medium text-white">Auto-Create High-Priority PSA Ticket</div>
+                <div class="text-[11px] text-slate-400">Logs incident in OpenMSP PSA and sends SMS alert to technician on-call.</div>
+              </div>
+            </label>
+
+            <label class="flex items-start gap-2.5 p-3 rounded-lg bg-slate-950/60 border border-slate-800 cursor-pointer">
+              <input type="checkbox" class="mt-0.5 rounded bg-slate-800 border-slate-700 text-fuchsia-500" />
+              <div>
+                <div class="font-medium text-rose-300">Remote Wipe on 1-Hour Breach</div>
+                <div class="text-[11px] text-slate-400">If device stays outside perimeter for >60 minutes, execute silent factory wipe.</div>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 3: REMOTE ANDROID SHELL & SCRIPTING (NEW KILLER FEATURE) -->
+    <div id="view-shell" class="space-y-6 hidden">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-semibold text-white">Remote Android Shell & Diagnostics</h2>
+          <p class="text-xs text-slate-400">Execute Linux toybox commands and Android package management commands directly on enrolled tablets.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="shellTargetSelect" class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+            <option>Forklift Terminal #104 (HNQ01Q1C)</option>
+            <option>POS Register #02 (HA1A99Z2)</option>
+            <option>Delivery Van #3 Tablet (ZB88410X)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="bg-black border border-slate-800 rounded-2xl p-4 font-mono text-xs shadow-2xl flex flex-col h-[460px]">
+        <!-- Terminal Header -->
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-3 text-[11px] text-slate-400">
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-rose-500"></span>
+            <span class="w-3 h-3 rounded-full bg-amber-500"></span>
+            <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+            <span class="ml-2 text-slate-300 font-semibold">apex-dpc@android:/system/bin $</span>
+          </div>
+          <span class="text-emerald-400">DPC Daemon: Rootless DeviceOwner</span>
+        </div>
+
+        <!-- Terminal Output Buffer -->
+        <div id="shellOutput" class="flex-1 overflow-y-auto space-y-1.5 text-slate-300 leading-relaxed pr-2">
+          <div class="text-slate-500"># Connected to Forklift Terminal #104 via ApexMSP Secure WebSocket Tunnel</div>
+          <div class="text-slate-500"># Type commands below (e.g., 'dumpsys battery', 'pm list packages', 'ping -c 3 8.8.8.8')</div>
+          <div class="text-fuchsia-400">$ dumpsys battery</div>
+          <div class="text-slate-400 font-mono text-[11px] pl-4">
+            Current Battery Service state:<br>
+            &nbsp;&nbsp;AC powered: true<br>
+            &nbsp;&nbsp;USB powered: false<br>
+            &nbsp;&nbsp;Wireless powered: false<br>
+            &nbsp;&nbsp;Max charging current: 2000000<br>
+            &nbsp;&nbsp;level: 92<br>
+            &nbsp;&nbsp;scale: 100<br>
+            &nbsp;&nbsp;voltage: 4192 mV<br>
+            &nbsp;&nbsp;temperature: 29.4 C<br>
+            &nbsp;&nbsp;technology: Li-ion<br>
+            &nbsp;&nbsp;health: 2 (GOOD)
+          </div>
+        </div>
+
+        <!-- Terminal Input Bar -->
+        <form onsubmit="handleShellSubmit(event)" class="mt-3 pt-2 border-t border-slate-800 flex items-center gap-2">
+          <span class="text-fuchsia-400 font-bold">$</span>
+          <input type="text" id="shellInput" placeholder="Enter shell command..." class="flex-1 bg-transparent text-emerald-400 font-mono focus:outline-none placeholder-slate-600 text-xs" autocomplete="off" />
+          <button type="submit" class="bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium text-xs px-3 py-1.5 rounded transition">
+            Run
+          </button>
+        </form>
+      </div>
+
+      <!-- Quick Script Library -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <button onclick="runPrebuiltShell('pm clear com.squareup')" class="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-left transition">
+          <div class="font-semibold text-white">Clear App Cache (Fix Freeze)</div>
+          <div class="text-[11px] font-mono text-fuchsia-400 mt-0.5">pm clear com.squareup</div>
+        </button>
+
+        <button onclick="runPrebuiltShell('netstat -rn')" class="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-left transition">
+          <div class="font-semibold text-white">Route Table & Gateways</div>
+          <div class="text-[11px] font-mono text-fuchsia-400 mt-0.5">ip route show</div>
+        </button>
+
+        <button onclick="runPrebuiltShell('dumpsys package app.apexmsp.dpc | grep version')" class="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-left transition">
+          <div class="font-semibold text-white">Verify DPC Version Code</div>
+          <div class="text-[11px] font-mono text-fuchsia-400 mt-0.5">dumpsys package app.apexmsp.dpc</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- VIEW 4: CONFIGURATIONS & KIOSK DESIGNER -->
+    <div id="view-policies" class="space-y-6 hidden">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-semibold text-white">Configuration Profile: <span class="text-fuchsia-400">Warehouse Kiosk</span></h2>
+          <p class="text-xs text-slate-400">Manage launcher layout, hardware fail-safes, volume locks, and runtime permissions.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="triggerAction('Saved configuration. Pushing updates over MQTT...')" class="bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium text-xs px-4 py-2 rounded-lg transition shadow-md shadow-fuchsia-950">
+            Save & Push to Fleet
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-2 space-y-4">
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <h3 class="text-xs uppercase tracking-wider font-bold text-fuchsia-400">Kiosk Fail-Safes & Day-Parting</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label class="block text-slate-300 font-medium mb-1">Orientation Lock</label>
+                <select class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-slate-200">
+                  <option selected>Lock Landscape</option>
+                  <option>Lock Portrait</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-300 font-medium mb-1">Night Display Mode</label>
+                <select class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-slate-200">
+                  <option selected>Dim Display to 0% after 10:00 PM</option>
+                  <option>Keep Fixed Brightness</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-800/80 space-y-2.5 text-xs">
+              <label class="flex items-center justify-between p-3 rounded-lg bg-fuchsia-950/20 border border-fuchsia-500/30 cursor-pointer">
+                <div>
+                  <div class="font-semibold text-fuchsia-200">Wi-Fi Rescue Dialog on Disconnect</div>
+                  <div class="text-[11px] text-slate-400">Allows field tech to enter new Wi-Fi credentials if network drops.</div>
+                </div>
+                <input type="checkbox" checked class="rounded bg-slate-800 border-slate-700 text-fuchsia-500 focus:ring-0 w-4 h-4" />
+              </label>
+
+              <label class="flex items-center justify-between p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 cursor-pointer">
+                <div>
+                  <div class="font-medium text-slate-200">Watchdog Self-Healing (Auto-Relaunch on Crash)</div>
+                  <div class="text-[11px] text-slate-400">Automatically restarts POS / WMS if Android reports ANR or freeze.</div>
+                </div>
+                <input type="checkbox" checked class="rounded bg-slate-800 border-slate-700 text-fuchsia-500 focus:ring-0 w-4 h-4" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col items-center">
+          <h3 class="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">Live Launcher Preview</h3>
+          <div class="w-72 h-48 bg-black border-4 border-slate-700 rounded-2xl p-2 shadow-2xl relative flex flex-col justify-between overflow-hidden">
+            <div class="flex items-center justify-between px-2 py-0.5 bg-slate-800 rounded text-[9px] text-slate-300 font-mono">
+              <span class="font-bold text-fuchsia-400">Forklift #104</span>
+              <span>📶 92% ⚡</span>
+            </div>
+            <div class="grid grid-cols-3 gap-2 px-2 my-auto">
+              <div class="bg-slate-800/80 border border-slate-700 p-2 rounded text-center">
+                <div class="w-6 h-6 rounded bg-fuchsia-600 mx-auto mb-1 flex items-center justify-center text-white text-[10px] font-bold">W</div>
+                <div class="text-[9px] text-white truncate">WMS</div>
+              </div>
+              <div class="bg-slate-800/80 border border-slate-700 p-2 rounded text-center">
+                <div class="w-6 h-6 rounded bg-indigo-600 mx-auto mb-1 flex items-center justify-center text-white text-[10px] font-bold">P</div>
+                <div class="text-[9px] text-white truncate">Pick</div>
+              </div>
+              <div class="bg-slate-800/80 border border-slate-700 p-2 rounded text-center">
+                <div class="w-6 h-6 rounded bg-slate-700 mx-auto mb-1 flex items-center justify-center text-white text-[10px] font-bold">⚙</div>
+                <div class="text-[9px] text-slate-300 truncate">Rescue</div>
+              </div>
+            </div>
+            <div class="text-center text-[8px] text-slate-500">PIN: • • • •</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 5: APK APPLICATIONS -->
+    <div id="view-apps" class="space-y-6 hidden">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-semibold text-white">Hosted APK Repository</h2>
+          <p class="text-xs text-slate-400">Upload private enterprise APKs or public apps for silent background installation on enrolled tablets.</p>
+        </div>
+        <button onclick="triggerAction('Select an .apk file to upload...')" class="bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium text-xs px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          Upload New APK
+        </button>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden text-xs">
+        <table class="w-full text-left">
+          <thead class="bg-slate-950/80 text-slate-400 text-[11px] uppercase tracking-wider border-b border-slate-800">
+            <tr>
+              <th class="py-3 px-4">Application</th>
+              <th class="py-3 px-4">Package Name</th>
+              <th class="py-3 px-4">Version</th>
+              <th class="py-3 px-4">Data Saver Cap</th>
+              <th class="py-3 px-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/60 text-slate-200">
+            <tr class="hover:bg-slate-800/40 transition">
+              <td class="py-3 px-4 flex items-center gap-2.5 font-medium">
+                <div class="w-7 h-7 rounded bg-fuchsia-600 flex items-center justify-center text-white font-bold text-xs">W</div>
+                Warehouse Scanner Pro
+              </td>
+              <td class="py-3 px-4 font-mono text-slate-400 text-[11px]">com.apexmsp.wms</td>
+              <td class="py-3 px-4 font-mono text-emerald-400">v2.4.1 (build 142)</td>
+              <td class="py-3 px-4"><span class="text-emerald-400">Unmetered (Whitelisted)</span></td>
+              <td class="py-3 px-4 text-right space-x-2">
+                <button onclick="triggerAction('Pushing update to 12 devices...')" class="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Force Update</button>
+              </td>
+            </tr>
+
+            <tr class="hover:bg-slate-800/40 transition">
+              <td class="py-3 px-4 flex items-center gap-2.5 font-medium">
+                <div class="w-7 h-7 rounded bg-indigo-600 flex items-center justify-center text-white font-bold text-xs">S</div>
+                Square Point of Sale
+              </td>
+              <td class="py-3 px-4 font-mono text-slate-400 text-[11px]">com.squareup</td>
+              <td class="py-3 px-4 font-mono text-emerald-400">v6.18 (build 2090)</td>
+              <td class="py-3 px-4"><span class="text-slate-400">5 GB / mo Cap</span></td>
+              <td class="py-3 px-4 text-right space-x-2">
+                <button onclick="triggerAction('Pushing update to 4 devices...')" class="text-fuchsia-400 hover:text-fuchsia-300 font-medium">Force Update</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- VIEW 6: FILE DISTRIBUTION -->
+    <div id="view-files" class="space-y-6 hidden">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-semibold text-white">File & Content Distribution</h2>
+          <p class="text-xs text-slate-400">Push arbitrary documents, certificates, PDFs, and config files with template variables.</p>
+        </div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs">
+        <div class="flex justify-between items-center py-2 border-b border-slate-800">
+          <span class="font-mono text-fuchsia-400">device_config.json</span>
+          <span class="text-slate-400">/sdcard/Android/data/com.apexmsp.wms/config.json</span>
+          <span class="text-emerald-400 font-mono">14/14 Synced</span>
+        </div>
+        <div class="flex justify-between items-center py-2">
+          <span class="font-mono text-fuchsia-400">safety_manual_2026.pdf</span>
+          <span class="text-slate-400">/sdcard/Documents/Safety_Manual.pdf</span>
+          <span class="text-emerald-400 font-mono">18/18 Synced</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 7: ZERO-TOUCH -->
+    <div id="view-enrollment" class="space-y-6 hidden">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-semibold text-white">Zero-Touch & 6-Tap QR Provisioning</h2>
+          <p class="text-xs text-slate-400">Scan this QR on any unboxed tablet during initial setup to deploy the DPC.</p>
+        </div>
+      </div>
+      <div class="p-6 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col items-center">
+        <div class="p-4 bg-white rounded-2xl shadow-xl">
+          <svg class="w-44 h-44" viewBox="0 0 100 100" fill="black">
+            <rect x="5" y="5" width="30" height="30" rx="3" fill="#0f172a" /><rect x="10" y="10" width="20" height="20" fill="white" /><rect x="15" y="15" width="10" height="10" fill="#0f172a" />
+            <rect x="65" y="5" width="30" height="30" rx="3" fill="#0f172a" /><rect x="70" y="10" width="20" height="20" fill="white" /><rect x="75" y="15" width="10" height="10" fill="#0f172a" />
+            <rect x="5" y="65" width="30" height="30" rx="3" fill="#0f172a" /><rect x="10" y="70" width="20" height="20" fill="white" /><rect x="15" y="75" width="10" height="10" fill="#0f172a" />
+            <rect x="42" y="42" width="16" height="16" fill="#d946ef" />
+          </svg>
+        </div>
+        <span class="mt-4 font-mono text-xs text-fuchsia-400">Token: tok_apex_logistics_2026</span>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MODAL: REMOTE CONTROL WITH AI CRASH DIAGNOSER -->
+  <div id="remoteModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-5xl w-full overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]">
+      
+      <!-- Screen Viewer -->
+      <div class="bg-black p-4 flex-1 flex flex-col items-center justify-center relative min-h-[440px]">
+        <div class="w-72 h-[460px] bg-slate-950 border-4 border-slate-700 rounded-[32px] p-2.5 relative shadow-inner flex flex-col justify-between overflow-hidden">
+          <div class="flex-1 bg-slate-900 rounded-xl p-3 flex flex-col justify-between border border-slate-800 relative">
+            <div class="flex items-center justify-between text-[10px] text-slate-400 border-b border-slate-800 pb-1.5">
+              <span class="font-bold text-fuchsia-400">WMS Mobile v2.4</span>
+              <span>📶 5G | 92% ⚡</span>
+            </div>
+            <div class="my-auto space-y-2 text-center">
+              <div class="text-[11px] text-slate-300 font-semibold">SCAN LOCATION BARCODE</div>
+              <div class="w-36 h-12 bg-white rounded flex items-center justify-center mx-auto shadow">
+                <div class="space-x-1 font-mono text-black font-bold text-[10px] tracking-widest">|||||| | ||||| ||</div>
+              </div>
+              <div class="text-[10px] text-emerald-400 font-mono">AISLE-4B-BIN-08</div>
+              <button onclick="triggerAction('Simulating barcode laser scan...')" class="bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-[10px] font-bold px-3 py-1 rounded shadow">Simulate Scan</button>
+            </div>
+            <div class="text-[9px] text-slate-500 text-center">Locked Task Mode • ApexMDM</div>
+          </div>
+          <div class="flex items-center justify-around py-1 text-slate-500 text-xs">
+            <button onclick="triggerAction('Sent Back')" class="hover:text-white">◀</button>
+            <button onclick="triggerAction('Sent Home')" class="hover:text-white">●</button>
+            <button onclick="triggerAction('Sent Recent Apps')" class="hover:text-white">■</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls & Diagnostics Sidebar -->
+      <div class="w-full md:w-96 bg-slate-900 border-t md:border-t-0 md:border-l border-slate-800 p-5 flex flex-col justify-between text-xs">
+        <div>
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div>
+              <h3 id="remoteModalTitle" class="font-bold text-white text-sm">Forklift Terminal #104</h3>
+              <p id="remoteModalSerial" class="text-[11px] font-mono text-slate-400">HNQ01Q1C</p>
+            </div>
+            <button onclick="closeModal('remoteModal')" class="text-slate-400 hover:text-white p-1">✕</button>
+          </div>
+
+          <div class="flex border-b border-slate-800 mt-3 text-xs">
+            <button onclick="switchDiagTab('controls')" id="diag-tab-controls" class="py-1.5 px-3 font-semibold text-fuchsia-400 border-b-2 border-fuchsia-500">Actions</button>
+            <button onclick="switchDiagTab('logcat')" id="diag-tab-logcat" class="py-1.5 px-3 text-slate-400 hover:text-white">Logcat & AI Diagnosis</button>
+          </div>
+
+          <div id="diag-pane-controls" class="space-y-3 mt-3">
+            <button onclick="triggerAction('Silent reboot queued')" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-between transition">
+              <span>Reboot Device</span>
+              <span class="text-slate-500 font-mono text-[10px]">dpm.reboot()</span>
+            </button>
+            <button onclick="triggerAction('Triggering high-volume siren!')" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-between transition">
+              <span>Sound Anti-Theft Siren</span>
+              <span class="text-slate-500 font-mono text-[10px]">playAlarm()</span>
+            </button>
+            <button onclick="triggerAction('Watchdog watchdog heartbeat sent')" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-between transition">
+              <span>Force Relaunch Kiosk App</span>
+              <span class="text-slate-500 font-mono text-[10px]">watchdogRestart()</span>
+            </button>
+
+            <div class="pt-3 border-t border-slate-800 space-y-1.5 text-slate-300">
+              <div class="flex justify-between"><span class="text-slate-500">Battery Health:</span> <span class="text-emerald-400 font-medium">94% Capacity (Healthy)</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Charge Cycles:</span> <span>182 cycles</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Battery Temp:</span> <span>29.4° C (Normal)</span></div>
+            </div>
+          </div>
+
+          <!-- AI Logcat Diagnoser Pane -->
+          <div id="diag-pane-logcat" class="hidden mt-3 space-y-2">
+            <div class="flex justify-between items-center text-[10px]">
+              <span class="text-slate-400">Android System Logcat</span>
+              <button onclick="diagnoseWithAI()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 shadow">
+                ✨ Diagnose with Apex AI
+              </button>
+            </div>
+
+            <pre class="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[10px] text-emerald-400/90 h-36 overflow-y-auto leading-tight">
+09-16 19:40:12.102 E/BluetoothScanner: Connection failed to Zebra ZD420
+09-16 19:40:12.105 W/System.err: java.io.IOException: Bluetooth read failed
+09-16 19:40:12.106 W/System.err:   at com.apexmsp.wms.bt.Connect(Scanner.kt:84)
+09-16 19:40:13.001 I/ApexDPC: Watchdog prevented app freeze, fallback active</pre>
+
+            <!-- AI Diagnosis Result Box (Initially Hidden) -->
+            <div id="aiDiagnosisBox" class="hidden bg-indigo-950/40 border border-indigo-500/40 p-2.5 rounded-lg text-[11px] text-indigo-200 space-y-1">
+              <div class="font-bold flex items-center gap-1.5 text-white">
+                <span>🤖 Apex AI Analysis:</span>
+              </div>
+              <p class="text-[10px] leading-relaxed text-slate-300">
+                The scanner app encountered an <span class="text-amber-300 font-mono">IOException</span> because the Zebra printer on Bluetooth socket closed unexpectedly. The DPC watchdog kept the kiosk responsive. 
+              </p>
+              <button onclick="triggerAction('Sent remote Bluetooth toggle command')" class="mt-1 text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded font-semibold">
+                Auto-Fix: Restart Bluetooth Stack
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button onclick="closeModal('remoteModal')" class="w-full mt-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium transition">
+          Close Session
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- BROADCAST BANNER MODAL -->
+  <div id="broadcastModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-sm font-bold text-white">Broadcast Urgent Alert to Fleet</h3>
+        <button onclick="closeModal('broadcastModal')" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-300 mb-1">Message Banner Text</label>
+        <textarea id="broadcastText" rows="3" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200" placeholder="e.g., Warehouse will undergo network maintenance in 10 minutes. Please submit all picklists."></textarea>
+      </div>
+      <label class="flex items-center gap-2 text-xs text-slate-300">
+        <input type="checkbox" checked class="rounded bg-slate-800 text-indigo-600" />
+        Require operator tap "I Acknowledge" before unlocking
+      </label>
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="closeModal('broadcastModal')" class="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs">Cancel</button>
+        <button onclick="sendBroadcast()" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-xs">Send Broadcast</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION POPUP -->
+  <div id="toast" class="fixed bottom-5 right-5 bg-slate-900 border border-fuchsia-500/50 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5 text-xs translate-y-20 opacity-0 transition duration-300 z-50">
+    <span class="w-2 h-2 rounded-full bg-fuchsia-500"></span>
+    <span id="toastMsg">Action executed</span>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    function switchTab(tab) {
+      const tabs = ['devices', 'geofence', 'shell', 'policies', 'apps', 'files', 'enrollment'];
+      tabs.forEach(t => {
+        const view = document.getElementById('view-' + t);
+        const btn = document.getElementById('tab-btn-' + t);
+        if (t === tab) {
+          view.classList.remove('hidden');
+          btn.classList.add('tab-active');
+        } else {
+          view.classList.add('hidden');
+          btn.classList.remove('tab-active');
+        }
+      });
+    }
+
+    function switchDiagTab(pane) {
+      if (pane === 'controls') {
+        document.getElementById('diag-pane-controls').classList.remove('hidden');
+        document.getElementById('diag-pane-logcat').classList.add('hidden');
+        document.getElementById('diag-tab-controls').className = 'py-1.5 px-3 font-semibold text-fuchsia-400 border-b-2 border-fuchsia-500';
+        document.getElementById('diag-tab-logcat').className = 'py-1.5 px-3 text-slate-400 hover:text-white';
+      } else {
+        document.getElementById('diag-pane-controls').classList.add('hidden');
+        document.getElementById('diag-pane-logcat').classList.remove('hidden');
+        document.getElementById('diag-tab-controls').className = 'py-1.5 px-3 text-slate-400 hover:text-white';
+        document.getElementById('diag-tab-logcat').className = 'py-1.5 px-3 font-semibold text-fuchsia-400 border-b-2 border-fuchsia-500';
+      }
+    }
+
+    function diagnoseWithAI() {
+      const box = document.getElementById('aiDiagnosisBox');
+      box.classList.remove('hidden');
+      triggerAction('Apex AI analyzed Android Logcat stack trace!');
+    }
+
+    function handleShellSubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById('shellInput');
+      const val = input.value.trim();
+      if (!val) return;
+      runPrebuiltShell(val);
+      input.value = '';
+    }
+
+    function runPrebuiltShell(cmd) {
+      const output = document.getElementById('shellOutput');
+      const cmdEl = document.createElement('div');
+      cmdEl.className = 'text-fuchsia-400 mt-2';
+      cmdEl.textContent = '$ ' + cmd;
+      output.appendChild(cmdEl);
+
+      const respEl = document.createElement('div');
+      respEl.className = 'text-emerald-400 font-mono text-[11px] pl-4';
+      if (cmd.includes('pm clear')) {
+        respEl.textContent = 'Success: Package data and cache cleared.';
+      } else if (cmd.includes('dumpsys package')) {
+        respEl.textContent = 'versionCode=142 minSdk=26 targetSdk=34 versionName=1.2.0-dpc';
+      } else if (cmd.includes('netstat') || cmd.includes('route')) {
+        respEl.textContent = 'default via 192.168.10.1 dev wlan0 proto dhcp metric 100';
+      } else {
+        respEl.textContent = 'exit code 0 (command completed successfully)';
+      }
+      output.appendChild(respEl);
+      output.scrollTop = output.scrollHeight;
+      triggerAction('Executed: ' + cmd);
+    }
+
+    function runQuickShell(serial, cmd) {
+      switchTab('shell');
+      setTimeout(() => runPrebuiltShell(cmd), 100);
+    }
+
+    function openRemoteModal(name, serial) {
+      document.getElementById('remoteModalTitle').textContent = name;
+      document.getElementById('remoteModalSerial').textContent = serial;
+      document.getElementById('remoteModal').classList.remove('hidden');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+
+    function triggerBroadcastModal() {
+      document.getElementById('broadcastModal').classList.remove('hidden');
+    }
+
+    function sendBroadcast() {
+      closeModal('broadcastModal');
+      triggerAction('Broadcast alert sent to all 18 tablets!');
+    }
+
+    function triggerAction(msg) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMsg');
+      toastMsg.textContent = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 3000);
+    }
+  </script>
+</body>
+</html>

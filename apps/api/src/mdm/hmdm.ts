@@ -620,6 +620,25 @@ export async function cloneConfig(baseId: number, name: string, kioskMode: boole
         [baseId, newId]
       );
     }
+    // configurationapplicationsettings links to the config via extrefid (not configurationid),
+    // so it isn't caught by the loop above. It holds the kiosk app's startUrl / adminPin, so
+    // clone it too — otherwise a new profile has no settings row and startUrl can't be saved.
+    {
+      const sc = await client.query(
+        `select column_name from information_schema.columns
+          where table_name = 'configurationapplicationsettings' and column_name not in ('id','extrefid')
+          order by ordinal_position`
+      );
+      const scols = sc.rows.map((r: any) => `"${r.column_name}"`);
+      if (scols.length) {
+        const scList = scols.join(', ');
+        await client.query(
+          `insert into configurationapplicationsettings (extrefid, ${scList})
+           select $2, ${scList} from configurationapplicationsettings where extrefid = $1`,
+          [baseId, newId]
+        );
+      }
+    }
     await client.query('COMMIT');
     return { id: newId, name: newRow.rows[0].name };
   } catch {
