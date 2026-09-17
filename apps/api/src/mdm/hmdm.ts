@@ -185,7 +185,7 @@ export async function listDevices(): Promise<HmdmDeviceRow[]> {
   const rows = await q(
     `select d.id, d.number, coalesce(d.description,'') as description, d.configurationid,
             d.lastupdate, d.enrolltime, d.publicip, c.name as configname,
-            coalesce((case when d.infojson ~ '^\\s*[{]' then (d.infojson::json)->>'model' else null end),'') as model
+            coalesce(d.infojson->>'model','') as model
        from devices d
        left join configurations c on c.id = d.configurationid
       order by d.lastupdate desc nulls last`
