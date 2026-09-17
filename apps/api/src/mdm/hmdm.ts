@@ -200,13 +200,32 @@ export async function listDevices(): Promise<HmdmDeviceRow[]> {
   }));
 }
 
+export type TriState = 'any' | 'disabled' | 'enabled';
+export interface HmdmConfigPolicy {
+  description: string;
+  password: string;            // device unlock password
+  gps: TriState; bluetooth: TriState; wifi: TriState; mobileData: TriState;
+  blockUsbStorage: boolean;    // usbstorage column (true = blocked)
+  brightnessMode: 'none' | 'value' | 'auto';
+  brightness: number;          // 0-255 when brightnessMode = 'value'
+  manageTimeout: boolean; timeout: number;   // screen timeout, seconds
+  manageVolume: boolean; volume: number; lockVolume: boolean;
+  disableLocation: boolean;
+  appPermissions: string;      // '' | GRANTALL | DENYALL
+  pushOptions: string;         // '' | mqtt | mqttAlarm | mqttWorker
+}
+
 export interface HmdmConfigDetail {
   id: number; name: string;
   wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean;
   kioskMode: boolean; mobileEnrollment: boolean; qrcodeKey: string | null;
   contentApp: string | null; deviceCount: number;
   startUrl: string | null; adminPin: string | null;
+  policy?: HmdmConfigPolicy;   // filled only by getConfig(id)
 }
+
+const triToBool = (t?: TriState): boolean | null => (t === 'enabled' ? true : t === 'disabled' ? false : null);
+const boolToTri = (v: boolean | null): TriState => (v == null ? 'any' : v ? 'enabled' : 'disabled');
 
 async function configSettings(configId: number): Promise<Record<string, string>> {
   const rows = await q(`select name, value from configurationapplicationsettings where extrefid = $1`, [configId]);
@@ -245,7 +264,30 @@ export async function getConfigsDetailed(): Promise<HmdmConfigDetail[]> {
 export async function getConfig(id: number): Promise<HmdmConfigDetail | null> {
   const rows = await q(`${CONFIG_SELECT} where c.id = $1`, [id]);
   if (!rows.length) return null;
-  return detailRow(rows[0], await configSettings(id));
+  const detail = detailRow(rows[0], await configSettings(id));
+  const pr = await q(
+    `select description, password, gps, bluetooth, wifi, mobiledata, usbstorage,
+            autobrightness, brightness, managetimeout, timeout, managevolume, volume, lockvolume,
+            disablelocation, apppermissions, pushoptions
+       from configurations where id = $1`, [id]
+  );
+  if (pr.length) {
+    const r = pr[0];
+    detail.policy = {
+      description: r.description || '',
+      password: r.password || '',
+      gps: boolToTri(r.gps), bluetooth: boolToTri(r.bluetooth), wifi: boolToTri(r.wifi), mobileData: boolToTri(r.mobiledata),
+      blockUsbStorage: r.usbstorage === true,
+      brightnessMode: r.autobrightness === true ? 'auto' : r.autobrightness === false ? 'value' : 'none',
+      brightness: r.brightness != null ? Number(r.brightness) : 180,
+      manageTimeout: !!r.managetimeout, timeout: r.timeout != null ? Number(r.timeout) : 60,
+      manageVolume: !!r.managevolume, volume: r.volume != null ? Number(r.volume) : 0, lockVolume: !!r.lockvolume,
+      disableLocation: !!r.disablelocation,
+      appPermissions: r.apppermissions || '',
+      pushOptions: r.pushoptions || ''
+    };
+  }
+  return detail;
 }
 
 /** Upsert a kiosk-app managed setting (startUrl / adminPin) on a configuration. */
@@ -313,6 +355,7 @@ export async function createConfig(input: CreateConfigInput): Promise<{ id: numb
 
 export interface UpdateConfigInput {
   wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string; startUrl?: string; adminPin?: string;
+  policy?: Partial<HmdmConfigPolicy>;
 }
 export async function updateConfig(id: number, input: UpdateConfigInput): Promise<boolean> {
   const p = getPool();
@@ -328,6 +371,41 @@ export async function updateConfig(id: number, input: UpdateConfigInput): Promis
            wifipassword = case when $4::text is not null and $4 <> '' then $4 else wifipassword end
          where id = $1`,
         [id, input.wifiSsid ?? null, input.wifiSecurity ?? null, input.wifiPassword ?? null]
+      );
+    }
+    const pol = input.policy;
+    if (pol) {
+      const autobrightness = pol.brightnessMode === undefined ? undefined
+        : pol.brightnessMode === 'auto' ? true : pol.brightnessMode === 'value' ? false : null;
+      await client.query(
+        `update configurations set
+           description    = coalesce($2, description),
+           password       = coalesce($3, password),
+           gps            = $4,  bluetooth = $5, wifi = $6, mobiledata = $7,
+           usbstorage     = $8,
+           autobrightness = $9,  brightness = coalesce($10, brightness),
+           managetimeout  = coalesce($11, managetimeout), timeout = coalesce($12, timeout),
+           managevolume   = coalesce($13, managevolume), volume = coalesce($14, volume),
+           lockvolume     = coalesce($15, lockvolume),
+           disablelocation= coalesce($16, disablelocation),
+           apppermissions = coalesce($17, apppermissions),
+           pushoptions    = coalesce($18, pushoptions)
+         where id = $1`,
+        [
+          id,
+          pol.description ?? null,
+          pol.password ?? null,
+          triToBool(pol.gps), triToBool(pol.bluetooth), triToBool(pol.wifi), triToBool(pol.mobileData),
+          pol.blockUsbStorage === undefined ? null : (pol.blockUsbStorage ? true : null),
+          autobrightness,
+          pol.brightnessMode === 'value' ? (pol.brightness ?? null) : null,
+          pol.manageTimeout ?? null, pol.manageTimeout ? (pol.timeout ?? null) : null,
+          pol.manageVolume ?? null, pol.manageVolume ? (pol.volume ?? null) : null,
+          pol.lockVolume ?? null,
+          pol.disableLocation ?? null,
+          pol.appPermissions ?? null,
+          pol.pushOptions ?? null
+        ]
       );
     }
     const appRow = await client.query(

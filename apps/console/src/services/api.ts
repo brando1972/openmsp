@@ -608,10 +608,24 @@ export interface NativeMdmDevice {
   configId: number | null; configName: string | null;
   lastUpdate: number; online: boolean; publicIp: string | null; enrollTime: number | null;
 }
+export type MdmTriState = 'any' | 'disabled' | 'enabled';
+export interface NativeMdmPolicy {
+  description: string;
+  password: string;
+  gps: MdmTriState; bluetooth: MdmTriState; wifi: MdmTriState; mobileData: MdmTriState;
+  blockUsbStorage: boolean;
+  brightnessMode: 'none' | 'value' | 'auto'; brightness: number;
+  manageTimeout: boolean; timeout: number;
+  manageVolume: boolean; volume: number; lockVolume: boolean;
+  disableLocation: boolean;
+  appPermissions: string;
+  pushOptions: string;
+}
 export interface NativeMdmConfig {
   id: number; name: string; wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean;
   kioskMode: boolean; mobileEnrollment: boolean; qrcodeKey: string | null;
   contentApp: string | null; deviceCount: number; startUrl: string | null; adminPin: string | null;
+  policy?: NativeMdmPolicy;
 }
 export interface NativeMdmApp { id: number; pkg: string; name: string; system: boolean; useKiosk: boolean; version: string | null; url: string | null; }
 export interface NativeMdmFile { id: number; description: string; devicePath: string; url: string | null; external: boolean; }
@@ -620,6 +634,7 @@ export interface NativeMdmOverview {
 }
 export interface NativeConfigInput {
   name?: string; wifiSsid?: string; wifiPassword?: string; wifiSecurity?: string; startUrl?: string; adminPin?: string; baseId?: number;
+  policy?: Partial<NativeMdmPolicy>;
 }
 
 // ---------------------------------------------------------------------------

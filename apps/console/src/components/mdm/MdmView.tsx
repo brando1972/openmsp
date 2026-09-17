@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useApp } from '../../data/AppContext';
 import { api } from '../../services/api';
-import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview } from '../../services/api';
+import type { NativeMdmDevice, NativeMdmConfig, NativeMdmApp, NativeMdmFile, NativeMdmOverview, NativeMdmPolicy, MdmTriState } from '../../services/api';
 import {
   Smartphone, Monitor, Wifi, RefreshCw, Plus, X, ExternalLink, Loader2, Settings as SettingsIcon,
   AppWindow, FolderOpen, LayoutDashboard, Power, QrCode, Pencil, Search, ShieldCheck, CircleDot, Package, ChevronRight, Clock
@@ -361,72 +361,202 @@ const ConfigsView: React.FC = () => {
   );
 };
 
-const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; onCreated: (c: NativeMdmConfig) => void; qrBase: string }> = ({ existing, onClose, onCreated, qrBase }) => {
+const DEFAULT_POLICY: NativeMdmPolicy = {
+  description: '', password: '', gps: 'any', bluetooth: 'any', wifi: 'any', mobileData: 'any',
+  blockUsbStorage: false, brightnessMode: 'none', brightness: 180,
+  manageTimeout: false, timeout: 60, manageVolume: false, volume: 0, lockVolume: false,
+  disableLocation: false, appPermissions: '', pushOptions: ''
+};
+
+// Tri-state radio row (Any / Disabled / Enabled) — mirrors Headwind's Common settings.
+const TriRow: React.FC<{ label: string; value: MdmTriState; onChange: (v: MdmTriState) => void }> = ({ label, value, onChange }) => (
+  <div className="flex items-center gap-3 py-1.5">
+    <div className="w-32 shrink-0 text-sm font-semibold text-slate-600">{label}</div>
+    <div className="flex gap-1.5">
+      {(['any', 'disabled', 'enabled'] as MdmTriState[]).map((v) => (
+        <button key={v} type="button" onClick={() => onChange(v)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition ${value === v ? 'text-white border-transparent' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+          style={value === v ? { background: MDM_TINT } : undefined}>
+          {v}
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
+// Checkbox row with an optional inline value input.
+const ToggleRow: React.FC<{ label: string; checked: boolean; onChange: (v: boolean) => void; children?: React.ReactNode }> = ({ label, checked, onChange, children }) => (
+  <div className="flex items-center gap-3 py-1.5">
+    <label className="flex items-center gap-2 w-32 shrink-0 cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4 accent-fuchsia-600" />
+      <span className="text-sm font-semibold text-slate-600">{label}</span>
+    </label>
+    {checked && children}
+  </div>
+);
+
+const ConfigWizard: React.FC<{ existing?: NativeMdmConfig; onClose: () => void; onCreated: (c: NativeMdmConfig) => void; qrBase: string }> = ({ existing, onClose, onCreated }) => {
+  const isEdit = !!existing;
+  const [tab, setTab] = useState<'general' | 'policy'>('general');
   const [name, setName] = useState(existing?.name || '');
   const [wifiSsid, setWifiSsid] = useState(existing?.wifiSsid || '');
   const [wifiPassword, setWifiPassword] = useState('');
   const [wifiSecurity, setWifiSecurity] = useState(existing?.wifiSecurity || 'WPA');
   const [startUrl, setStartUrl] = useState(existing?.startUrl || '');
   const [adminPin, setAdminPin] = useState(existing?.adminPin || '');
+  const [policy, setPolicy] = useState<NativeMdmPolicy>(DEFAULT_POLICY);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const isEdit = !!existing;
+
+  // Seed the policy from the config being edited, or from the kiosk template (id 4) for new configs.
+  useEffect(() => {
+    let alive = true;
+    const seedId = existing?.id ?? 4;
+    api.mdm.native.getConfiguration(seedId).then((r) => {
+      if (!alive) return;
+      if (r.configuration.policy) setPolicy({ ...DEFAULT_POLICY, ...r.configuration.policy });
+      if (isEdit) {
+        setStartUrl(r.configuration.startUrl || '');
+        setAdminPin(r.configuration.adminPin || '');
+        setWifiSsid(r.configuration.wifiSsid || '');
+        setWifiSecurity(r.configuration.wifiSecurity || 'WPA');
+      }
+    }).catch(() => {}).finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [existing?.id, isEdit]);
+
+  const patch = (p: Partial<NativeMdmPolicy>) => setPolicy((prev) => ({ ...prev, ...p }));
 
   const submit = async () => {
-    if (!isEdit && !name.trim()) { setErr('A name is required.'); return; }
+    if (!isEdit && !name.trim()) { setErr('A name is required.'); setTab('general'); return; }
     setBusy(true); setErr('');
     try {
+      const genPatch = { wifiSsid, wifiPassword: wifiPassword || undefined, wifiSecurity, startUrl, adminPin, policy };
       if (isEdit) {
-        await api.mdm.native.updateConfiguration(existing!.id, { wifiSsid, wifiPassword: wifiPassword || undefined, wifiSecurity, startUrl, adminPin });
-        onCreated({ ...existing!, wifiSsid, wifiSecurity, startUrl, adminPin });
+        await api.mdm.native.updateConfiguration(existing!.id, genPatch);
+        onCreated({ ...existing!, wifiSsid, wifiSecurity, startUrl, adminPin, policy });
       } else {
         const r = await api.mdm.native.createConfiguration({ name: name.trim(), wifiSsid, wifiPassword, wifiSecurity, startUrl, adminPin });
-        onCreated({ id: r.id, name: name.trim(), wifiSsid, wifiSecurity, wifiPasswordSet: !!wifiPassword, kioskMode: true, mobileEnrollment: true, qrcodeKey: r.qrcodeKey, contentApp: null, deviceCount: 0, startUrl, adminPin });
+        // Apply the device policy to the freshly-cloned config, then surface the QR.
+        await api.mdm.native.updateConfiguration(r.id, { policy }).catch(() => {});
+        onCreated({ id: r.id, name: name.trim(), wifiSsid, wifiSecurity, wifiPasswordSet: !!wifiPassword, kioskMode: true, mobileEnrollment: true, qrcodeKey: r.qrcodeKey, contentApp: null, deviceCount: 0, startUrl, adminPin, policy });
       }
     } catch { setErr('Could not save the configuration.'); setBusy(false); }
   };
 
+  const inputCls = 'w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-fuchsia-300';
+  const smallInput = 'w-24 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-fuchsia-300';
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onMouseDown={onClose}>
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl max-h-[92%] overflow-y-auto" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 sticky top-0 bg-white">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl max-h-[92%] flex flex-col overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
           <div className="font-bold text-slate-800">{isEdit ? `Edit ${existing!.name}` : 'New configuration'}</div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
-        <div className="p-5 space-y-3">
-          {!isEdit && (
-            <Field label="Profile name">
-              <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Rich's Auburn Kiosk"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-fuchsia-300" />
-            </Field>
+        {/* Tab strip */}
+        <div className="flex gap-1 px-4 pt-3 border-b border-slate-100">
+          {([['general', 'General & Kiosk'], ['policy', 'Device policy']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`px-3.5 py-2 text-sm font-semibold rounded-t-lg border-b-2 -mb-px transition ${tab === id ? 'text-slate-900 border-fuchsia-500' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-5 overflow-y-auto flex-1">
+          {tab === 'general' && (
+            <div className="space-y-3">
+              {!isEdit && (
+                <Field label="Profile name">
+                  <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. Rich's Auburn Kiosk" className={inputCls} />
+                </Field>
+              )}
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pt-1">WiFi</div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="SSID"><input value={wifiSsid} onChange={(e) => setWifiSsid(e.target.value)} placeholder="Network name" className={inputCls} /></Field>
+                <Field label="Security">
+                  <select value={wifiSecurity} onChange={(e) => setWifiSecurity(e.target.value)} className={inputCls}>
+                    {['WPA', 'WEP', 'NONE'].map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label={isEdit ? 'WiFi password (leave blank to keep)' : 'WiFi password'}>
+                <input type="password" value={wifiPassword} onChange={(e) => setWifiPassword(e.target.value)} autoComplete="new-password" className={inputCls} />
+              </Field>
+              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pt-1">Kiosk browser</div>
+              <Field label="Start URL"><input value={startUrl} onChange={(e) => setStartUrl(e.target.value)} placeholder="https://…" inputMode="url" className={inputCls} /></Field>
+              <Field label="Admin exit PIN"><input value={adminPin} onChange={(e) => setAdminPin(e.target.value)} inputMode="numeric" placeholder="e.g. 1024" className={inputCls} /></Field>
+              {!isEdit && <p className="text-[11px] text-slate-400">Cloned from the ApexMSP Kiosk template (launcher + kiosk browser + boot-to-app), with self-registration on. A fresh enrollment QR is generated.</p>}
+            </div>
           )}
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pt-1">WiFi</div>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="SSID">
-              <input value={wifiSsid} onChange={(e) => setWifiSsid(e.target.value)} placeholder="Network name"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-fuchsia-300" />
-            </Field>
-            <Field label="Security">
-              <select value={wifiSecurity} onChange={(e) => setWifiSecurity(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm">
-                {['WPA', 'WEP', 'NONE'].map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </Field>
-          </div>
-          <Field label={isEdit ? 'WiFi password (leave blank to keep)' : 'WiFi password'}>
-            <input type="password" value={wifiPassword} onChange={(e) => setWifiPassword(e.target.value)} autoComplete="new-password"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-fuchsia-300" />
-          </Field>
-          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pt-1">Kiosk browser</div>
-          <Field label="Start URL">
-            <input value={startUrl} onChange={(e) => setStartUrl(e.target.value)} placeholder="https://…" inputMode="url"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-fuchsia-300" />
-          </Field>
-          <Field label="Admin exit PIN">
-            <input value={adminPin} onChange={(e) => setAdminPin(e.target.value)} inputMode="numeric" placeholder="e.g. 1024"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-fuchsia-300" />
-          </Field>
-          {!isEdit && <p className="text-[11px] text-slate-400">Cloned from the ApexMSP Kiosk template (launcher + kiosk browser + boot-to-app), with self-registration on. A fresh enrollment QR is generated.</p>}
-          {err && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{err}</div>}
+
+          {tab === 'policy' && (
+            loading ? <Spinner /> : (
+              <div className="space-y-1">
+                <Field label="Description">
+                  <input value={policy.description} onChange={(e) => patch({ description: e.target.value })} placeholder="What this profile is for" className={inputCls} />
+                </Field>
+                <Field label="Device unlock password">
+                  <input value={policy.password} onChange={(e) => patch({ password: e.target.value })} placeholder="e.g. 1024" className={inputCls} />
+                </Field>
+
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pt-3 pb-1">Radios</div>
+                <TriRow label="GPS" value={policy.gps} onChange={(v) => patch({ gps: v })} />
+                <TriRow label="Bluetooth" value={policy.bluetooth} onChange={(v) => patch({ bluetooth: v })} />
+                <TriRow label="Wi-Fi" value={policy.wifi} onChange={(v) => patch({ wifi: v })} />
+                <TriRow label="Mobile data" value={policy.mobileData} onChange={(v) => patch({ mobileData: v })} />
+
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pt-3 pb-1">Display &amp; sound</div>
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="w-32 shrink-0 text-sm font-semibold text-slate-600">Brightness</div>
+                  <div className="flex gap-1.5 items-center">
+                    {(['none', 'value', 'auto'] as const).map((v) => (
+                      <button key={v} type="button" onClick={() => patch({ brightnessMode: v })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition ${policy.brightnessMode === v ? 'text-white border-transparent' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+                        style={policy.brightnessMode === v ? { background: MDM_TINT } : undefined}>{v}</button>
+                    ))}
+                    {policy.brightnessMode === 'value' && (
+                      <input type="number" min={0} max={255} value={policy.brightness} onChange={(e) => patch({ brightness: parseInt(e.target.value || '0', 10) })} className={smallInput + ' ml-1'} />
+                    )}
+                  </div>
+                </div>
+                <ToggleRow label="Screen timeout" checked={policy.manageTimeout} onChange={(v) => patch({ manageTimeout: v })}>
+                  <div className="flex items-center gap-1.5 text-sm text-slate-500"><input type="number" min={0} value={policy.timeout} onChange={(e) => patch({ timeout: parseInt(e.target.value || '0', 10) })} className={smallInput} /> seconds</div>
+                </ToggleRow>
+                <ToggleRow label="Manage volume" checked={policy.manageVolume} onChange={(v) => patch({ manageVolume: v })}>
+                  <div className="flex items-center gap-1.5 text-sm text-slate-500"><input type="number" min={0} max={100} value={policy.volume} onChange={(e) => patch({ volume: parseInt(e.target.value || '0', 10) })} className={smallInput} /> %</div>
+                </ToggleRow>
+                <ToggleRow label="Lock volume" checked={policy.lockVolume} onChange={(v) => patch({ lockVolume: v })} />
+
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide pt-3 pb-1">Security &amp; management</div>
+                <ToggleRow label="Block USB storage" checked={policy.blockUsbStorage} onChange={(v) => patch({ blockUsbStorage: v })} />
+                <ToggleRow label="Disable location" checked={policy.disableLocation} onChange={(v) => patch({ disableLocation: v })} />
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="w-32 shrink-0 text-sm font-semibold text-slate-600">App permissions</div>
+                  <select value={policy.appPermissions} onChange={(e) => patch({ appPermissions: e.target.value })} className={inputCls + ' max-w-xs'}>
+                    <option value="">Default (ask)</option>
+                    <option value="GRANTALL">Grant all</option>
+                    <option value="DENYALL">Deny all</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="w-32 shrink-0 text-sm font-semibold text-slate-600">Push channel</div>
+                  <select value={policy.pushOptions} onChange={(e) => patch({ pushOptions: e.target.value })} className={inputCls + ' max-w-xs'}>
+                    <option value="">Default</option>
+                    <option value="mqtt">MQTT (persistent)</option>
+                    <option value="mqttAlarm">MQTT + wake alarm</option>
+                    <option value="mqttWorker">MQTT worker</option>
+                  </select>
+                </div>
+              </div>
+            )
+          )}
+        </div>
+
+        <div className="px-5 py-3.5 border-t border-slate-100">
+          {err && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-2">{err}</div>}
           <button onClick={submit} disabled={busy}
             className="w-full text-white font-bold rounded-lg py-3 flex items-center justify-center gap-2 disabled:opacity-60" style={{ background: MDM_TINT }}>
             {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : isEdit ? 'Save changes' : 'Create & generate QR'}

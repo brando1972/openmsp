@@ -299,12 +299,34 @@ router.put('/native/configurations/:id', async (req: AuthenticatedRequest, res) 
   const id = parseInt(String(req.params.id), 10);
   if (!Number.isFinite(id) || !hmdmConfigured()) { res.status(400).json({ error: 'bad request' }); return; }
   const b = req.body || {};
+  const tri = (v: any): 'any' | 'disabled' | 'enabled' | undefined =>
+    v === 'any' || v === 'disabled' || v === 'enabled' ? v : undefined;
+  const bnum = (v: any): number | undefined => { const n = parseInt(String(v), 10); return Number.isFinite(n) ? n : undefined; };
+  let policy: any = undefined;
+  if (b.policy && typeof b.policy === 'object') {
+    const pb = b.policy;
+    policy = {
+      description: pb.description !== undefined ? String(pb.description) : undefined,
+      password: pb.password !== undefined ? String(pb.password) : undefined,
+      gps: tri(pb.gps), bluetooth: tri(pb.bluetooth), wifi: tri(pb.wifi), mobileData: tri(pb.mobileData),
+      blockUsbStorage: pb.blockUsbStorage !== undefined ? !!pb.blockUsbStorage : undefined,
+      brightnessMode: ['none', 'value', 'auto'].includes(pb.brightnessMode) ? pb.brightnessMode : undefined,
+      brightness: bnum(pb.brightness),
+      manageTimeout: pb.manageTimeout !== undefined ? !!pb.manageTimeout : undefined, timeout: bnum(pb.timeout),
+      manageVolume: pb.manageVolume !== undefined ? !!pb.manageVolume : undefined, volume: bnum(pb.volume),
+      lockVolume: pb.lockVolume !== undefined ? !!pb.lockVolume : undefined,
+      disableLocation: pb.disableLocation !== undefined ? !!pb.disableLocation : undefined,
+      appPermissions: pb.appPermissions !== undefined ? String(pb.appPermissions) : undefined,
+      pushOptions: pb.pushOptions !== undefined ? String(pb.pushOptions) : undefined
+    };
+  }
   const ok = await updateConfig(id, {
     wifiSsid: b.wifiSsid !== undefined ? String(b.wifiSsid) : undefined,
     wifiPassword: b.wifiPassword ? String(b.wifiPassword) : undefined,
     wifiSecurity: b.wifiSecurity !== undefined ? String(b.wifiSecurity) : undefined,
     startUrl: b.startUrl !== undefined ? String(b.startUrl) : undefined,
-    adminPin: b.adminPin !== undefined ? String(b.adminPin) : undefined
+    adminPin: b.adminPin !== undefined ? String(b.adminPin) : undefined,
+    policy
   });
   if (!ok) { res.status(502).json({ error: 'update failed' }); return; }
   store.recordAudit({
