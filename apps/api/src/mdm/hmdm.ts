@@ -596,7 +596,7 @@ export async function cloneConfig(baseId: number, name: string, kioskMode: boole
     const colList = cols.join(', ');
     const newRow = await client.query(
       `insert into configurations (name, kioskmode, qrcodekey${cols.length ? ', ' + colList : ''})
-       select $2, $3, null${cols.length ? ', ' + colList : ''}
+       select $2, $3, md5(random()::text || clock_timestamp()::text)${cols.length ? ', ' + colList : ''}
          from configurations where id = $1
        returning id, name`,
       [baseId, name, kioskMode]
