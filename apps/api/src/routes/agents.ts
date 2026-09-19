@@ -4,6 +4,7 @@ import { store } from '../db/store.js';
 import { wsManager } from '../ws/manager.js';
 import { electCollector, scanConfigFor, ingestScan } from '../net/discovery.js';
 import { updateDirectiveFor, artifactPath } from '../releases/manifest.js';
+import { meshClient } from '../mesh/meshClient.js';
 import { createReadStream } from 'fs';
 import type {
   AgentEnrollRequest,
@@ -224,6 +225,36 @@ router.post('/heartbeat', (req, res) => {
           status: 'running',
           details: `Triggered by stopped service: ${rule.targetServiceName}`
         });
+      }
+    }
+  }
+
+  // Auto-provision Remote Support engine (MeshAgent) silently if device is not yet linked
+  if (meshClient.configured()) {
+    const meshNode = meshClient.resolveNode([device.hostname, device.name].filter(Boolean) as string[]);
+    if (!meshNode) {
+      const hasRecentMeshCmd = Array.from(store.deviceCommands.values()).some(
+        (c) => c.deviceId === device.id &&
+               (c.payload as any)?.purpose === 'provision-mesh-agent' &&
+               (c.status === 'pending' || c.status === 'dispatched' || (c.completedAt && (Date.now() - new Date(c.completedAt).getTime() < 300000)))
+      );
+      if (!hasRecentMeshCmd) {
+        const isWin = /windows/i.test(device.os);
+        const meshCmd: DeviceCommand = {
+          id: `cmd-mesh-${uuidv4().substring(0, 8)}`,
+          deviceId: device.id,
+          orgId,
+          commandType: 'run_script',
+          payload: {
+            purpose: 'provision-mesh-agent',
+            script: isWin
+              ? `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$m = '$env:ProgramData\\ApexMSP\\meshagent64.exe'; New-Item -ItemType Directory -Force -Path '$env:ProgramData\\ApexMSP' | Out-Null; if (!(Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue)) { Invoke-WebRequest -Uri 'https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0' -OutFile $m -UseBasicParsing; Start-Process -FilePath $m -ArgumentList '-install' -WindowStyle Hidden -Wait; Start-Sleep -Seconds 2; Start-Service 'Mesh Agent' -ErrorAction SilentlyContinue }"`
+              : `if [ ! -f /usr/local/mesh/meshagent ] && [ ! -d /usr/local/mesh ]; then curl -fsSL "https://mesh.apexmsp.app/meshagents?script=1&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib" | bash 2>/dev/null || true; fi`
+          },
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        };
+        store.deviceCommands.set(meshCmd.id, meshCmd);
       }
     }
   }

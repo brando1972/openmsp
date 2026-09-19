@@ -98,7 +98,7 @@ class DataStore {
   private initialized = false;
 
   // ---- durable snapshot persistence (survives restarts/redeploys) ----
-  private readonly dataFile = path.join(process.env.DATA_DIR || '/data', 'store.json');
+  private readonly dataFile = path.join(process.env.DATA_DIR || path.resolve(process.cwd(), '.data'), 'store.json');
   private readonly mapNames = [
     'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
     'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients', 'netScan',
@@ -246,8 +246,10 @@ class DataStore {
     });
     const tokenBrandon = mkToken('apex-brandon-ray', client1.id, 'Primary');
     const tokenRichs = mkToken('apex-richs', client2.id, 'Auburn');
+    const tokenDemo = mkToken('demo-enrollment-token-2026', client1.id, 'Primary');
     this.enrollmentTokens.set(tokenBrandon.token, tokenBrandon);
     this.enrollmentTokens.set(tokenRichs.token, tokenRichs);
+    this.enrollmentTokens.set(tokenDemo.token, tokenDemo);
 
     // Android/relay tablets → client org mapping (device serial → client)
     this.mdmClients.set('HNQ01Q1C', { clientId: client2.id, clientName: client2.name, name: 'Richs Auburn', model: 'Android tablet' });

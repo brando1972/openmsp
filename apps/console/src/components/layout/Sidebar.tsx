@@ -78,6 +78,9 @@ export const Sidebar: React.FC = () => {
 
   const handleNavClick = (tabId: NavigationTab) => {
     setActiveTab(tabId);
+    if (tabId === 'mdm') {
+      setActiveSubRailView('mdm-configurations');
+    }
   };
 
   return (
@@ -88,13 +91,13 @@ export const Sidebar: React.FC = () => {
       <aside className="w-[60px] bg-[#0a0b10] border-r border-white/10 flex flex-col justify-between items-center py-3 shrink-0 text-white z-30">
         {/* Top: Logo & Main Navigation Icons */}
         <div className="flex flex-col items-center gap-4 w-full">
-          {/* Neon Pink SuperOps Brand Mark */}
+          {/* Apex Brand Mark */}
           <button
             onClick={() => handleNavClick('dashboard')}
-            className="w-9 h-9 rounded-lg bg-[#ff0055] hover:bg-[#e0004c] text-white flex items-center justify-center font-black text-lg shadow-lg shadow-pink-500/25 transition cursor-pointer"
-            title={whiteLabel.companyName || 'OpenMSP'}
+            className="w-9 h-9 rounded-lg bg-gradient-to-tr from-fuchsia-600 to-indigo-600 hover:from-fuchsia-500 hover:to-indigo-500 text-white flex items-center justify-center font-black text-base shadow-lg shadow-fuchsia-950/40 transition cursor-pointer"
+            title="ApexMDM / OpenMSP Control Plane"
           >
-            S
+            ▲
           </button>
 
           <div className="w-8 h-px bg-white/10 my-0.5" />
@@ -186,6 +189,20 @@ export const Sidebar: React.FC = () => {
               title="ApexConnect Remote Support"
             >
               <Headphones className="w-5 h-5" />
+            </button>
+
+            {/* ApexMDM — Android Fleet & Config Deploy */}
+            <button
+              onClick={() => handleNavClick('mdm')}
+              className={`w-10 h-10 rounded-lg flex items-center justify-center transition cursor-pointer relative ${
+                activeTab === 'mdm'
+                  ? 'bg-fuchsia-600 text-white font-bold shadow-lg shadow-fuchsia-600/30'
+                  : 'text-fuchsia-400/80 hover:text-white hover:bg-fuchsia-950/40'
+              }`}
+              title="ApexMDM — Android Fleet & Config Deploy"
+            >
+              <Smartphone className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </button>
 
             {/* Network Map — discovery & topology */}

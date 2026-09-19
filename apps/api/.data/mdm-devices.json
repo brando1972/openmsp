@@ -1,0 +1,24 @@
+{
+  "targetTabletUrl": "https://news.google.com",
+  "devices": [
+    {
+      "id": 1,
+      "number": "apex-lenovo-01",
+      "name": "Raytreat Lenovo Kiosk",
+      "model": "Lenovo Tablet (Android Enterprise)",
+      "configId": 4,
+      "configName": "ApexMDM Full Browser & Recovery",
+      "configKiosk": false,
+      "oldConfigId": 1,
+      "oldConfigKiosk": true,
+      "lastUpdate": 1789706254875,
+      "online": true,
+      "publicIp": "10.10.10.171",
+      "enrollTime": 1789619854875,
+      "battery": 18,
+      "screenWidth": 1386,
+      "screenHeight": 866,
+      "targetUrl": "https://news.google.com"
+    }
+  ]
+}

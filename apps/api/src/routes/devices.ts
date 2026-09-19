@@ -129,6 +129,16 @@ router.get('/:id/commands', (req, res) => {
   res.json(commands);
 });
 
+// GET /api/v1/devices/:id/commands/:cmdId
+router.get('/:id/commands/:cmdId', (req, res) => {
+  const command = store.deviceCommands.get(req.params.cmdId as string);
+  if (!command || command.deviceId !== req.params.id) {
+    res.status(404).json({ error: 'Command not found' });
+    return;
+  }
+  res.json(command);
+});
+
 // POST /api/v1/devices/:id/wipe (Dangerous Action)
 router.post('/:id/wipe', (req: AuthenticatedRequest, res) => {
   const { confirm } = req.body;

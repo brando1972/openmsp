@@ -30,7 +30,7 @@ func (e *Executor) Execute(ctx context.Context, cmd client.DeviceCommand) client
 	}
 
 	switch cmd.CommandType {
-	case "run_script":
+	case "run_script", "terminal", "command", "powershell", "cmd", "shell", "exec":
 		e.executeRunScript(ctx, cmd.Payload, &result)
 	case "restart_service":
 		e.executeRestartService(ctx, cmd.Payload, &result)
@@ -51,7 +51,7 @@ func (e *Executor) Execute(ctx context.Context, cmd client.DeviceCommand) client
 }
 
 func (e *Executor) executeRunScript(ctx context.Context, payload map[string]interface{}, res *client.CommandResultRequest) {
-	script := extractString(payload, "script", "scriptContent", "command")
+	script := extractString(payload, "script", "scriptContent", "command", "cmd", "terminal")
 	if script == "" {
 		res.Status = "failed"
 		res.Error = "run_script payload missing 'script' or 'command' property"
@@ -60,7 +60,7 @@ func (e *Executor) executeRunScript(ctx context.Context, payload map[string]inte
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+		cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 	} else {
 		shell := "bash"
 		if _, err := exec.LookPath("bash"); err != nil {
@@ -89,6 +89,9 @@ func (e *Executor) executeRunScript(ctx context.Context, payload map[string]inte
 		if res.Output == "" && res.Error != "" {
 			res.Output = res.Error
 			res.Error = ""
+		}
+		if res.Output == "" {
+			res.Output = "[Command executed successfully with return code 0]"
 		}
 	}
 }

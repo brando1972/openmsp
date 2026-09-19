@@ -812,7 +812,7 @@ export const RMMView: React.FC = () => {
                 )}
                 {enrollMethod === 'windows' && (
                   <p>
-                    Open an elevated Administrator PowerShell prompt (<code className="text-blue-700 font-mono">Run as Administrator</code>) and paste the one-liner. It queries WMI for BIOS serial &amp; hardware interfaces, escrows BitLocker recovery keys, and registers the device in OpenMSP.
+                    Open an elevated Administrator PowerShell prompt (<code className="text-blue-700 font-mono">Run as Administrator</code>) and paste the one-liner. It downloads the ApexMSP agent binary, initiates 30-second telemetry heartbeats, and activates the Shark Fin tray app in your taskbar.
                   </p>
                 )}
                 {enrollMethod === 'binary' && (

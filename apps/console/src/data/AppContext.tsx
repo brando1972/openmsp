@@ -251,6 +251,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'ai-copilot': 'Apex AI Lab',
         'network-map': 'Network Map',
         'mdm': 'MDM',
+        'apex-mdm': 'ApexMDM',
         'settings': 'Settings'
       };
       const newId = `tab-${navTab}`;
@@ -619,9 +620,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         commandType: 'run_script',
         payload: { script }
       });
-      return cmd.output || `[OpenMSP Agent - Command ${cmd.id} Dispatched]\nStatus: ${cmd.status}\nScript: ${script.slice(0, 50)}...`;
-    } catch {
-      return `[ApexMSP Remote PowerShell Agent - Executed Successfully on ${deviceId}]\nPS C:\\> Output: Task processed. Code 0.\nParameters: ${script.slice(0, 40)}...`;
+
+      // Poll for agent execution completion (up to 25 seconds)
+      const startTime = Date.now();
+      while (Date.now() - startTime < 25000) {
+        await new Promise(r => setTimeout(r, 1200));
+        try {
+          const updated = await api.devices.getDeviceCommand(deviceId, cmd.id);
+          if (updated && updated.status === 'completed') {
+            return updated.output || '[Command executed successfully (no output)]';
+          }
+          if (updated && updated.status === 'failed') {
+            return `[Execution Failed]\n${updated.error || updated.output || 'Unknown error occurred on agent'}`;
+          }
+        } catch {
+          // Continue polling if network glitch
+        }
+      }
+
+      return `[Command Dispatched (ID: ${cmd.id})]\nStatus: ${cmd.status}\nThe agent received the command. Because the device checks in on a regular heartbeat, output will update once execution completes.`;
+    } catch (e: any) {
+      return `[ApexMSP Agent Error]\nFailed to communicate with device: ${e?.message || e}`;
     }
   };
 

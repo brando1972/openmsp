@@ -1,0 +1,136 @@
+[
+  {
+    "id": 1,
+    "name": "Raytreat Clinic Kiosk",
+    "description": "Single-app locked web kiosk for clinical check-in tablets.",
+    "deviceCount": 1,
+    "contentApp": "ApexBrowser (Web Kiosk)",
+    "kioskMode": true,
+    "wifiSsid": "Raytreat",
+    "wifiSecurity": "WPA",
+    "wifiPassword": "11073CoRd1",
+    "startUrl": "https://raytreat.com",
+    "adminPin": "2468",
+    "mobileEnrollment": true,
+    "qrcodeKey": "raytreat-kiosk-qr"
+  },
+  {
+    "id": 2,
+    "name": "Warehouse Scanner & Logistics",
+    "description": "Ruggedized scanning and barcode inventory tablet profile.",
+    "deviceCount": 0,
+    "contentApp": "com.apexmsp.wms",
+    "kioskMode": true,
+    "wifiSsid": "WH-Mesh-5G",
+    "wifiSecurity": "WPA",
+    "startUrl": "https://apexmsp.app/wms",
+    "adminPin": "2468",
+    "mobileEnrollment": true,
+    "qrcodeKey": "warehouse-kiosk-qr"
+  },
+  {
+    "id": 3,
+    "name": "Retail Point-of-Sale Register",
+    "description": "Locked countertop register profile with dual-display support.",
+    "deviceCount": 0,
+    "contentApp": "com.squareup",
+    "kioskMode": true,
+    "wifiSsid": "Raytreat",
+    "wifiSecurity": "WPA",
+    "startUrl": "https://apexmsp.app/pos",
+    "adminPin": "2468",
+    "mobileEnrollment": true,
+    "qrcodeKey": "pos-register-qr"
+  },
+  {
+    "id": 4,
+    "name": "ApexMDM Full Browser & Recovery",
+    "description": "Open browsing and recovery profile with remote assistance unlocked.",
+    "deviceCount": 0,
+    "contentApp": "Standard Browser",
+    "kioskMode": false,
+    "wifiSsid": "Raytreat",
+    "wifiSecurity": "WPA",
+    "startUrl": "https://news.google.com",
+    "adminPin": "1024",
+    "mobileEnrollment": true,
+    "qrcodeKey": "recovery-qr",
+    "policy": {
+      "description": "",
+      "password": "",
+      "gps": "enabled",
+      "bluetooth": "enabled",
+      "wifi": "any",
+      "mobileData": "any",
+      "blockUsbStorage": false,
+      "brightnessMode": "auto",
+      "brightness": 180,
+      "manageTimeout": true,
+      "timeout": 2147483,
+      "manageVolume": false,
+      "volume": 0,
+      "lockVolume": false,
+      "disableLocation": false,
+      "appPermissions": "",
+      "pushOptions": ""
+    },
+    "design": {
+      "useDefault": true,
+      "backgroundColor": "",
+      "textColor": "",
+      "backgroundImageUrl": "",
+      "iconSize": "SMALL",
+      "header": "NO_HEADER",
+      "headerTemplate": ""
+    },
+    "mdm": {
+      "kioskMode": false,
+      "kioskScreenOn": false,
+      "kioskKeyguard": false,
+      "autostartForeground": false,
+      "kioskHome": false,
+      "kioskRecents": false,
+      "kioskNotifications": false,
+      "kioskSystemInfo": false,
+      "kioskLockButtons": false,
+      "kioskExit": true,
+      "blockStatusBar": false,
+      "orientation": "none",
+      "runDefaultLauncher": false,
+      "autoUpdate": false,
+      "disableScreenshots": false,
+      "encryptDevice": false,
+      "lockSafeSettings": false
+    },
+    "assignedAppIds": [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "id": 5,
+    "name": "Test Clinic Tablet",
+    "deviceCount": 0,
+    "contentApp": "ApexBrowser (Web Kiosk)",
+    "kioskMode": true,
+    "wifiSsid": "Raytreat",
+    "wifiSecurity": "WPA",
+    "wifiPassword": "UpdatedPassword456",
+    "startUrl": "https://raytreat.com/portal",
+    "adminPin": "9999",
+    "mobileEnrollment": true,
+    "qrcodeKey": "custom-config-5-qr",
+    "policy": {
+      "description": "Test Tablet Policy",
+      "gps": "enabled"
+    },
+    "design": {
+      "backgroundColor": "#112233"
+    },
+    "mdm": {
+      "kioskMode": true,
+      "kioskScreenOn": true
+    }
+  }
+]

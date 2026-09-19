@@ -266,6 +266,14 @@ export const devices = {
     });
   },
 
+  getDeviceCommand: async (deviceId: string, commandId: string): Promise<DeviceCommand> => {
+    return request<DeviceCommand>(`/devices/${deviceId}/commands/${commandId}`);
+  },
+
+  getDeviceCommands: async (deviceId: string): Promise<DeviceCommand[]> => {
+    return request<DeviceCommand[]>(`/devices/${deviceId}/commands`);
+  },
+
   remoteWipe: async (deviceId: string, confirm: boolean = true): Promise<{ success: boolean; message: string; commandId: string }> => {
     return request<{ success: boolean; message: string; commandId: string }>(`/devices/${deviceId}/wipe`, {
       method: 'POST',
@@ -612,6 +620,8 @@ export const mdm = {
     getConfiguration: async (id: number): Promise<{ configuration: NativeMdmConfig; qrBase: string }> => request(`/mdm/native/configurations/${id}`),
     createConfiguration: async (body: NativeConfigInput): Promise<{ ok: boolean; id: number; qrcodeKey: string; qrBase: string }> =>
       request('/mdm/native/configurations', { method: 'POST', body: JSON.stringify(body) }),
+    deployConfiguration: async (id: number, deviceId: string = 'apex-lenovo-01'): Promise<{ ok: boolean; deployedTo: string; configId: number; targetUrl: string }> =>
+      request(`/mdm/native/configurations/${id}/deploy`, { method: 'POST', body: JSON.stringify({ deviceId }) }),
     updateConfiguration: async (id: number, body: NativeConfigInput): Promise<{ ok: boolean }> =>
       request(`/mdm/native/configurations/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     configApps: async (id: number): Promise<{ assigned: NativeConfigApp[]; available: NativeMdmApp[] }> =>
@@ -629,7 +639,15 @@ export const mdm = {
     setConfigFile: async (id: number, fileId: number, patch: { devicePath?: string; remove?: boolean }): Promise<{ ok: boolean }> =>
       request(`/mdm/native/configurations/${id}/files/${fileId}`, { method: 'PUT', body: JSON.stringify(patch) }),
     removeConfigFile: async (id: number, fileId: number): Promise<{ ok: boolean }> =>
-      request(`/mdm/native/configurations/${id}/files/${fileId}`, { method: 'DELETE' })
+      request(`/mdm/native/configurations/${id}/files/${fileId}`, { method: 'DELETE' }),
+    getViewerUrl: async (deviceId?: string): Promise<{ ok: boolean; deviceId: string; url: string }> => {
+      const q = deviceId ? `?device=${encodeURIComponent(deviceId)}` : '';
+      return request(`/mdm/viewer-url${q}`);
+    }
+  },
+  getViewerUrl: async (deviceId?: string): Promise<{ ok: boolean; deviceId: string; url: string }> => {
+    const q = deviceId ? `?device=${encodeURIComponent(deviceId)}` : '';
+    return request(`/mdm/viewer-url${q}`);
   }
 };
 
@@ -667,7 +685,7 @@ export interface NativeMdmMdm {
   encryptDevice: boolean; lockSafeSettings: boolean;
 }
 export interface NativeMdmConfig {
-  id: number; name: string; wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean;
+  id: number; name: string; wifiSsid: string; wifiSecurity: string; wifiPasswordSet: boolean; wifiPassword?: string;
   kioskMode: boolean; mobileEnrollment: boolean; qrcodeKey: string | null;
   contentApp: string | null; deviceCount: number; startUrl: string | null; adminPin: string | null;
   policy?: NativeMdmPolicy;

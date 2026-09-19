@@ -88,14 +88,14 @@ const GROUPS: Group[] = [
     ]
   },
   {
-    title: 'MDM Management',
+    title: 'ApexMDM — Config Deploy & Fleet',
     items: [
-      { key: 'mdm-summary', label: 'Overview', Icon: LayoutDashboard, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-summary' },
-      { key: 'mdm-devices', label: 'Devices', Icon: Smartphone, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-devices' },
+      { key: 'mdm-configurations', label: 'Config Deploy & Profiles', Icon: SlidersHorizontal, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-configurations', badge: 'Deploy' },
+      { key: 'mdm-devices', label: 'Managed Tablets & Devices', Icon: Smartphone, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-devices' },
+      { key: 'mdm-summary', label: 'Fleet Overview', Icon: LayoutDashboard, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-summary' },
       { key: 'mdm-applications', label: 'Applications', Icon: AppWindow, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-applications' },
-      { key: 'mdm-configurations', label: 'Configurations', Icon: SlidersHorizontal, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-configurations' },
-      { key: 'mdm-files', label: 'Files', Icon: FolderOpen, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-files' },
-      { key: 'mdm-settings', label: 'Settings', Icon: Settings, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-settings' }
+      { key: 'mdm-files', label: 'Files & Payloads', Icon: FolderOpen, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-files' },
+      { key: 'mdm-settings', label: 'Global Policies', Icon: Settings, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-settings' }
     ]
   },
   {
