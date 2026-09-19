@@ -115,9 +115,7 @@ router.get('/download', (req, res) => {
   res.sendFile(path.resolve(foundPath));
 });
 
-// GET /api/v1/installers/script?token=...&os=windows|macos
-router.get('/script', (req, res) => {
-  const { token, os } = req.query;
+function renderScript(os: string, token: string | undefined, req: any, res: any) {
   const proto = req.get('x-forwarded-proto') || req.protocol;
   const serverUrl = `${proto}://${req.get('host')}`;
   const relayHost = store.rustDeskConfig.relayServer.split(':')[0] || 'relay.openmsp.local';
@@ -127,7 +125,7 @@ router.get('/script', (req, res) => {
 set -e
 echo "[+] OpenMSP macOS Agent & Shark Fin Setup..."
 SERVER_URL="${serverUrl}"
-ENROLL_TOKEN="${token || 'demo-enrollment-token-2026'}"
+ENROLL_TOKEN="${token || 'apex-brandon-ray'}"
 INSTALL_DIR="/Library/Application Support/ApexMSP"
 mkdir -p "$INSTALL_DIR"
 
@@ -379,6 +377,21 @@ Write-Host "[+] Installation Complete! The shark fin is now active in your taskb
 `;
   res.setHeader('Content-Type', 'text/plain');
   res.send(script);
+}
+
+// GET /api/v1/installers/script?token=...&os=windows|macos
+router.get('/script', (req, res) => {
+  const os = (req.query.os as string) || 'macos';
+  const token = req.query.token as string | undefined;
+  renderScript(os, token, req, res);
+});
+
+// GET /api/v1/installers/quick/:ext (ps1, sh)
+router.get(['/quick/:ext', '/quick'], (req, res) => {
+  const ext = String(req.params.ext || '').toLowerCase();
+  const os = (ext === 'ps1' || ext === 'bat' || ext === 'cmd' || ext === 'windows') ? 'windows' : 'macos';
+  const token = req.query.token as string | undefined;
+  renderScript(os, token, req, res);
 });
 
 export default router;
