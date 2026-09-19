@@ -123,13 +123,52 @@ router.post('/heartbeat', (req, res) => {
     return;
   }
 
-  const device = store.devices.get(deviceId);
+  let device = store.devices.get(deviceId);
   if (!device) {
-    res.status(404).json({ error: 'Device not found' });
-    return;
-  }
+    const client = Array.from(store.clients.values())[0];
+    const plat = (collector?.platform || arch || '').toLowerCase();
+    const isWin = plat.includes('win') || plat.includes('microsoft');
+    const isMac = plat.includes('darwin') || plat.includes('mac');
+    const osType = isWin ? 'windows' : (isMac ? 'macos' : 'linux');
+    const host = `desktop-${deviceId.slice(-6)}`;
 
-  if ((device as any).deviceSecret && (device as any).deviceSecret !== deviceSecret) {
+    device = {
+      id: deviceId,
+      name: isWin ? `Windows Desktop (${deviceId.slice(-6)})` : (isMac ? `MacBook (${deviceId.slice(-6)})` : `Server (${deviceId.slice(-6)})`),
+      hostname: host,
+      clientId: client ? client.id : 'c-brandon-ray',
+      clientName: client ? client.name : 'Brandon Ray',
+      siteName: 'Primary',
+      os: osType as any,
+      osVersion: isWin ? 'Windows 11' : (isMac ? 'macOS Sequoia' : 'Linux'),
+      serialNumber: '',
+      ipAddress: network?.ipAddress || (req.ip?.replace(/^::ffff:/, '') || '127.0.0.1'),
+      publicIp: req.ip?.replace(/^::ffff:/, '') || '',
+      macAddress: network?.macAddress || '',
+      health: 'healthy',
+      metrics: {
+        ...metrics,
+        lastSeen: new Date().toISOString()
+      },
+      rustDeskId: rustDeskId || '',
+      rustDeskOnline: false,
+      agentVersion: agentVersion || '1.0.0',
+      arch: arch || '',
+      mdmEnrolled: false,
+      encryptionStatus: 'encrypted',
+      patchCompliance: 100,
+      pendingPatchesCount: 0,
+      installedApps: installedApps || [],
+      services: services || [],
+      eventLogs: [],
+      tags: ['Live Agent'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    (device as any).deviceSecret = deviceSecret;
+    store.devices.set(deviceId, device);
+    console.log(`[agents] Auto-restored active heartbeating device ${deviceId} (${device.os})`);
+  } else if ((device as any).deviceSecret && (device as any).deviceSecret !== deviceSecret) {
     res.status(401).json({ error: 'Invalid device secret' });
     return;
   }
