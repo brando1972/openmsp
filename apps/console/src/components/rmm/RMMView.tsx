@@ -106,6 +106,10 @@ export const RMMView: React.FC = () => {
   // Filtered Devices
   const filteredDevices = devices.filter(d => {
     if (selectedClientId !== 'all' && d.clientId !== selectedClientId) return false;
+    if (activeSubRailView === 'windows' && d.os !== 'windows') return false;
+    if (activeSubRailView === 'macos' && d.os !== 'macos') return false;
+    if (activeSubRailView === 'servers' && d.os !== 'linux') return false;
+    if (activeSubRailView === 'critical' && d.health !== 'critical') return false;
     if (filterOS !== 'all' && d.os !== filterOS) return false;
     if (filterHealth !== 'all' && d.health !== filterHealth) return false;
     if (searchQuery) {
@@ -164,7 +168,12 @@ export const RMMView: React.FC = () => {
             <Monitor className="w-4 h-4" />
           </div>
           <h1 className="text-base sm:text-lg font-bold text-[#212b36] tracking-tight flex items-center gap-1.5">
-            <span>Endpoints</span>
+            <span>
+              {activeSubRailView === 'windows' ? 'Windows Endpoints' :
+               activeSubRailView === 'macos' ? 'Apple macOS Endpoints' :
+               activeSubRailView === 'servers' ? 'Server Infrastructure' :
+               activeSubRailView === 'critical' ? 'Critical Alerts' : 'Endpoints'}
+            </span>
             <span className="text-slate-400 text-sm font-normal">🌐</span>
           </h1>
           <span className="text-xs text-slate-500 font-medium ml-1">
