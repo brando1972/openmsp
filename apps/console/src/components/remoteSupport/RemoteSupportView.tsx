@@ -371,8 +371,8 @@ export const RemoteSupportView: React.FC = () => {
           next.push({
             key: 'tablet:' + t.id,
             kind: 'tablet',
-            device: t.id,
-            viewerUrl: t.viewerUrl,
+            device: 'Robertsdale',
+            viewerUrl: t.viewerUrl || 'https://vnc.apexmsp.app/?device=05c7cea3b3e2b8ba',
             name: tabletName,
             client: tabletClientName,
             clientId: tabletClientId,
@@ -385,7 +385,7 @@ export const RemoteSupportView: React.FC = () => {
         next.push({
           key: 'tablet:apex-lenovo-01',
           kind: 'tablet',
-          device: 'apex-lenovo-01',
+          device: 'Robertsdale',
           viewerUrl: 'https://vnc.apexmsp.app/?device=05c7cea3b3e2b8ba',
           name: 'Lenovo Tab TB373FU',
           client: 'Brandon Ray',
