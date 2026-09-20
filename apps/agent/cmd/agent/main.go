@@ -169,11 +169,31 @@ func main() {
 	runService(func() {
 		log.Printf("[*] OpenMSP Device Agent starting (v%s)...", version.Version)
 
+		resolvedConfigPath := *configFlag
+		if resolvedConfigPath == "openmsp-agent.json" {
+			if _, err := os.Stat(resolvedConfigPath); os.IsNotExist(err) {
+				progData := os.Getenv("ProgramData")
+				if progData == "" {
+					progData = `C:\ProgramData`
+				}
+				candPath := filepath.Join(progData, "ApexMSP", "openmsp-agent.json")
+				if _, err := os.Stat(candPath); err == nil {
+					resolvedConfigPath = candPath
+				} else {
+					exePath, _ := os.Executable()
+					candExeDir := filepath.Join(filepath.Dir(exePath), "openmsp-agent.json")
+					if _, err := os.Stat(candExeDir); err == nil {
+						resolvedConfigPath = candExeDir
+					}
+				}
+			}
+		}
+
 		// 1. Load or initialize configuration
-		cfg, err := config.Load(*configFlag)
+		cfg, err := config.Load(resolvedConfigPath)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				log.Printf("[!] Warning reading config %s: %v", *configFlag, err)
+				log.Printf("[!] Warning reading config %s: %v", resolvedConfigPath, err)
 			}
 			cfg = &config.Config{
 				ServerURL:                *serverFlag,
@@ -278,15 +298,15 @@ func main() {
 			}
 			cfg.RustDeskConfig = enrollResp.RustDeskConfig
 
-			if err := config.Save(*configFlag, cfg); err != nil {
-				log.Fatalf("[-] Failed to save config to %s: %v", *configFlag, err)
+			if err := config.Save(resolvedConfigPath, cfg); err != nil {
+				log.Fatalf("[-] Failed to save config to %s: %v", resolvedConfigPath, err)
 			}
 
 			log.Printf("[+] Successfully enrolled! Device ID: %s, Org: %s, Client: %s",
 				cfg.DeviceId, cfg.OrgId, cfg.ClientId)
 
 			if runtime.GOOS == "windows" {
-				_ = installWindowsService(*configFlag)
+				_ = installWindowsService(resolvedConfigPath)
 			}
 
 			if *installFlag {
@@ -298,7 +318,7 @@ func main() {
 		} else {
 			log.Printf("[*] Device already enrolled with ID: %s (Org: %s)", cfg.DeviceId, cfg.OrgId)
 			if *installFlag && runtime.GOOS == "windows" {
-				_ = installWindowsService(*configFlag)
+				_ = installWindowsService(resolvedConfigPath)
 				remotesupport.EnsureInstalled()
 				log.Println("[+] ApexMSP Windows Service configured.")
 				return
