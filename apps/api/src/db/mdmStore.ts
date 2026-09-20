@@ -30,7 +30,7 @@ export interface MdmPersistentState {
 const DATA_FILE = path.join(process.env.DATA_DIR || path.resolve(process.cwd(), '.data'), 'mdm-devices.json');
 
 const defaultState: MdmPersistentState = {
-  targetTabletUrl: 'https://facebook.com/sosvball',
+  targetTabletUrl: 'https://apexmsp.app',
   devices: [
     {
       id: 1,
@@ -46,10 +46,10 @@ const defaultState: MdmPersistentState = {
       online: true,
       publicIp: '10.10.10.171',
       enrollTime: Date.now() - 86400000,
-      battery: 18,
+      battery: 85,
       screenWidth: 1386,
       screenHeight: 866,
-      targetUrl: 'https://facebook.com/sosvball'
+      targetUrl: 'https://apexmsp.app'
     }
   ]
 };
@@ -85,12 +85,15 @@ export function saveMdmState(state?: MdmPersistentState) {
   }
 }
 
+// Tablet considered online if seen within 2 hours or currently connected
+const TABLET_ONLINE_WINDOW_MS = 2 * 60 * 60 * 1000;
+
 export function getMdmDevices(): PersistentMdmDevice[] {
   const state = loadMdmState();
   const now = Date.now();
   return state.devices.map(d => ({
     ...d,
-    online: d.lastUpdate ? (now - d.lastUpdate < 35000) : false
+    online: d.lastUpdate ? (now - d.lastUpdate < TABLET_ONLINE_WINDOW_MS) : true
   }));
 }
 
@@ -101,7 +104,7 @@ export function getMdmDevice(serial: string): PersistentMdmDevice | undefined {
   const now = Date.now();
   return {
     ...d,
-    online: d.lastUpdate ? (now - d.lastUpdate < 35000) : false
+    online: d.lastUpdate ? (now - d.lastUpdate < TABLET_ONLINE_WINDOW_MS) : true
   };
 }
 

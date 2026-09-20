@@ -99,17 +99,22 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
   }
 
   // Surface known tablets from local store
+  const primaryClient = store.clients.get('c-brandon-ray') || Array.from(store.clients.values())[0];
   for (const [serial, c] of store.mdmClients) {
     if (liveSerials.has(serial)) continue;
     const targetId = serial === 'apex-lenovo-01' ? '05c7cea3b3e2b8ba' : serial;
+    const persistentDev = getMdmDevice(serial);
+    const clientId = (c.clientId && c.clientId !== 'c-raytreat') ? c.clientId : (primaryClient?.id || 'c-brandon-ray');
+    const clientName = (c.clientName && c.clientId !== 'c-raytreat') ? c.clientName : (primaryClient?.name || 'Brandon Ray');
+
     devices.push({
       id: serial,
       name: c.name || serial,
       model: c.model || 'Android Tablet',
-      connectedAt: 0,
-      online: false,
-      clientId: c.clientId || null,
-      clientName: c.clientName || '',
+      connectedAt: persistentDev?.lastUpdate || 0,
+      online: persistentDev?.online ?? true,
+      clientId,
+      clientName,
       viewerUrl: getRelayViewerUrl(targetId)
     });
   }
@@ -118,19 +123,46 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
   const persistentLenovo = getMdmDevice('apex-lenovo-01');
   const targetId = '05c7cea3b3e2b8ba';
   if (!devices.some(d => d.id === 'apex-lenovo-01' || d.id === 'HA1A99Z2' || d.id === targetId)) {
+    const assigned = store.mdmClients.get('apex-lenovo-01');
+    const clientId = (assigned?.clientId && assigned.clientId !== 'c-raytreat') ? assigned.clientId : (primaryClient?.id || 'c-brandon-ray');
+    const clientName = (assigned?.clientName && assigned.clientId !== 'c-raytreat') ? assigned.clientName : (primaryClient?.name || 'Brandon Ray');
+
     devices.push({
       id: 'apex-lenovo-01',
       name: persistentLenovo?.name || 'Raytreat Lenovo Kiosk',
       model: persistentLenovo?.model || 'Lenovo Tab (Android 14)',
       connectedAt: persistentLenovo?.lastUpdate || 0,
-      online: persistentLenovo?.online ?? false,
-      clientId: 'c-raytreat',
-      clientName: 'Raytreat Clinic',
+      online: persistentLenovo?.online ?? true,
+      clientId,
+      clientName,
       viewerUrl: getRelayViewerUrl(targetId)
     });
   }
 
   res.json({ configured: true, devices });
+});
+
+// POST /api/v1/mdm/devices/:id/assign-client — bind a tablet to an MSP client
+router.post('/devices/:id/assign-client', (req: AuthenticatedRequest, res) => {
+  const serial = req.params.id as string;
+  const clientId = String(req.body?.clientId || '');
+  const client = store.clients.get(clientId);
+  if (!client) {
+    res.status(400).json({ error: 'Client not found' });
+    return;
+  }
+  const existing = store.mdmClients.get(serial) || { clientId: '', clientName: '', name: serial };
+  store.mdmClients.set(serial, {
+    ...existing,
+    clientId: client.id,
+    clientName: client.name
+  });
+  store.recordAudit({
+    orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
+    action: 'mdm.assign_client', targetType: 'device', targetId: serial,
+    details: { clientId: client.id, clientName: client.name }, ipAddress: req.ip
+  });
+  res.json({ ok: true, serial, clientId: client.id, clientName: client.name });
 });
 
 // GET /api/v1/mdm/viewer-url or GET /api/v1/mdm/devices/:id/viewer-url

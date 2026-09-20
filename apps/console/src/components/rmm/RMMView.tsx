@@ -32,7 +32,9 @@ import {
   Flame,
   ChevronDown,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Smartphone,
+  ExternalLink
 } from 'lucide-react';
 import { createEnrollmentToken, API_BASE } from '../../services/api';
 import { ManagedTabletsView } from './ManagedTabletsView';
@@ -142,6 +144,17 @@ export const RMMView: React.FC = () => {
       case 'macos': return <Laptop className="w-4 h-4 text-purple-400" />;
       case 'linux': return <Server className="w-4 h-4 text-amber-400" />;
       case 'network': return <HardDrive className="w-4 h-4 text-emerald-400" />;
+      case 'android': return <Smartphone className="w-4 h-4 text-emerald-500" />;
+      case 'ios': return <Smartphone className="w-4 h-4 text-indigo-500" />;
+      default: return <Monitor className="w-4 h-4 text-slate-400" />;
+    }
+  };
+
+  const handleConnectDevice = (device: ManagedDevice) => {
+    if (device.os === 'android') {
+      window.open('https://vnc.apexmsp.app/?device=05c7cea3b3e2b8ba', '_blank', 'noopener,noreferrer');
+    } else {
+      launchRustDeskSession(device.id);
     }
   };
 
@@ -290,11 +303,11 @@ export const RMMView: React.FC = () => {
                     </span>
                     <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => launchRustDeskSession(device.id)}
+                        onClick={() => handleConnectDevice(device)}
                         className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1 shadow-xs transition"
                       >
-                        <Radio className="w-3.5 h-3.5" />
-                        <span>Connect</span>
+                        {device.os === 'android' ? <Smartphone className="w-3.5 h-3.5" /> : <Radio className="w-3.5 h-3.5" />}
+                        <span>{device.os === 'android' ? 'Remote View' : 'Connect'}</span>
                       </button>
                       <button
                         onClick={() => {
@@ -416,12 +429,12 @@ export const RMMView: React.FC = () => {
                       <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
                           <button
-                            onClick={() => launchRustDeskSession(device.id)}
+                            onClick={() => handleConnectDevice(device)}
                             className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 transition"
-                            title="ApexConnect Remote Desktop"
+                            title={device.os === 'android' ? 'Open Android Tablet Remote Control' : 'ApexConnect Remote Desktop'}
                           >
-                            <Radio className="w-3 h-3" />
-                            <span>Connect</span>
+                            {device.os === 'android' ? <Smartphone className="w-3 h-3 text-emerald-600" /> : <Radio className="w-3 h-3" />}
+                            <span>{device.os === 'android' ? 'Remote View' : 'Connect'}</span>
                           </button>
                           <button
                             onClick={() => {
@@ -493,11 +506,13 @@ export const RMMView: React.FC = () => {
             {/* Quick Actions Bar */}
             <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-around gap-2 text-xs">
               <button
-                onClick={() => launchRustDeskSession(selectedDevice.id)}
+                onClick={() => handleConnectDevice(selectedDevice)}
                 className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold flex items-center justify-center gap-1.5 transition shadow-xs"
-                title="ApexConnect Remote Desktop"
+                title={selectedDevice.os === 'android' ? 'Open Android Tablet Remote Control' : 'ApexConnect Remote Desktop'}
               >
-                <Radio className="w-3.5 h-3.5" /> ApexConnect
+                {selectedDevice.os === 'android' ? <Smartphone className="w-3.5 h-3.5" /> : <Radio className="w-3.5 h-3.5" />}
+                {selectedDevice.os === 'android' ? 'Remote View' : 'ApexConnect'}
+                {selectedDevice.os === 'android' && <ExternalLink className="w-3 h-3 opacity-70" />}
               </button>
               <button
                 onClick={() => setActiveTabDrawer('backstage')}

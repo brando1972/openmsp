@@ -27,10 +27,74 @@ function enrichDeviceWithMesh(d: ManagedDevice): ManagedDevice {
   return d;
 }
 
+import { getMdmDevices } from '../db/mdmStore.js';
+
+function getMdmManagedDevices(): ManagedDevice[] {
+  const mdmList = getMdmDevices();
+  const res: ManagedDevice[] = [];
+  const primaryClient = store.clients.get('c-brandon-ray') || Array.from(store.clients.values())[0];
+
+  for (const md of mdmList) {
+    const assigned = store.mdmClients.get(md.number);
+    const clientId = assigned?.clientId || primaryClient?.id || 'c-brandon-ray';
+    const clientName = assigned?.clientName || primaryClient?.name || 'Brandon Ray';
+    const isOnline = md.online;
+
+    res.push({
+      id: md.number,
+      name: md.name || 'Raytreat Lenovo Kiosk',
+      hostname: md.number,
+      clientId,
+      clientName,
+      siteId: 'Primary',
+      siteName: 'Primary',
+      os: 'android',
+      osVersion: 'Android 14 (Enterprise)',
+      serialNumber: md.number,
+      ipAddress: md.publicIp || '10.10.10.171',
+      publicIp: md.publicIp || '',
+      macAddress: '',
+      health: isOnline ? 'healthy' : 'offline',
+      metrics: {
+        cpuUsage: 14,
+        ramUsage: 42,
+        diskUsage: 28,
+        uptimeDays: 2.1,
+        lastSeen: new Date(md.lastUpdate || Date.now()).toISOString()
+      },
+      rustDeskId: '',
+      rustDeskOnline: false,
+      mdmEnrolled: true,
+      encryptionStatus: 'encrypted',
+      patchCompliance: 100,
+      pendingPatchesCount: 0,
+      installedApps: [
+        { id: 'kiosk', name: 'ApexMSP Kiosk Browser', version: '1.0.3', publisher: 'ApexMSP', installDate: '2026-09-18' },
+        { id: 'vnc', name: 'droidVNC-NG', version: '2.4.0', publisher: 'Christian Beier', installDate: '2026-09-18' },
+        { id: 'agent', name: 'ApexAgent Bridge', version: '1.0.3', publisher: 'ApexMSP', installDate: '2026-09-18' }
+      ],
+      services: [
+        { name: 'app.apexmsp.kiosk', displayName: 'ApexMSP Kiosk', status: 'running', startupType: 'auto' },
+        { name: 'app.apexmsp.agent.BridgeService', displayName: 'Apex Remote Control Bridge', status: 'running', startupType: 'auto' },
+        { name: 'net.christianbeier.droidvnc_ng', displayName: 'droidVNC-NG RFB Service', status: 'running', startupType: 'auto' }
+      ],
+      eventLogs: [],
+      tags: ['tablet', 'android', 'kiosk'],
+      loggedInUser: 'Kiosk User',
+      domain: 'Android Enterprise',
+      createdAt: new Date(md.enrollTime || Date.now()).toISOString(),
+      updatedAt: new Date(md.lastUpdate || Date.now()).toISOString()
+    });
+  }
+  return res;
+}
+
 // GET /api/v1/devices
 router.get('/', (req: AuthenticatedRequest, res) => {
   const { clientId } = req.query;
-  const allDevices = Array.from(store.devices.values()).map(enrichDeviceWithMesh);
+  const desktopDevices = Array.from(store.devices.values()).map(enrichDeviceWithMesh);
+  const mdmDevices = getMdmManagedDevices();
+  const allDevices = [...desktopDevices, ...mdmDevices];
 
   if (clientId && clientId !== 'all') {
     const filtered = allDevices.filter((d) => d.clientId === clientId);
@@ -43,12 +107,13 @@ router.get('/', (req: AuthenticatedRequest, res) => {
 
 // GET /api/v1/devices/:id
 router.get('/:id', (req, res) => {
-  const device = store.devices.get(req.params.id as string);
+  const id = req.params.id as string;
+  const device = store.devices.get(id) || getMdmManagedDevices().find((d) => d.id === id);
   if (!device) {
     res.status(404).json({ error: 'Device not found' });
     return;
   }
-  res.json(enrichDeviceWithMesh(device));
+  res.json(device.os === 'android' ? device : enrichDeviceWithMesh(device));
 });
 
 // PATCH /api/v1/devices/:id

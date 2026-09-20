@@ -47,6 +47,7 @@ app.use((req, res, next) => {
 });
 
 import fs from 'fs';
+import path from 'path';
 
 import { getTargetTabletUrl, setTargetTabletUrl, recordTabletHeartbeat, getMdmDevice, updateMdmDevice } from './db/mdmStore.js';
 
@@ -94,10 +95,27 @@ app.get('/api/v1/mdm/devices/status', (_req, res) => {
   });
 });
 
+function findApkFile(name: string, fallbackPaths: string[]): string | null {
+  const candidates = [
+    `/builds/${name}`,
+    `/app/apps/api/builds/${name}`,
+    `/app/builds/${name}`,
+    path.join(process.cwd(), 'builds', name),
+    path.join(process.cwd(), 'apps', 'api', 'builds', name),
+    ...fallbackPaths
+  ];
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
 // Public Android Enterprise DPC APK download endpoint
 app.get(['/api/v1/apexmdm/dpc/latest.apk', '/dpc/latest.apk'], (_req, res) => {
-  const apkPath = '/Users/brandonray/dev/ApexMSP-Kiosk/app/build/outputs/apk/release/app-release.apk';
-  if (fs.existsSync(apkPath)) {
+  const apkPath = findApkFile('ApexMDM-DPC.apk', [
+    '/Users/brandonray/dev/ApexMSP-Kiosk/app/build/outputs/apk/release/app-release.apk'
+  ]);
+  if (apkPath) {
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Content-Disposition', 'attachment; filename="ApexMDM-DPC.apk"');
     return res.sendFile(apkPath);
@@ -107,8 +125,10 @@ app.get(['/api/v1/apexmdm/dpc/latest.apk', '/dpc/latest.apk'], (_req, res) => {
 
 // Public Remote Control Agent APK download endpoints
 app.get(['/api/v1/mdm/apks/droidvnc-ng.apk', '/apks/droidvnc-ng.apk'], (_req, res) => {
-  const apkPath = '/Users/brandonray/Downloads/droidvnc-ng.apk';
-  if (fs.existsSync(apkPath)) {
+  const apkPath = findApkFile('droidvnc-ng.apk', [
+    '/Users/brandonray/Downloads/droidvnc-ng.apk'
+  ]);
+  if (apkPath) {
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Content-Disposition', 'attachment; filename="droidvnc-ng.apk"');
     return res.sendFile(apkPath);
@@ -117,8 +137,11 @@ app.get(['/api/v1/mdm/apks/droidvnc-ng.apk', '/apks/droidvnc-ng.apk'], (_req, re
 });
 
 app.get(['/api/v1/mdm/apks/apex-agent.apk', '/apks/apex-agent.apk', '/agent.apk'], (_req, res) => {
-  const apkPath = '/Users/brandonray/Claude/apex-vnc-relay/ApexAgent-1.0.3.apk';
-  if (fs.existsSync(apkPath)) {
+  const apkPath = findApkFile('ApexAgent-1.0.3.apk', [
+    '/Users/brandonray/dev/ApexMSP-Kiosk/app/src/main/assets/ApexAgent-1.0.3.apk',
+    '/Users/brandonray/Claude/apex-vnc-relay/ApexAgent-1.0.3.apk'
+  ]);
+  if (apkPath) {
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Content-Disposition', 'attachment; filename="ApexAgent-1.0.3.apk"');
     return res.sendFile(apkPath);
@@ -129,7 +152,7 @@ app.get(['/api/v1/mdm/apks/apex-agent.apk', '/apks/apex-agent.apk', '/agent.apk'
 // GET / — Kiosk Tablet Interface with Chromium Web Browser launcher
 app.get('/', (req, res) => {
   const activeTarget = getTargetTabletUrl();
-  if (activeTarget && req.query.kiosk !== 'menu') {
+  if (activeTarget && req.query.kiosk !== 'menu' && !activeTarget.includes('facebook.com')) {
     return res.redirect(activeTarget);
   }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');

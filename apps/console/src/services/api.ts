@@ -595,6 +595,12 @@ export const mdm = {
       body: JSON.stringify({ name })
     });
   },
+  assignClient: async (id: string, clientId: string): Promise<{ ok: boolean; clientId: string; clientName: string }> => {
+    return request<{ ok: boolean; clientId: string; clientName: string }>(`/mdm/devices/${encodeURIComponent(id)}/assign-client`, {
+      method: 'POST',
+      body: JSON.stringify({ clientId })
+    });
+  },
   // Authenticated tablet screenshot fetch (null when none available / offline)
   thumbnailBlob: async (opts: { device: string; maxAgeSec?: number; refresh?: boolean }): Promise<{ blob: Blob; capturedAt: number } | null> => {
     const p = new URLSearchParams({ device: opts.device });

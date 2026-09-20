@@ -16,7 +16,7 @@ export type NavigationTab =
   | 'mdm'
   | 'settings';
 
-export type DeviceOS = 'windows' | 'macos' | 'linux' | 'network';
+export type DeviceOS = 'windows' | 'macos' | 'linux' | 'network' | 'android' | 'ios';
 export type DeviceHealth = 'healthy' | 'warning' | 'critical' | 'offline';
 
 export interface DeviceMetric {
