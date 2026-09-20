@@ -36,9 +36,8 @@ const getApiBase = (): string => {
     return import.meta.env.VITE_API_URL.replace(/\/$/, '');
   }
   if (typeof window !== 'undefined') {
-    // On HTTPS (e.g. deployed to Vercel), point to the live Google Cloud Run backend
     if (window.location.protocol === 'https:') {
-      return 'https://openmsp-api-358737891339.us-central1.run.app';
+      return 'https://api.apexmsp.app';
     }
   }
   return 'http://localhost:3001';
