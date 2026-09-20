@@ -34,19 +34,18 @@ type Item = {
 };
 type Group = { title: string; items: Item[] };
 
-// Asset-view filters, folded in as children of "Assets" (keys unchanged so the
-// Assets view keeps filtering exactly as before).
+// Device-view filters, folded in as children of "Devices"
 const ASSET_CHILDREN: Item[] = [
-  { key: 'all-assets', label: 'All Assets', Icon: FolderOpen, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'all-assets' },
-  { key: 'monitored', label: 'Monitored Assets', Icon: Monitor, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'monitored' },
+  { key: 'all-assets', label: 'All Devices', Icon: FolderOpen, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'all-assets' },
+  { key: 'monitored', label: 'Monitored Devices', Icon: Monitor, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'monitored' },
   { key: 'endpoints', label: 'Endpoints', Icon: Laptop, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'endpoints' },
   { key: 'mdm-tablets', label: 'Managed Devices', Icon: Smartphone, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'mdm-tablets' },
   { key: 'servers', label: 'Servers', Icon: Server, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'servers' },
   { key: 'macos', label: 'Apple macOS', Icon: Laptop, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'macos' },
   { key: 'windows', label: 'Windows', Icon: Monitor, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'windows' },
-  { key: 'network', label: 'Network Assets', Icon: Wifi, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'network' },
+  { key: 'network', label: 'Network Devices', Icon: Wifi, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'network' },
   { key: 'printers', label: 'Printers', Icon: Printer, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'printers' },
-  { key: 'inactive', label: 'Inactive Assets', Icon: FolderOpen, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'inactive' }
+  { key: 'inactive', label: 'Inactive Devices', Icon: FolderOpen, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'inactive' }
 ];
 
 const TICKET_CHILDREN: Item[] = [
@@ -59,12 +58,6 @@ const TICKET_CHILDREN: Item[] = [
 
 const GROUPS: Group[] = [
   {
-    title: 'Overviews',
-    items: [
-      { key: 'home', label: 'Home', Icon: LayoutDashboard, tint: '#6366f1', built: true, tab: 'dashboard' }
-    ]
-  },
-  {
     title: 'Work Management',
     items: [
       { key: 'tickets', label: 'Tickets', Icon: Ticket, tint: '#f43f5e', built: true, tab: 'psa-tickets', sub: 'all-tickets', children: TICKET_CHILDREN },
@@ -73,29 +66,6 @@ const GROUPS: Group[] = [
       { key: 'projects', label: 'Projects', Icon: Briefcase, tint: '#a855f7', built: false },
       { key: 'timesheets', label: 'Timesheets', Icon: Clock, tint: '#0ea5e9', built: false },
       { key: 'scheduling', label: 'Scheduling', Icon: CalendarDays, tint: '#8b5cf6', built: false }
-    ]
-  },
-  {
-    title: 'Asset Management',
-    items: [
-      { key: 'assets', label: 'Assets', Icon: Monitor, tint: '#d946ef', built: true, tab: 'rmm', sub: 'all-assets', children: ASSET_CHILDREN },
-      { key: 'alerts', label: 'Alerts', Icon: Bell, tint: '#ef4444', built: true, tab: 'rmm', sub: 'critical' },
-      { key: 'patches', label: 'Patches', Icon: ShieldCheck, tint: '#22c55e', built: true, tab: 'patching' },
-      { key: 'scripts', label: 'Scripts & Automations', Icon: Code2, tint: '#10b981', built: true, tab: 'automations' },
-      { key: 'netmon', label: 'Network Monitoring', Icon: Activity, tint: '#3b82f6', built: true, tab: 'network-map' },
-      { key: 'remote', label: 'Remote Support', Icon: Headphones, tint: '#f59e0b', built: true, tab: 'remote-support' },
-      { key: 'vault', label: 'Vault', Icon: KeyRound, tint: '#14b8a6', built: true, tab: 'vault' }
-    ]
-  },
-  {
-    title: 'ApexMDM — Config Deploy & Fleet',
-    items: [
-      { key: 'mdm-configurations', label: 'Config Deploy & Profiles', Icon: SlidersHorizontal, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-configurations', badge: 'Deploy' },
-      { key: 'mdm-devices', label: 'Managed Tablets & Devices', Icon: Smartphone, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-devices' },
-      { key: 'mdm-summary', label: 'Fleet Overview', Icon: LayoutDashboard, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-summary' },
-      { key: 'mdm-applications', label: 'Applications', Icon: AppWindow, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-applications' },
-      { key: 'mdm-files', label: 'Files & Payloads', Icon: FolderOpen, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-files' },
-      { key: 'mdm-settings', label: 'Global Policies', Icon: Settings, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-settings' }
     ]
   },
   {
@@ -111,6 +81,29 @@ const GROUPS: Group[] = [
     ]
   },
   {
+    title: 'MDM Management',
+    items: [
+      { key: 'mdm-configurations', label: 'Config Deploy & Profiles', Icon: SlidersHorizontal, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-configurations', badge: 'Deploy' },
+      { key: 'mdm-devices', label: 'Managed Tablets & Devices', Icon: Smartphone, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-devices' },
+      { key: 'mdm-summary', label: 'Fleet Overview', Icon: LayoutDashboard, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-summary' },
+      { key: 'mdm-applications', label: 'Applications', Icon: AppWindow, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-applications' },
+      { key: 'mdm-files', label: 'Files & Payloads', Icon: FolderOpen, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-files' },
+      { key: 'mdm-settings', label: 'Global Policies', Icon: Settings, tint: '#d946ef', built: true, tab: 'mdm', sub: 'mdm-settings' }
+    ]
+  },
+  {
+    title: 'Device Management',
+    items: [
+      { key: 'assets', label: 'Devices', Icon: Monitor, tint: '#d946ef', built: true, tab: 'rmm', sub: 'all-assets', children: ASSET_CHILDREN },
+      { key: 'alerts', label: 'Alerts', Icon: Bell, tint: '#ef4444', built: true, tab: 'rmm', sub: 'critical' },
+      { key: 'patches', label: 'Patches', Icon: ShieldCheck, tint: '#22c55e', built: true, tab: 'patching' },
+      { key: 'scripts', label: 'Scripts & Automations', Icon: Code2, tint: '#10b981', built: true, tab: 'automations' },
+      { key: 'netmon', label: 'Network Monitoring', Icon: Activity, tint: '#3b82f6', built: true, tab: 'network-map' },
+      { key: 'remote', label: 'Remote Support', Icon: Headphones, tint: '#f59e0b', built: true, tab: 'remote-support' },
+      { key: 'vault', label: 'Vault', Icon: KeyRound, tint: '#14b8a6', built: true, tab: 'vault' }
+    ]
+  },
+  {
     title: 'Documentation',
     items: [
       { key: 'it-docs', label: 'IT Documentation', Icon: FileCode, tint: '#3b82f6', built: false },
@@ -118,7 +111,7 @@ const GROUPS: Group[] = [
     ]
   },
   {
-    title: 'More',
+    title: 'Reports',
     items: [
       { key: 'reports', label: 'Reports', Icon: BarChart3, tint: '#22c55e', built: false },
       { key: 'ai', label: 'Apex AI Lab', Icon: Bot, tint: '#0ea5e9', built: true, ai: true },
