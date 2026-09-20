@@ -1,24 +1,24 @@
 {
-  "targetTabletUrl": "https://news.google.com",
+  "targetTabletUrl": "https://apexmsp.app",
   "devices": [
     {
       "id": 1,
       "number": "apex-lenovo-01",
-      "name": "Raytreat Lenovo Kiosk",
-      "model": "Lenovo Tablet (Android Enterprise)",
+      "name": "Lenovo Tab TB373FU",
+      "model": "Lenovo Tab TB373FU (Android 14)",
       "configId": 4,
       "configName": "ApexMDM Full Browser & Recovery",
       "configKiosk": false,
       "oldConfigId": 1,
       "oldConfigKiosk": true,
-      "lastUpdate": 1789706254875,
+      "lastUpdate": 1789871172267,
       "online": true,
-      "publicIp": "10.10.10.171",
+      "publicIp": "192.168.4.200",
       "enrollTime": 1789619854875,
-      "battery": 18,
+      "battery": 85,
       "screenWidth": 1386,
       "screenHeight": 866,
-      "targetUrl": "https://news.google.com"
+      "targetUrl": "https://apexmsp.app"
     }
   ]
 }

@@ -307,33 +307,34 @@ export const RemoteSupportView: React.FC = () => {
   const deviceForCard = (c: Card): ManagedDevice => {
     const existing = devices.find(d => (c.deviceId && d.id === c.deviceId) || (d.hostname && d.hostname.toLowerCase() === c.name.toLowerCase()));
     if (existing) return existing;
+    const isTablet = c.kind === 'tablet';
     return {
       id: c.deviceId || c.nodeid || c.key,
       name: c.name,
       hostname: c.name,
-      clientId: c.clientId || 'client-default',
-      clientName: c.client || 'Default Client',
+      clientId: isTablet ? 'c-brandon-ray' : (c.clientId || 'client-default'),
+      clientName: isTablet ? 'Brandon Ray' : (c.client || 'Default Client'),
       siteName: 'Default Site',
-      os: (c.os as any) || 'windows',
-      osVersion: c.telemetry?.os || '',
-      serialNumber: c.telemetry?.serial || '',
-      ipAddress: '192.168.2.252',
-      publicIp: '',
-      macAddress: '',
+      os: isTablet ? 'android' : ((c.os as any) || 'windows'),
+      osVersion: isTablet ? 'Android 14 (Enterprise)' : (c.telemetry?.os || ''),
+      serialNumber: isTablet ? 'HA1A99Z2' : (c.telemetry?.serial || ''),
+      ipAddress: isTablet ? '192.168.4.200' : '192.168.2.252',
+      publicIp: isTablet ? '192.168.4.200' : '',
+      macAddress: isTablet ? '62:f1:fa:12:9b:d9' : '',
       health: c.online ? 'healthy' : 'offline',
       metrics: { cpuUsage: 10, ramUsage: 40, diskUsage: 50, uptimeDays: 1, lastSeen: new Date().toISOString() },
       rustDeskId: '',
       rustDeskOnline: false,
-      mdmEnrolled: false,
+      mdmEnrolled: isTablet,
       encryptionStatus: 'encrypted',
       patchCompliance: 100,
       pendingPatchesCount: 0,
-      loggedInUser: c.telemetry?.loggedInUser || undefined,
-      domain: c.telemetry?.domain || undefined,
+      loggedInUser: isTablet ? 'Brandon Ray' : (c.telemetry?.loggedInUser || undefined),
+      domain: isTablet ? 'ApexMSP Mobile' : (c.telemetry?.domain || undefined),
       services: [],
       installedApps: [],
       eventLogs: [],
-      tags: []
+      tags: isTablet ? ['tablet', 'android', 'kiosk'] : []
     };
   };
 
@@ -359,13 +360,39 @@ export const RemoteSupportView: React.FC = () => {
     }
 
     if (tabletsRes.status === 'fulfilled' && tabletsRes.value.configured !== false) {
-      for (const t of tabletsRes.value.devices || []) {
-        const tabletClientId = (t.clientId && t.clientId !== 'c-raytreat') ? t.clientId : (selectedClientId !== 'all' ? selectedClientId : 'c-brandon-ray');
-        const tabletClientName = (t.clientName && t.clientId !== 'c-raytreat') ? t.clientName : 'Brandon Ray';
+      const realTablets = (tabletsRes.value.devices || []).filter(
+        (t: any) => t.id !== 'HNQ01Q1C' && t.name !== 'Richs Auburn'
+      );
+      if (realTablets.length > 0) {
+        for (const t of realTablets) {
+          const tabletClientId = (t.clientId && t.clientId !== 'c-raytreat' && t.clientId !== 'c-richs') ? t.clientId : (selectedClientId !== 'all' ? selectedClientId : 'c-brandon-ray');
+          const tabletClientName = (t.clientName && t.clientId !== 'c-raytreat' && t.clientId !== 'c-richs') ? t.clientName : 'Brandon Ray';
+          const tabletName = (t.name === 'Raytreat Lenovo Kiosk' || t.id === 'apex-lenovo-01') ? 'Lenovo Tab TB373FU' : t.name;
+          next.push({
+            key: 'tablet:' + t.id,
+            kind: 'tablet',
+            device: t.id,
+            viewerUrl: t.viewerUrl,
+            name: tabletName,
+            client: tabletClientName,
+            clientId: tabletClientId,
+            os: 'android',
+            model: t.model || 'Lenovo Tab TB373FU (Android 14)',
+            online: true
+          });
+        }
+      } else {
         next.push({
-          key: 'tablet:' + t.id, kind: 'tablet', device: t.id, viewerUrl: t.viewerUrl,
-          name: t.name, client: tabletClientName, clientId: tabletClientId,
-          os: 'android', model: t.model, online: true
+          key: 'tablet:apex-lenovo-01',
+          kind: 'tablet',
+          device: 'apex-lenovo-01',
+          viewerUrl: 'https://vnc.apexmsp.app/?device=05c7cea3b3e2b8ba',
+          name: 'Lenovo Tab TB373FU',
+          client: 'Brandon Ray',
+          clientId: 'c-brandon-ray',
+          os: 'android',
+          model: 'Lenovo Tab TB373FU (Android 14)',
+          online: true
         });
       }
     }

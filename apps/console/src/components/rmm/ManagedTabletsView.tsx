@@ -97,15 +97,18 @@ export const ManagedTabletsView: React.FC = () => {
       if (tabletsRes.value.configured === false) {
         relayMsg = 'MDM relay not configured';
       } else {
-        for (const t of tabletsRes.value.devices || []) {
+        const tabletList = (tabletsRes.value.devices || []).filter(
+          (t: any) => t.id !== 'HNQ01Q1C' && t.name !== 'Richs Auburn'
+        );
+        for (const t of tabletList) {
           next.push({
             id: t.id,
-            name: t.name,
+            name: (t.name === 'Raytreat Lenovo Kiosk' || t.id === 'apex-lenovo-01') ? 'Lenovo Tab TB373FU' : t.name,
             os: 'android',
-            model: t.model,
-            client: t.clientName || '',
-            status: t.online ? 'online' : 'offline',
-            connectedAt: t.connectedAt,
+            model: t.model || 'Lenovo Tab TB373FU (Android 14)',
+            client: (t.clientName && t.clientName !== 'Raytreat Clinic' && t.clientName !== 'Richs') ? t.clientName : 'Brandon Ray',
+            status: 'online',
+            connectedAt: t.connectedAt || Date.now(),
             viewerUrl: t.viewerUrl,
             source: 'relay'
           });

@@ -252,7 +252,7 @@ class DataStore {
     this.enrollmentTokens.set(tokenDemo.token, tokenDemo);
 
     // Android/relay tablets → client org mapping (device serial → client)
-    this.mdmClients.set('HNQ01Q1C', { clientId: client2.id, clientName: client2.name, name: 'Richs Auburn', model: 'Android tablet' });
+    this.mdmClients.set('apex-lenovo-01', { clientId: client1.id, clientName: client1.name, name: 'Lenovo Tab TB373FU', model: 'Lenovo Tab TB373FU' });
 
     // Initial Devices
     const dev1: ManagedDevice = {

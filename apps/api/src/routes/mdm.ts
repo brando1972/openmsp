@@ -101,18 +101,20 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
   // Surface known tablets from local store
   const primaryClient = store.clients.get('c-brandon-ray') || Array.from(store.clients.values())[0];
   for (const [serial, c] of store.mdmClients) {
+    if (serial === 'HNQ01Q1C' || c.name === 'Richs Auburn') continue;
     if (liveSerials.has(serial)) continue;
     const targetId = serial === 'apex-lenovo-01' ? '05c7cea3b3e2b8ba' : serial;
     const persistentDev = getMdmDevice(serial);
-    const clientId = (c.clientId && c.clientId !== 'c-raytreat') ? c.clientId : (primaryClient?.id || 'c-brandon-ray');
-    const clientName = (c.clientName && c.clientId !== 'c-raytreat') ? c.clientName : (primaryClient?.name || 'Brandon Ray');
+    const clientId = (c.clientId && c.clientId !== 'c-raytreat' && c.clientId !== 'c-richs') ? c.clientId : (primaryClient?.id || 'c-brandon-ray');
+    const clientName = (c.clientName && c.clientId !== 'c-raytreat' && c.clientId !== 'c-richs') ? c.clientName : (primaryClient?.name || 'Brandon Ray');
+    const cleanName = (c.name === 'Raytreat Lenovo Kiosk' || serial === 'apex-lenovo-01') ? 'Lenovo Tab TB373FU' : (c.name || serial);
 
     devices.push({
       id: serial,
-      name: c.name || serial,
-      model: c.model || 'Android Tablet',
+      name: cleanName,
+      model: c.model || 'Lenovo Tab TB373FU (Android 14)',
       connectedAt: persistentDev?.lastUpdate || 0,
-      online: persistentDev?.online ?? true,
+      online: true,
       clientId,
       clientName,
       viewerUrl: getRelayViewerUrl(targetId)
@@ -124,15 +126,15 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
   const targetId = '05c7cea3b3e2b8ba';
   if (!devices.some(d => d.id === 'apex-lenovo-01' || d.id === 'HA1A99Z2' || d.id === targetId)) {
     const assigned = store.mdmClients.get('apex-lenovo-01');
-    const clientId = (assigned?.clientId && assigned.clientId !== 'c-raytreat') ? assigned.clientId : (primaryClient?.id || 'c-brandon-ray');
-    const clientName = (assigned?.clientName && assigned.clientId !== 'c-raytreat') ? assigned.clientName : (primaryClient?.name || 'Brandon Ray');
+    const clientId = (assigned?.clientId && assigned.clientId !== 'c-raytreat' && assigned.clientId !== 'c-richs') ? assigned.clientId : (primaryClient?.id || 'c-brandon-ray');
+    const clientName = (assigned?.clientName && assigned.clientId !== 'c-raytreat' && assigned.clientId !== 'c-richs') ? assigned.clientName : (primaryClient?.name || 'Brandon Ray');
 
     devices.push({
       id: 'apex-lenovo-01',
-      name: persistentLenovo?.name || 'Raytreat Lenovo Kiosk',
-      model: persistentLenovo?.model || 'Lenovo Tab (Android 14)',
+      name: 'Lenovo Tab TB373FU',
+      model: 'Lenovo Tab TB373FU (Android 14)',
       connectedAt: persistentLenovo?.lastUpdate || 0,
-      online: persistentLenovo?.online ?? true,
+      online: true,
       clientId,
       clientName,
       viewerUrl: getRelayViewerUrl(targetId)

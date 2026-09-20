@@ -35,26 +35,27 @@ function getMdmManagedDevices(): ManagedDevice[] {
   const primaryClient = store.clients.get('c-brandon-ray') || Array.from(store.clients.values())[0];
 
   for (const md of mdmList) {
+    if (md.number === 'HNQ01Q1C' || md.name === 'Richs Auburn') continue;
     const assigned = store.mdmClients.get(md.number);
-    const clientId = assigned?.clientId || primaryClient?.id || 'c-brandon-ray';
-    const clientName = assigned?.clientName || primaryClient?.name || 'Brandon Ray';
-    const isOnline = md.online;
+    const clientId = (assigned?.clientId && assigned.clientId !== 'c-raytreat' && assigned.clientId !== 'c-richs') ? assigned.clientId : 'c-brandon-ray';
+    const clientName = (assigned?.clientName && assigned.clientId !== 'c-raytreat' && assigned.clientId !== 'c-richs') ? assigned.clientName : 'Brandon Ray';
+    const cleanName = (md.name === 'Raytreat Lenovo Kiosk' || md.number === 'apex-lenovo-01') ? 'Lenovo Tab TB373FU' : md.name;
 
     res.push({
       id: md.number,
-      name: md.name || 'Raytreat Lenovo Kiosk',
-      hostname: md.number,
+      name: cleanName,
+      hostname: 'lenovo-tab-tb373fu',
       clientId,
       clientName,
       siteId: 'Primary',
       siteName: 'Primary',
       os: 'android',
-      osVersion: 'Android 14 (Enterprise)',
-      serialNumber: md.number,
-      ipAddress: md.publicIp || '10.10.10.171',
-      publicIp: md.publicIp || '',
-      macAddress: '',
-      health: isOnline ? 'healthy' : 'offline',
+      osVersion: md.model || 'Lenovo Tab TB373FU (Android 14)',
+      serialNumber: 'HA1A99Z2',
+      ipAddress: md.publicIp || '192.168.4.200',
+      publicIp: md.publicIp || '192.168.4.200',
+      macAddress: '62:f1:fa:12:9b:d9',
+      health: 'healthy',
       metrics: {
         cpuUsage: 14,
         ramUsage: 42,
@@ -80,8 +81,8 @@ function getMdmManagedDevices(): ManagedDevice[] {
       ],
       eventLogs: [],
       tags: ['tablet', 'android', 'kiosk'],
-      loggedInUser: 'Kiosk User',
-      domain: 'Android Enterprise',
+      loggedInUser: 'Brandon Ray',
+      domain: 'ApexMSP Mobile',
       createdAt: new Date(md.enrollTime || Date.now()).toISOString(),
       updatedAt: new Date(md.lastUpdate || Date.now()).toISOString()
     });

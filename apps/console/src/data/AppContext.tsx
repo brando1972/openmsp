@@ -299,7 +299,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [devices, setDevices] = useState<ManagedDevice[]>(() => {
     const saved = localStorage.getItem('apex_devices');
-    return saved ? JSON.parse(saved) : INITIAL_DEVICES;
+    if (saved) {
+      try {
+        const parsed: ManagedDevice[] = JSON.parse(saved);
+        return parsed
+          .filter(d => d.id !== 'HNQ01Q1C' && d.name !== 'Richs Auburn')
+          .map(d => {
+            if (d.id === 'apex-lenovo-01' || d.os === 'android') {
+              return {
+                ...d,
+                name: 'Lenovo Tab TB373FU',
+                hostname: 'lenovo-tab-tb373fu',
+                ipAddress: '192.168.4.200',
+                publicIp: '192.168.4.200',
+                macAddress: '62:f1:fa:12:9b:d9',
+                clientId: 'c-brandon-ray',
+                clientName: 'Brandon Ray',
+                health: 'healthy' as const
+              };
+            }
+            return d;
+          });
+      } catch { /* ignore */ }
+    }
+    return INITIAL_DEVICES;
   });
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
@@ -421,62 +444,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         let initialDevices: ManagedDevice[] = [];
         if (fetchedDevices.status === 'fulfilled' && Array.isArray(fetchedDevices.value)) {
-          initialDevices = [...fetchedDevices.value];
+          // Exclude phantom devices like HNQ01Q1C / Richs Auburn
+          initialDevices = fetchedDevices.value.filter(d => d.id !== 'HNQ01Q1C' && d.name !== 'Richs Auburn');
         }
 
         try {
           const mdmTablets = await mdm.getTablets();
-          if (mdmTablets && Array.isArray(mdmTablets.devices)) {
-            for (const t of mdmTablets.devices) {
-              if (!initialDevices.some(d => d.id === t.id)) {
-                initialDevices.push({
-                  id: t.id,
-                  name: t.name || 'Lenovo Tablet',
-                  hostname: t.id,
-                  clientId: (t.clientId && t.clientId !== 'c-raytreat') ? t.clientId : 'c-brandon-ray',
-                  clientName: (t.clientName && t.clientId !== 'c-raytreat') ? t.clientName : 'Brandon Ray',
-                  siteId: 'Primary',
-                  siteName: 'Primary',
-                  os: 'android',
-                  osVersion: t.model || 'Android 14 (Enterprise)',
-                  serialNumber: t.id,
-                  ipAddress: '10.10.10.171',
-                  publicIp: '',
-                  macAddress: '',
-                  health: 'healthy',
-                  metrics: {
-                    cpuUsage: 12,
-                    ramUsage: 42,
-                    diskUsage: 25,
-                    uptimeDays: 2.1,
-                    lastSeen: new Date().toISOString()
-                  },
-                  rustDeskId: '',
-                  rustDeskOnline: false,
-                  mdmEnrolled: true,
-                  encryptionStatus: 'encrypted',
-                  patchCompliance: 100,
-                  pendingPatchesCount: 0,
-                  installedApps: [
-                    { id: 'kiosk', name: 'ApexMSP Kiosk Browser', version: '1.0.3', publisher: 'ApexMSP', installDate: '2026-09-18' },
-                    { id: 'vnc', name: 'droidVNC-NG', version: '2.4.0', publisher: 'Christian Beier', installDate: '2026-09-18' },
-                    { id: 'agent', name: 'ApexAgent Bridge', version: '1.0.3', publisher: 'ApexMSP', installDate: '2026-09-18' }
-                  ],
-                  services: [
-                    { name: 'app.apexmsp.kiosk', displayName: 'ApexMSP Kiosk', status: 'running', startupType: 'auto' },
-                    { name: 'app.apexmsp.agent.BridgeService', displayName: 'Apex Remote Control Bridge', status: 'running', startupType: 'auto' },
-                    { name: 'net.christianbeier.droidvnc_ng', displayName: 'droidVNC-NG RFB Service', status: 'running', startupType: 'auto' }
-                  ],
-                  eventLogs: [],
-                  tags: ['tablet', 'android', 'kiosk'],
-                  loggedInUser: 'Kiosk User',
-                  domain: 'Android Enterprise',
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString()
-                });
-              }
-            }
-          }
+          const tabletList = (mdmTablets && Array.isArray(mdmTablets.devices))
+            ? mdmTablets.devices.filter(t => t.id !== 'HNQ01Q1C' && t.name !== 'Richs Auburn')
+            : [];
+
+          // Remove any stale or duplicate tablet entries
+          initialDevices = initialDevices.filter(d => d.id !== 'HNQ01Q1C' && d.id !== 'apex-lenovo-01' && d.name !== 'Richs Auburn' && d.name !== 'Raytreat Lenovo Kiosk');
+
+          const t = tabletList[0] || {
+            id: 'apex-lenovo-01',
+            name: 'Lenovo Tab TB373FU',
+            model: 'Lenovo Tab TB373FU (Android 14)',
+            clientId: 'c-brandon-ray',
+            clientName: 'Brandon Ray'
+          };
+
+          initialDevices.push({
+            id: 'apex-lenovo-01',
+            name: 'Lenovo Tab TB373FU',
+            hostname: 'lenovo-tab-tb373fu',
+            clientId: 'c-brandon-ray',
+            clientName: 'Brandon Ray',
+            siteId: 'Primary',
+            siteName: 'Primary',
+            os: 'android',
+            osVersion: t.model || 'Lenovo Tab TB373FU (Android 14)',
+            serialNumber: 'HA1A99Z2',
+            ipAddress: '192.168.4.200',
+            publicIp: '192.168.4.200',
+            macAddress: '62:f1:fa:12:9b:d9',
+            health: 'healthy',
+            metrics: {
+              cpuUsage: 12,
+              ramUsage: 42,
+              diskUsage: 25,
+              uptimeDays: 2.1,
+              lastSeen: new Date().toISOString()
+            },
+            rustDeskId: '',
+            rustDeskOnline: false,
+            mdmEnrolled: true,
+            encryptionStatus: 'encrypted',
+            patchCompliance: 100,
+            pendingPatchesCount: 0,
+            installedApps: [
+              { id: 'kiosk', name: 'ApexMSP Kiosk Browser', version: '1.0.3', publisher: 'ApexMSP', installDate: '2026-09-18' },
+              { id: 'vnc', name: 'droidVNC-NG', version: '2.4.0', publisher: 'Christian Beier', installDate: '2026-09-18' },
+              { id: 'agent', name: 'ApexAgent Bridge', version: '1.0.3', publisher: 'ApexMSP', installDate: '2026-09-18' }
+            ],
+            services: [
+              { name: 'app.apexmsp.kiosk', displayName: 'ApexMSP Kiosk', status: 'running', startupType: 'auto' },
+              { name: 'app.apexmsp.agent.BridgeService', displayName: 'Apex Remote Control Bridge', status: 'running', startupType: 'auto' },
+              { name: 'net.christianbeier.droidvnc_ng', displayName: 'droidVNC-NG RFB Service', status: 'running', startupType: 'auto' }
+            ],
+            eventLogs: [],
+            tags: ['tablet', 'android', 'kiosk'],
+            loggedInUser: 'Brandon Ray',
+            domain: 'ApexMSP Mobile',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
         } catch { /* ignore */ }
 
         setDevices(initialDevices);
