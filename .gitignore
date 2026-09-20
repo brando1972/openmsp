@@ -44,3 +44,4 @@ apps/**/bin/
 apps/agent/*.json
 apps/agent/openmsp-agent
 
+.env*

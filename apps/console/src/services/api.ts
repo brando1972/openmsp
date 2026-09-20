@@ -726,6 +726,8 @@ export interface MeshTelemetry {
   diskTotalGB: number | null;
   model: string;
   serial: string;
+  loggedInUser?: string | null;
+  domain?: string | null;
 }
 export interface MeshAgentStatus {
   rmm: { state: 'online' | 'offline' | 'absent'; lastSeen: string | null };
@@ -770,7 +772,7 @@ export const mesh = {
   health: async (): Promise<MeshHealth> => request<MeshHealth>('/mesh/health'),
   nodes: async (): Promise<{ configured: boolean; connected: boolean; error?: string; nodes: MeshNodeInfo[] }> =>
     request('/mesh/nodes'),
-  startSession: async (opts: { deviceId?: string; nodeid?: string }): Promise<MeshSession> =>
+  startSession: async (opts: { deviceId?: string; nodeid?: string; protocol?: number }): Promise<MeshSession> =>
     request<MeshSession>('/mesh/session', { method: 'POST', body: JSON.stringify(opts) }),
   // Assign a mesh node (no RMM agent) to a client org; clientId '' clears it.
   assignClient: async (nodeid: string, clientId: string): Promise<{ ok: boolean; clientId: string | null; clientName: string }> =>

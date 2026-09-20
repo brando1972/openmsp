@@ -59,11 +59,18 @@ func (e *Executor) executeRunScript(ctx context.Context, payload map[string]inte
 	}
 
 	var cmd *exec.Cmd
+	shellType := strings.ToLower(extractString(payload, "shell", "shellType", "interpreter"))
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+		if shellType == "cmd" {
+			cmd = exec.CommandContext(ctx, "cmd.exe", "/c", script)
+		} else {
+			cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+		}
 	} else {
 		shell := "bash"
-		if _, err := exec.LookPath("bash"); err != nil {
+		if shellType == "sh" {
+			shell = "sh"
+		} else if _, err := exec.LookPath("bash"); err != nil {
 			shell = "sh"
 		}
 		cmd = exec.CommandContext(ctx, shell, "-c", script)

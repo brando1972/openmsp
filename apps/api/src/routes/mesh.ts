@@ -159,15 +159,17 @@ router.post('/session', async (req: AuthenticatedRequest, res) => {
     res.status(404).json({ error: 'No ApexConnect agent found for this device. Install/enroll the agent.' });
     return;
   }
+  const protocol = typeof req.body?.protocol === 'number' ? req.body.protocol : 2;
   const node = meshClient.getNode(nodeid);
   const device = deviceId ? store.devices.get(deviceId) : undefined;
   const deviceName = device?.name || node?.name || node?.rname || nodeid;
   try {
-    const session = await meshClient.openDesktopSession(nodeid, 2);
+    const session = await meshClient.openDesktopSession(nodeid, protocol);
     store.recordAudit({
       orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
-      action: 'remote.desktop_start', targetType: 'device', targetId: deviceId || nodeid,
-      details: { nodeid, transport: 'apexconnect-native', deviceName }, ipAddress: req.ip
+      action: protocol === 2 ? 'remote.desktop_start' : (protocol === 6 ? 'remote.powershell_start' : 'remote.terminal_start'),
+      targetType: 'device', targetId: deviceId || nodeid,
+      details: { nodeid, transport: 'apexconnect-native', deviceName, protocol }, ipAddress: req.ip
     });
     res.json({ ...session, deviceName, online: node ? node.online : true });
   } catch (err) {

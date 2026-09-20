@@ -2,11 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Monitor, RefreshCw, Wifi, ShieldCheck, Laptop, Smartphone, Radio,
   AlertTriangle, Loader2, Cpu, MemoryStick, HardDrive, Clock, ExternalLink, ImageOff,
-  X, Maximize2, Wrench, Building2, Battery, BatteryCharging, SlidersHorizontal, RotateCcw, Plus
+  X, Maximize2, Wrench, Building2, Battery, BatteryCharging, SlidersHorizontal, RotateCcw, Plus,
+  User, Zap
 } from 'lucide-react';
 import { mesh, mdm, type MeshNodeInfo, type MeshNodeHealth, type MeshTelemetry, type MeshAgentStatus, type TabletDetails } from '../../services/api';
 import { useApp } from '../../data/AppContext';
 import { ApexConnectDesktop } from './ApexConnectDesktop';
+import { BackstageModal } from '../rmm/backstage';
+import { ManagedDevice } from '../../types';
 
 type LoadState = 'loading' | 'ready' | 'unconfigured' | 'error';
 
@@ -286,7 +289,7 @@ const NewProfileDialog: React.FC<{ profiles: { id: number; name: string; kioskMo
 };
 
 export const RemoteSupportView: React.FC = () => {
-  const { clients, selectedClientId } = useApp();
+  const { clients, selectedClientId, devices } = useApp();
   const [cards, setCards] = useState<Card[]>([]);
   const [state, setState] = useState<LoadState>('loading');
   const [note, setNote] = useState('');
@@ -294,11 +297,45 @@ export const RemoteSupportView: React.FC = () => {
   const [intervalMs, setIntervalMs] = useState(300000);
   const [bump, setBump] = useState(0);
   const [target, setTarget] = useState<Card | null>(null);
+  const [backstageDevice, setBackstageDevice] = useState<ManagedDevice | null>(null);
   const [tabletViewer, setTabletViewer] = useState<{ url: string; name: string; device?: string } | null>(null);
   const [viewerRebooting, setViewerRebooting] = useState(false);
   const [busy, setBusy] = useState<Record<string, string>>({}); // per-card action-in-progress label
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
+
+  const deviceForCard = (c: Card): ManagedDevice => {
+    const existing = devices.find(d => (c.deviceId && d.id === c.deviceId) || (d.hostname && d.hostname.toLowerCase() === c.name.toLowerCase()));
+    if (existing) return existing;
+    return {
+      id: c.deviceId || c.nodeid || c.key,
+      name: c.name,
+      hostname: c.name,
+      clientId: c.clientId || 'client-default',
+      clientName: c.client || 'Default Client',
+      siteName: 'Default Site',
+      os: (c.os as any) || 'windows',
+      osVersion: c.telemetry?.os || '',
+      serialNumber: c.telemetry?.serial || '',
+      ipAddress: '192.168.2.252',
+      publicIp: '',
+      macAddress: '',
+      health: c.online ? 'healthy' : 'offline',
+      metrics: { cpuUsage: 10, ramUsage: 40, diskUsage: 50, uptimeDays: 1, lastSeen: new Date().toISOString() },
+      rustDeskId: '',
+      rustDeskOnline: false,
+      mdmEnrolled: false,
+      encryptionStatus: 'encrypted',
+      patchCompliance: 100,
+      pendingPatchesCount: 0,
+      loggedInUser: c.telemetry?.loggedInUser || undefined,
+      domain: c.telemetry?.domain || undefined,
+      services: [],
+      installedApps: [],
+      eventLogs: [],
+      tags: []
+    };
+  };
 
   const load = async () => {
     setRefreshing(true);
@@ -527,6 +564,17 @@ export const RemoteSupportView: React.FC = () => {
                         {c.telemetry.ramUsedPct != null && <Metric icon={MemoryStick} label="RAM" value={c.telemetry.ramUsedPct} warn={75} crit={90} />}
                         {c.telemetry.diskPct != null && <Metric icon={HardDrive} label="Disk" value={c.telemetry.diskPct} warn={80} crit={92} />}
                         <div className="flex flex-col gap-0.5 mt-0.5 text-[10px] text-slate-500 leading-snug">
+                          {c.telemetry.loggedInUser && (
+                            <div className="flex items-center gap-1.5 font-semibold text-slate-800">
+                              <User className="w-3 h-3 text-blue-500 shrink-0" />
+                              <span className="truncate">{c.telemetry.loggedInUser}</span>
+                              {c.telemetry.domain && (
+                                <span className="text-[9px] px-1 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200 font-mono uppercase">
+                                  {c.telemetry.domain}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {c.telemetry.os && <div className="flex items-center gap-1.5"><Monitor className="w-3 h-3 text-slate-400 shrink-0" /><span className="truncate">{c.telemetry.os}</span></div>}
                           {c.telemetry.cpu && <div className="flex items-center gap-1.5"><Cpu className="w-3 h-3 text-slate-400 shrink-0" /><span className="truncate">{c.telemetry.cpu}</span></div>}
                           {(c.telemetry.ramGB || c.telemetry.diskTotalGB) && (
@@ -588,14 +636,27 @@ export const RemoteSupportView: React.FC = () => {
                       </div>
                     )}
 
-                    <button
-                      onClick={() => connect(c)}
-                      disabled={!c.online}
-                      className="mt-auto w-full px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <Radio className="w-3.5 h-3.5" /> Connect
-                      {c.kind === 'tablet' && <ExternalLink className="w-3 h-3 opacity-70" />}
-                    </button>
+                    <div className="mt-auto flex items-center gap-1.5">
+                      <button
+                        onClick={() => connect(c)}
+                        disabled={!c.online}
+                        className="flex-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                      >
+                        <Radio className="w-3.5 h-3.5" /> Connect
+                        {c.kind === 'tablet' && <ExternalLink className="w-3 h-3 opacity-70" />}
+                      </button>
+
+                      {c.kind === 'mesh' && (
+                        <button
+                          onClick={() => setBackstageDevice(deviceForCard(c))}
+                          disabled={!c.online}
+                          className="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                          title="ScreenConnect Backstage (Silent Task Manager, Services, Files, Terminal)"
+                        >
+                          <Zap className="w-3.5 h-3.5" /> Backstage
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -616,6 +677,14 @@ export const RemoteSupportView: React.FC = () => {
           deviceName={target.name}
           clientName={target.client}
           onClose={() => setTarget(null)}
+        />
+      )}
+
+      {backstageDevice && (
+        <BackstageModal
+          device={backstageDevice}
+          isOpen={!!backstageDevice}
+          onClose={() => setBackstageDevice(null)}
         />
       )}
 

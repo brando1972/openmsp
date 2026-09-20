@@ -80,7 +80,7 @@ interface AppContextType {
   setSelectedDeviceId: (id: string | null) => void;
   addDevice: (device: ManagedDevice) => void;
   updateDeviceHealth: (id: string, health: ManagedDevice['health']) => void;
-  runRemoteScriptOnDevice: (deviceId: string, script: string) => Promise<string>;
+  runRemoteScriptOnDevice: (deviceId: string, script: string, shell?: 'powershell' | 'cmd' | 'bash') => Promise<string>;
   toggleDeviceEncryption: (deviceId: string) => void;
   remoteWipeDevice: (deviceId: string) => void;
   
@@ -613,11 +613,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const runRemoteScriptOnDevice = async (deviceId: string, script: string): Promise<string> => {
+  const runRemoteScriptOnDevice = async (deviceId: string, script: string, shell: 'powershell' | 'cmd' | 'bash' = 'powershell'): Promise<string> => {
     try {
       const cmd = await api.devices.sendCommand(deviceId, {
         commandType: 'run_script',
-        payload: { script }
+        payload: { script, shell }
       });
 
       // Poll for agent execution completion (up to 25 seconds)

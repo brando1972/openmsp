@@ -3,15 +3,34 @@ import { v4 as uuidv4 } from 'uuid';
 import { store } from '../db/store.js';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { wsManager } from '../ws/manager.js';
+import { meshClient } from '../mesh/meshClient.js';
 import type { ManagedDevice, DeviceCommand, CreateDeviceCommandRequest } from '@openmsp/api-types';
 
 const router = Router();
 router.use(authenticate);
 
+function enrichDeviceWithMesh(d: ManagedDevice): ManagedDevice {
+  const node = meshClient.resolveNode([d.hostname, d.name].filter(Boolean) as string[]);
+  if (!node) return d;
+
+  const cachedTelem = meshClient.getCachedTelemetry(node.nodeid);
+  const loggedInUser = d.loggedInUser || cachedTelem?.loggedInUser || (node.users && node.users.length > 0 ? node.users[0] : undefined);
+  const domain = d.domain || cachedTelem?.domain || node.domain || (d.os === 'windows' ? 'WORKGROUP' : undefined);
+
+  if (loggedInUser !== d.loggedInUser || domain !== d.domain) {
+    return {
+      ...d,
+      loggedInUser: loggedInUser || d.loggedInUser,
+      domain: domain || d.domain
+    };
+  }
+  return d;
+}
+
 // GET /api/v1/devices
 router.get('/', (req: AuthenticatedRequest, res) => {
   const { clientId } = req.query;
-  const allDevices = Array.from(store.devices.values());
+  const allDevices = Array.from(store.devices.values()).map(enrichDeviceWithMesh);
 
   if (clientId && clientId !== 'all') {
     const filtered = allDevices.filter((d) => d.clientId === clientId);
@@ -29,7 +48,7 @@ router.get('/:id', (req, res) => {
     res.status(404).json({ error: 'Device not found' });
     return;
   }
-  res.json(device);
+  res.json(enrichDeviceWithMesh(device));
 });
 
 // PATCH /api/v1/devices/:id

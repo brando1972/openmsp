@@ -7,6 +7,7 @@ import {
 } from '../../types';
 import {
   UserPlus,
+  User,
   Monitor,
   Search,
   Filter,
@@ -29,10 +30,14 @@ import {
   Unlock,
   AlertTriangle,
   Flame,
-  ChevronDown
+  ChevronDown,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { createEnrollmentToken, API_BASE } from '../../services/api';
 import { ManagedTabletsView } from './ManagedTabletsView';
+import { DeviceTerminal } from './DeviceTerminal';
+import { BackstageHub } from './backstage';
 
 export const RMMView: React.FC = () => {
   const {
@@ -65,7 +70,8 @@ export const RMMView: React.FC = () => {
   const [filterHealth, setFilterHealth] = useState<DeviceHealth | 'all'>('all');
 
   // Interactive Drawer State
-  const [activeTabDrawer, setActiveTabDrawer] = useState<'metrics' | 'terminal' | 'software' | 'services' | 'logs'>('metrics');
+  const [activeTabDrawer, setActiveTabDrawer] = useState<'metrics' | 'backstage' | 'terminal' | 'software' | 'services' | 'logs'>('metrics');
+  const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
   const [terminalScript, setTerminalScript] = useState('Get-Process | Sort-Object CPU -Descending | Select-Object -First 5');
   const [terminalOutput, setTerminalOutput] = useState<string | null>(null);
   const [isRunningScript, setIsRunningScript] = useState(false);
@@ -254,6 +260,7 @@ export const RMMView: React.FC = () => {
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">
                           {device.clientName} • {device.siteName || 'Headquarters'}
+                          {device.loggedInUser && ` • ${device.loggedInUser}`}
                         </div>
                       </div>
                     </div>
@@ -284,14 +291,24 @@ export const RMMView: React.FC = () => {
                     <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => launchRustDeskSession(device.id)}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center gap-1 shadow-xs transition"
                       >
                         <Radio className="w-3.5 h-3.5" />
                         <span>Connect</span>
                       </button>
                       <button
+                        onClick={() => {
+                          setSelectedDeviceId(device.id);
+                          setActiveTabDrawer('backstage');
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs flex items-center gap-1 shadow-xs transition"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Backstage</span>
+                      </button>
+                      <button
                         onClick={() => setSelectedDeviceId(device.id)}
-                        className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition"
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition"
                       >
                         Details
                       </button>
@@ -323,6 +340,7 @@ export const RMMView: React.FC = () => {
                   <th className="py-3 px-4">Client Name</th>
                   <th className="py-3 px-4">Site Name</th>
                   <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">User</th>
                   <th className="py-3 px-4">Serial Number</th>
                   <th className="py-3 px-4">Manufacturer</th>
                   <th className="py-3 px-4">Model</th>
@@ -376,6 +394,16 @@ export const RMMView: React.FC = () => {
                           {isOnline ? 'ONLINE' : 'OFFLINE'}
                         </span>
                       </td>
+                      <td className="py-3 px-4 font-mono text-slate-700 text-[11px]">
+                        {device.loggedInUser ? (
+                          <div className="flex items-center gap-1.5 font-semibold">
+                            <User className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                            <span className="truncate max-w-[130px]" title={device.loggedInUser}>{device.loggedInUser}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
                       <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">
                         {device.serialNumber || 'K4R17CLX2R'}
                       </td>
@@ -394,6 +422,17 @@ export const RMMView: React.FC = () => {
                           >
                             <Radio className="w-3 h-3" />
                             <span>Connect</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedDeviceId(device.id);
+                              setActiveTabDrawer('backstage');
+                            }}
+                            className="px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 text-[11px] font-bold flex items-center gap-1 transition"
+                            title="ScreenConnect Backstage (Silent SYSTEM Management)"
+                          >
+                            <Zap className="w-3 h-3 text-amber-500" />
+                            <span>Backstage</span>
                           </button>
                         </div>
                       </td>
@@ -417,7 +456,13 @@ export const RMMView: React.FC = () => {
 
         {/* Right: Selected Device Deep Detail Drawer */}
         {selectedDevice && (
-          <div className="fixed inset-0 z-50 w-full md:relative md:w-[450px] md:inset-auto md:z-auto bg-white border-l border-slate-200 flex flex-col shrink-0 overflow-hidden shadow-2xl md:shadow-xl animate-fadeIn">
+          <div className={`fixed inset-0 z-50 w-full md:relative ${
+            isDrawerExpanded
+              ? 'md:w-[960px] lg:w-[1140px]'
+              : (activeTabDrawer === 'backstage' || activeTabDrawer === 'terminal')
+              ? 'md:w-[840px] lg:w-[980px]'
+              : 'md:w-[460px]'
+          } md:inset-auto md:z-auto bg-white border-l border-slate-200 flex flex-col shrink-0 overflow-hidden shadow-2xl md:shadow-xl transition-all duration-200 animate-fadeIn`}>
             {/* Drawer Header */}
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2.5">
@@ -427,22 +472,43 @@ export const RMMView: React.FC = () => {
                   <p className="text-[11px] text-slate-500">{selectedDevice.hostname} • {selectedDevice.ipAddress}</p>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedDeviceId(null)}
-                className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition flex items-center gap-1"
-              >
-                <span className="text-xs font-semibold md:hidden">Close</span>
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setIsDrawerExpanded(prev => !prev)}
+                  className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition hidden md:flex items-center gap-1"
+                  title={isDrawerExpanded ? 'Collapse drawer width' : 'Expand drawer width'}
+                >
+                  {isDrawerExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={() => setSelectedDeviceId(null)}
+                  className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition flex items-center gap-1"
+                >
+                  <span className="text-xs font-semibold md:hidden">Close</span>
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Quick Actions Bar */}
             <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-around gap-2 text-xs">
               <button
                 onClick={() => launchRustDeskSession(selectedDevice.id)}
-                className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold flex items-center justify-center gap-1.5 transition"
+                className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold flex items-center justify-center gap-1.5 transition shadow-xs"
+                title="ApexConnect Remote Desktop"
               >
                 <Radio className="w-3.5 h-3.5" /> ApexConnect
+              </button>
+              <button
+                onClick={() => setActiveTabDrawer('backstage')}
+                className={`flex-1 py-2 rounded-lg font-extrabold flex items-center justify-center gap-1.5 transition shadow-xs ${
+                  activeTabDrawer === 'backstage'
+                    ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-300'
+                    : 'bg-amber-600 hover:bg-amber-500 text-slate-950'
+                }`}
+                title="ScreenConnect Backstage (Silent Task Manager, Services, Files, Terminal)"
+              >
+                <Zap className="w-3.5 h-3.5" /> Backstage
               </button>
               <button
                 onClick={() => {
@@ -453,9 +519,10 @@ export const RMMView: React.FC = () => {
                     alert(`No compatible auto-heal rule found for ${selectedDevice.name} (${selectedDevice.os})`);
                   }
                 }}
-                className="flex-1 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold flex items-center justify-center gap-1.5 transition"
+                className="p-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold flex items-center justify-center transition"
+                title="Trigger Auto-Heal Rule"
               >
-                <Zap className="w-3.5 h-3.5" /> Auto-Heal
+                <Zap className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={() => toggleDeviceEncryption(selectedDevice.id)}
@@ -467,196 +534,191 @@ export const RMMView: React.FC = () => {
             </div>
 
             {/* Tabs Selector */}
-            <div className="flex border-b border-slate-200 text-xs font-bold text-slate-500 bg-slate-50">
+            <div className="flex border-b border-slate-200 text-xs font-bold text-slate-500 bg-slate-50 overflow-x-auto custom-scrollbar">
               <button
                 onClick={() => setActiveTabDrawer('metrics')}
-                className={`flex-1 py-2.5 text-center border-b-2 transition ${activeTabDrawer === 'metrics' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
+                className={`flex-1 min-w-[70px] py-2.5 text-center border-b-2 transition whitespace-nowrap ${activeTabDrawer === 'metrics' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
               >
                 Metrics
               </button>
               <button
-                onClick={() => setActiveTabDrawer('terminal')}
-                className={`flex-1 py-2.5 text-center border-b-2 transition ${activeTabDrawer === 'terminal' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
+                onClick={() => setActiveTabDrawer('backstage')}
+                className={`flex-1 min-w-[120px] py-2.5 text-center border-b-2 transition whitespace-nowrap flex items-center justify-center gap-1.5 ${
+                  activeTabDrawer === 'backstage'
+                    ? 'border-amber-500 text-amber-600 bg-white font-extrabold'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
               >
-                Terminal
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                <span>⚡ Backstage</span>
               </button>
               <button
                 onClick={() => setActiveTabDrawer('software')}
-                className={`flex-1 py-2.5 text-center border-b-2 transition ${activeTabDrawer === 'software' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
+                className={`flex-1 min-w-[65px] py-2.5 text-center border-b-2 transition whitespace-nowrap ${activeTabDrawer === 'software' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
               >
                 Apps
               </button>
               <button
                 onClick={() => setActiveTabDrawer('services')}
-                className={`flex-1 py-2.5 text-center border-b-2 transition ${activeTabDrawer === 'services' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
+                className={`flex-1 min-w-[75px] py-2.5 text-center border-b-2 transition whitespace-nowrap ${activeTabDrawer === 'services' ? 'border-[#011fff] text-[#011fff] bg-white' : 'border-transparent hover:text-slate-900'}`}
               >
                 Services
               </button>
             </div>
 
             {/* Drawer Tab Contents */}
-            <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-4 text-xs">
-              {activeTabDrawer === 'metrics' && (
-                <div className="space-y-4">
-                  {/* Gauge Meters */}
-                  <div className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div>
-                      <div className="flex justify-between font-bold mb-1">
-                        <span className="text-slate-600">CPU Load</span>
-                        <span className="text-slate-900 font-mono">{selectedDevice.metrics.cpuUsage}%</span>
-                      </div>
-                      <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.cpuUsage > 85 ? 'bg-rose-500' : 'bg-blue-600'}`}
-                          style={{ width: `${selectedDevice.metrics.cpuUsage}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between font-bold mb-1">
-                        <span className="text-slate-600">Memory RAM</span>
-                        <span className="text-slate-900 font-mono">{selectedDevice.metrics.ramUsage}%</span>
-                      </div>
-                      <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.ramUsage > 85 ? 'bg-rose-500' : 'bg-indigo-600'}`}
-                          style={{ width: `${selectedDevice.metrics.ramUsage}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between font-bold mb-1">
-                        <span className="text-slate-600">Disk Storage</span>
-                        <span className="text-slate-900 font-mono">{selectedDevice.metrics.diskUsage}%</span>
-                      </div>
-                      <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all duration-300 ${selectedDevice.metrics.diskUsage > 85 ? 'bg-rose-500' : 'bg-emerald-600'}`}
-                          style={{ width: `${selectedDevice.metrics.diskUsage}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* System Metadata */}
-                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">OS Version:</span>
-                      <span className="font-semibold text-slate-800">{selectedDevice.osVersion}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Serial Number:</span>
-                      <span className="font-mono text-slate-700">{selectedDevice.serialNumber}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Encryption:</span>
-                      <span className="font-semibold text-emerald-600">{selectedDevice.encryptionStatus.toUpperCase()}</span>
-                    </div>
-                    {selectedDevice.encryptionKey && (
-                      <div className="flex justify-between items-center bg-white p-2 rounded border border-slate-200 mt-2">
-                        <span className="text-[10px] text-slate-600 font-mono">{selectedDevice.encryptionKey}</span>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(selectedDevice.encryptionKey!)}
-                          className="text-[#011fff] hover:underline text-[10px] font-bold"
-                        >
-                          Copy Key
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* MDM Security & Remote Wipe Zone */}
-                  <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 space-y-2">
-                    <div className="flex items-center gap-2 text-rose-700 font-bold">
-                      <AlertTriangle className="w-4 h-4" />
-                      <span>MDM Remote Security Zone</span>
-                    </div>
-                    <p className="text-[11px] text-slate-600">
-                      Issue emergency cryptographic remote wipe or force zero-trust device lock.
-                    </p>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`⚠️ EMERGENCY REMOTE WIPE\n\nThis will permanently wipe device "${selectedDevice.name}" and mark it offline.\n\nThis action cannot be undone.\n\nAre you absolutely sure you want to proceed?`)) {
-                          remoteWipeDevice(selectedDevice.id);
-                        }
-                      }}
-                      className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold transition flex items-center justify-center gap-1.5"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Emergency Remote Wipe Device
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activeTabDrawer === 'terminal' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                      <Terminal className="w-4 h-4 text-blue-600" /> Interactive Script Shell
-                    </span>
-                    <span className="text-[10px] text-slate-400">PowerShell / Zsh</span>
-                  </div>
-
-                  <textarea
-                    rows={4}
-                    value={terminalScript}
-                    onChange={(e) => setTerminalScript(e.target.value)}
-                    className="w-full p-3 rounded-lg bg-slate-900 border border-slate-700 text-sky-300 font-mono text-xs outline-none focus:border-blue-500"
-                  />
-
-                  <button
-                    onClick={handleRunScript}
-                    disabled={isRunningScript}
-                    className="w-full py-2 rounded-lg bg-[#090113] hover:bg-black disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 transition"
-                  >
-                    {isRunningScript ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                    <span>{isRunningScript ? 'Executing Agent Command...' : 'Run Remote Script'}</span>
-                  </button>
-
-                  {terminalOutput && (
-                    <div className="p-3 rounded-lg bg-[#0a0b10] border border-slate-700 text-emerald-400 font-mono text-[11px] whitespace-pre-wrap overflow-x-auto">
-                      {terminalOutput}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTabDrawer === 'software' && (
-                <div className="space-y-2">
-                  <div className="font-bold text-slate-800 mb-2">Installed Application Inventory</div>
-                  {selectedDevice.installedApps.map(app => (
-                    <div key={app.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between">
+            {activeTabDrawer === 'backstage' ? (
+              <div className="flex-1 bg-[#06080e] overflow-hidden flex flex-col min-h-0">
+                <BackstageHub
+                  device={selectedDevice}
+                  isExpanded={isDrawerExpanded}
+                  onToggleExpand={() => setIsDrawerExpanded(prev => !prev)}
+                />
+              </div>
+            ) : (
+              <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-4 text-xs">
+                {activeTabDrawer === 'metrics' && (
+                  <div className="space-y-4">
+                    {/* Gauge Meters */}
+                    <div className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                       <div>
-                        <div className="font-bold text-slate-800">{app.name}</div>
-                        <div className="text-[10px] text-slate-500">{app.publisher}</div>
+                        <div className="flex justify-between font-bold mb-1">
+                          <span className="text-slate-600">CPU Load</span>
+                          <span className="text-slate-900 font-mono">{selectedDevice.metrics.cpuUsage}%</span>
+                        </div>
+                        <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-300 ${selectedDevice.metrics.cpuUsage > 85 ? 'bg-rose-500' : 'bg-blue-600'}`}
+                            style={{ width: `${selectedDevice.metrics.cpuUsage}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="font-mono text-slate-600 text-[11px]">{app.version}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
 
-              {activeTabDrawer === 'services' && (
-                <div className="space-y-2">
-                  <div className="font-bold text-slate-800 mb-2">System Services Monitor</div>
-                  {selectedDevice.services.map(svc => (
-                    <div key={svc.name} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
                       <div>
-                        <div className="font-bold text-slate-800">{svc.displayName || svc.name}</div>
-                        <div className="text-[10px] text-slate-500 font-mono">{svc.name}</div>
+                        <div className="flex justify-between font-bold mb-1">
+                          <span className="text-slate-600">Memory RAM</span>
+                          <span className="text-slate-900 font-mono">{selectedDevice.metrics.ramUsage}%</span>
+                        </div>
+                        <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-300 ${selectedDevice.metrics.ramUsage > 85 ? 'bg-rose-500' : 'bg-indigo-600'}`}
+                            style={{ width: `${selectedDevice.metrics.ramUsage}%` }}
+                          />
+                        </div>
                       </div>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        svc.status === 'running' ? 'bg-[#c8e6c5] text-[#1c4419]' : 'bg-[#ececec] text-[#444444]'
-                      }`}>
-                        {svc.status.toUpperCase()}
-                      </span>
+
+                      <div>
+                        <div className="flex justify-between font-bold mb-1">
+                          <span className="text-slate-600">Disk Storage</span>
+                          <span className="text-slate-900 font-mono">{selectedDevice.metrics.diskUsage}%</span>
+                        </div>
+                        <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-300 ${selectedDevice.metrics.diskUsage > 85 ? 'bg-rose-500' : 'bg-emerald-600'}`}
+                            style={{ width: `${selectedDevice.metrics.diskUsage}%` }}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+
+                    {/* System Metadata */}
+                    <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500">Logged In User:</span>
+                        <span className="font-semibold text-slate-800 flex items-center gap-1.5 font-mono text-[11px]">
+                          <User className="w-3.5 h-3.5 text-blue-500" />
+                          {selectedDevice.loggedInUser || 'No active user'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500">Domain / Workgroup:</span>
+                        <span className="font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded text-[10px] border border-slate-200">
+                          {selectedDevice.domain || 'WORKGROUP'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">OS Version:</span>
+                        <span className="font-semibold text-slate-800">{selectedDevice.osVersion}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Serial Number:</span>
+                        <span className="font-mono text-slate-700">{selectedDevice.serialNumber}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Encryption:</span>
+                        <span className="font-semibold text-emerald-600">{selectedDevice.encryptionStatus.toUpperCase()}</span>
+                      </div>
+                      {selectedDevice.encryptionKey && (
+                        <div className="flex justify-between items-center bg-white p-2 rounded border border-slate-200 mt-2">
+                          <span className="text-[10px] text-slate-600 font-mono">{selectedDevice.encryptionKey}</span>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(selectedDevice.encryptionKey!)}
+                            className="text-[#011fff] hover:underline text-[10px] font-bold"
+                          >
+                            Copy Key
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MDM Security & Remote Wipe Zone */}
+                    <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 space-y-2">
+                      <div className="flex items-center gap-2 text-rose-700 font-bold">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span>MDM Remote Security Zone</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600">
+                        Issue emergency cryptographic remote wipe or force zero-trust device lock.
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`⚠️ EMERGENCY REMOTE WIPE\n\nThis will permanently wipe device "${selectedDevice.name}" and mark it offline.\n\nThis action cannot be undone.\n\nAre you absolutely sure you want to proceed?`)) {
+                            remoteWipeDevice(selectedDevice.id);
+                          }
+                        }}
+                        className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold transition flex items-center justify-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Emergency Remote Wipe Device
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {activeTabDrawer === 'software' && (
+                  <div className="space-y-2">
+                    <div className="font-bold text-slate-800 mb-2">Installed Application Inventory</div>
+                    {selectedDevice.installedApps.map(app => (
+                      <div key={app.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between">
+                        <div>
+                          <div className="font-bold text-slate-800">{app.name}</div>
+                          <div className="text-[10px] text-slate-500">{app.publisher}</div>
+                        </div>
+                        <div className="font-mono text-slate-600 text-[11px]">{app.version}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeTabDrawer === 'services' && (
+                  <div className="space-y-2">
+                    <div className="font-bold text-slate-800 mb-2">System Services Monitor</div>
+                    {selectedDevice.services.map(svc => (
+                      <div key={svc.name} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
+                        <div>
+                          <div className="font-bold text-slate-800">{svc.displayName || svc.name}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">{svc.name}</div>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          svc.status === 'running' ? 'bg-[#c8e6c5] text-[#1c4419]' : 'bg-[#ececec] text-[#444444]'
+                        }`}>
+                          {svc.status.toUpperCase()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

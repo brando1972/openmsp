@@ -80,6 +80,8 @@ export interface ManagedDevice {
   services: DeviceService[];
   eventLogs: SystemEventLog[];
   tags: string[];
+  loggedInUser?: string;
+  domain?: string;
   createdAt?: string;
   updatedAt?: string;
 }

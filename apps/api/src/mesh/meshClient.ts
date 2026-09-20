@@ -31,6 +31,8 @@ export interface MeshNode {
   host: string;
   meshid: string;
   online: boolean;
+  users?: string[];
+  domain?: string;
 }
 
 interface AuthCookie {
@@ -47,20 +49,34 @@ export interface MeshTelemetry {
   diskTotalGB: number | null;
   model: string;
   serial: string;
+  loggedInUser?: string | null;
+  domain?: string | null;
 }
 
 // Normalize a MeshCentral sysinfo doc into card telemetry.
-function parseTelemetry(si: any): MeshTelemetry {
+function parseTelemetry(si: any, node?: MeshNode | null): MeshTelemetry {
   const hw = si?.hardware || {};
   const id = hw.identifiers || {};
   const win = hw.windows || {};
-  const t: MeshTelemetry = { os: '', cpu: '', ramGB: null, ramUsedPct: null, diskPct: null, diskTotalGB: null, model: '', serial: '' };
+  const t: MeshTelemetry = {
+    os: '',
+    cpu: '',
+    ramGB: null,
+    ramUsedPct: null,
+    diskPct: null,
+    diskTotalGB: null,
+    model: '',
+    serial: '',
+    loggedInUser: (node?.users && node.users.length > 0) ? node.users[0] : null,
+    domain: node?.domain || (win.osinfo && win.osinfo.Domain) || null
+  };
 
   t.cpu = id.cpu_name || (Array.isArray(win.cpu) && win.cpu[0] && win.cpu[0].Name) || '';
   t.serial = id.board_serial || id.bios_serial || '';
   t.model = [id.board_vendor || id.bios_vendor || '', id.product_name || id.board_name || ''].filter(Boolean).join(' ').trim();
 
   if (win.osinfo && win.osinfo.Caption) t.os = String(win.osinfo.Caption).replace(/^Microsoft\s+/, '');
+  if (win.osinfo && win.osinfo.Domain && !t.domain) t.domain = win.osinfo.Domain;
 
   // RAM: sum physical memory sticks; usage from OS snapshot if present.
   if (Array.isArray(win.memory)) {
@@ -272,10 +288,18 @@ class MeshClient {
     try {
       await this.ensureReady();
       const raw = await this.requestSysInfo(nodeid);
-      data = raw ? parseTelemetry(raw) : null;
+      const node = this.nodes.get(nodeid);
+      data = parseTelemetry(raw, node);
+      if (node && data?.domain && !node.domain) {
+        node.domain = data.domain;
+      }
     } catch { data = cached ? cached.data : null; }
     this.telemetryCache.set(nodeid, { data, ts: Date.now() });
     return data;
+  }
+
+  public getCachedTelemetry(nodeid: string): MeshTelemetry | null {
+    return this.telemetryCache.get(nodeid)?.data || null;
   }
 
   private requestSysInfo(nodeid: string, timeoutMs = 8000): Promise<any | null> {
@@ -301,7 +325,9 @@ class MeshClient {
           rname: n.rname || '',
           host: n.host || '',
           meshid: n.meshid || meshid,
-          online: (n.conn || 0) !== 0
+          online: (n.conn || 0) !== 0,
+          users: Array.isArray(n.users) ? n.users : (n.user ? [n.user] : undefined),
+          domain: n.domain || undefined
         });
       }
     }
