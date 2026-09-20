@@ -245,12 +245,12 @@ $TrayContent = @'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$InstallDir = "$env:ProgramData\ApexMSP"
+$InstallDir = "$env:ProgramData\\ApexMSP"
 if (!(Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 }
 
-$icoPath = "$InstallDir\sharkfin.ico"
+$icoPath = "$InstallDir\\sharkfin.ico"
 
 # Create Shark Fin icon file if not exists
 if (!(Test-Path $icoPath)) {
