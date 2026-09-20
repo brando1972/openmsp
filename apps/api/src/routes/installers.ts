@@ -328,6 +328,8 @@ $MeshExe = "$InstallDir\\meshagent64-ApexMSP.exe"
 try {
     Invoke-WebRequest -Uri "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0" -OutFile $MeshExe -UseBasicParsing
     Start-Process -FilePath $MeshExe -ArgumentList "-install" -WindowStyle Hidden -Wait
+    Start-Sleep -Seconds 2
+    Start-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
     Write-Host "[+] ApexConnect Remote Desktop connected." -ForegroundColor Green
 } catch {
     Write-Host "[-] Remote engine download note: $_" -ForegroundColor DarkYellow
@@ -335,17 +337,45 @@ try {
 
 # 7. Launch Shark Fin System Tray Icon
 Write-Host "[*] Launching Shark Fin Tray Icon in taskbar notification area..." -ForegroundColor Cyan
-$StartupFolder = [Environment]::GetFolderPath('Startup')
-if (Test-Path $StartupFolder) {
+
+# A. Common startup folder (for all users)
+$CommonStartup = [Environment]::GetFolderPath('CommonStartup')
+if (Test-Path $CommonStartup) {
     try {
         $WshShell = New-Object -ComObject WScript.Shell
-        $Shortcut = $WshShell.CreateShortcut("$StartupFolder\\ApexMSP-Tray.lnk")
+        $Shortcut = $WshShell.CreateShortcut("$CommonStartup\\ApexMSP-Tray.lnk")
         $Shortcut.TargetPath = "powershell.exe"
         $Shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'"
         $Shortcut.WindowStyle = 7
         $Shortcut.Save()
     } catch {}
 }
+
+# B. User startup folder
+$UserStartup = [Environment]::GetFolderPath('Startup')
+if (Test-Path $UserStartup) {
+    try {
+        $WshShell = New-Object -ComObject WScript.Shell
+        $Shortcut = $WshShell.CreateShortcut("$UserStartup\\ApexMSP-Tray.lnk")
+        $Shortcut.TargetPath = "powershell.exe"
+        $Shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'"
+        $Shortcut.WindowStyle = 7
+        $Shortcut.Save()
+    } catch {}
+}
+
+# C. Registry Run key (launches for all interactive users on boot)
+try {
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run" -Name "ApexMSPTray" -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" -ErrorAction SilentlyContinue
+} catch {}
+
+# D. Scheduled Task to launch immediately into the interactive desktop session
+try {
+    schtasks.exe /create /tn "ApexMSPTray" /tr "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" /sc onlogon /f 2>$null | Out-Null
+    schtasks.exe /run /tn "ApexMSPTray" 2>$null | Out-Null
+} catch {}
+
+# E. Direct process start
 Start-Process -FilePath "powershell.exe" -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" -WindowStyle Hidden
 
 
