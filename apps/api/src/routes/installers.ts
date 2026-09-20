@@ -246,49 +246,78 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $InstallDir = "$env:ProgramData\ApexMSP"
+if (!(Test-Path $InstallDir)) {
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+}
 
-# Draw 32x32 Shark Fin icon
-$bmp = New-Object System.Drawing.Bitmap(32, 32)
-$g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-$pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 14, 165, 233), 2.5)
-$penWater = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 56, 189, 248), 2.0)
-$brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(210, 14, 165, 233))
+$icoPath = "$InstallDir\sharkfin.ico"
 
-$path = New-Object System.Drawing.Drawing2D.GraphicsPath
-$path.StartFigure()
-$path.AddBezier(5, 22, 8, 14, 15, 6, 22, 5)
-$path.AddBezier(22, 5, 24, 13, 25, 18, 26, 22)
-$path.CloseFigure()
+# Create Shark Fin icon file if not exists
+if (!(Test-Path $icoPath)) {
+    try {
+        $bmp = New-Object System.Drawing.Bitmap(32, 32)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 14, 165, 233), 2.5)
+        $penWater = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 56, 189, 248), 2.0)
+        $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(210, 14, 165, 233))
 
-$g.FillPath($brush, $path)
-$g.DrawPath($pen, $path)
-$g.DrawLine($penWater, 3, 26, 29, 26)
+        $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+        $path.StartFigure()
+        $path.AddBezier(5, 22, 8, 14, 15, 6, 22, 5)
+        $path.AddBezier(22, 5, 24, 13, 25, 18, 26, 22)
+        $path.CloseFigure()
 
-$hIcon = $bmp.GetHicon()
-$icon = [System.Drawing.Icon]::FromHandle($hIcon)
+        $g.FillPath($brush, $path)
+        $g.DrawPath($pen, $path)
+        $g.DrawLine($penWater, 3, 26, 29, 26)
+
+        $hIcon = $bmp.GetHicon()
+        $tempIcon = [System.Drawing.Icon]::FromHandle($hIcon)
+        $fs = New-Object System.IO.FileStream($icoPath, [System.IO.FileMode]::Create)
+        $tempIcon.Save($fs)
+        $fs.Close()
+        $tempIcon.Dispose()
+        $bmp.Dispose()
+    } catch {}
+}
 
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-$notifyIcon.Icon = $icon
+if (Test-Path $icoPath) {
+    try {
+        $notifyIcon.Icon = New-Object System.Drawing.Icon($icoPath)
+    } catch {}
+}
+
+if ($notifyIcon.Icon -eq $null) {
+    $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
+}
+
 $notifyIcon.Text = "ApexMSP Endpoint: Managing & Online"
 $notifyIcon.Visible = $true
 
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 $headerItem = $contextMenu.Items.Add("ApexMSP Endpoint: $env:COMPUTERNAME")
 $headerItem.Enabled = $false
-$statusItem = $contextMenu.Items.Add("Status: Online (30s Heartbeats)")
+$statusItem = $contextMenu.Items.Add("Status: Online (Active Management)")
 $statusItem.Enabled = $false
 $contextMenu.Items.Add("-") | Out-Null
 $portalItem = $contextMenu.Items.Add("Open ApexMSP Console")
 $portalItem.add_Click({ [System.Diagnostics.Process]::Start("https://apexmsp.app") })
 $contextMenu.Items.Add("-") | Out-Null
-$exitItem = $contextMenu.Items.Add("Hide Tray Icon")
-$exitItem.add_Click({ $notifyIcon.Visible = $false; [System.Windows.Forms.Application]::Exit() })
+$exitItem = $contextMenu.Items.Add("Exit")
+
+$appContext = New-Object System.Windows.Forms.ApplicationContext
+$exitItem.add_Click({
+    $notifyIcon.Visible = $false
+    $notifyIcon.Dispose()
+    $appContext.ExitThread()
+})
 
 $notifyIcon.ContextMenuStrip = $contextMenu
-$notifyIcon.ShowBalloonTip(4000, "ApexMSP Endpoint Connected", "Windows device managed securely by ApexMSP.", [System.Windows.Forms.ToolTipIcon]::Info)
+$notifyIcon.ShowBalloonTip(4000, "ApexMSP Connected", "Windows device managed securely by ApexMSP.", [System.Windows.Forms.ToolTipIcon]::Info)
 
-[System.Windows.Forms.Application]::Run()
+[System.Windows.Forms.Application]::Run($appContext)
 '@
 Set-Content -Path $TrayScript -Value $TrayContent -Encoding UTF8
 
@@ -304,7 +333,8 @@ if (Get-Service -Name "ApexMSPAgent" -ErrorAction SilentlyContinue) {
 
 $ServiceCreated = $false
 try {
-    New-Service -Name "ApexMSPAgent" -BinaryPathName ($AgentExe + ' --config ' + $ConfigFile) -DisplayName "ApexMSP Endpoint Agent" -Description "ApexMSP Endpoint Agent Service" -StartupType Automatic -ErrorAction Stop
+    $BinPath = '"' + $AgentExe + '" --config "' + $ConfigFile + '"'
+    New-Service -Name "ApexMSPAgent" -BinaryPathName $BinPath -DisplayName "ApexMSP Endpoint Agent" -Description "ApexMSP Endpoint Agent Service" -StartupType Automatic -ErrorAction Stop
     sc.exe failure ApexMSPAgent reset= 86400 actions= restart/5000/restart/10000/restart/60000 2>$null | Out-Null
     Start-Service -Name "ApexMSPAgent" -ErrorAction Stop
     $ServiceCreated = $true
@@ -371,8 +401,14 @@ try {
 
 # D. Scheduled Task to launch immediately into the interactive desktop session
 try {
-    schtasks.exe /create /tn "ApexMSPTray" /tr "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" /sc onlogon /f 2>$null | Out-Null
-    schtasks.exe /run /tn "ApexMSPTray" 2>$null | Out-Null
+    $LoggedOnUser = (Get-CimInstance Win32_ComputerSystem).UserName
+    if ($LoggedOnUser) {
+        schtasks.exe /create /tn "ApexMSPTray" /tr "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" /sc ONLOGON /ru "$LoggedOnUser" /it /f 2>$null | Out-Null
+        schtasks.exe /run /tn "ApexMSPTray" 2>$null | Out-Null
+    } else {
+        schtasks.exe /create /tn "ApexMSPTray" /tr "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" /sc ONLOGON /f 2>$null | Out-Null
+        schtasks.exe /run /tn "ApexMSPTray" 2>$null | Out-Null
+    }
 } catch {}
 
 # E. Direct process start
