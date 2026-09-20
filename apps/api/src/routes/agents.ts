@@ -41,48 +41,82 @@ router.post('/enroll', (req, res) => {
   const client = store.clients.get(enrollmentToken.clientId);
   const clientName = client ? client.name : 'Unassigned Client';
 
-  const deviceId = `dev-${os.substring(0, 3)}-${uuidv4().substring(0, 6)}`;
-  const deviceSecret = `sec-${uuidv4()}`;
+  // Deduplicate: check if a device with the same serialNumber, MAC, or hostname+os exists
+  let existingDevice: ManagedDevice | undefined;
+  for (const d of store.devices.values()) {
+    const normSerial = (s?: string) => (s || '').trim().toLowerCase();
+    const normMac = (m?: string) => (m || '').replace(/[:-]/g, '').trim().toLowerCase();
+    const sameSerial = serialNumber && serialNumber !== 'WIN-SERIAL-UNKNOWN' && normSerial(d.serialNumber) === normSerial(serialNumber);
+    const sameMac = macAddress && normMac(d.macAddress) === normMac(macAddress) && normMac(macAddress).length > 4;
+    const sameHost = hostname && d.hostname && d.hostname.toLowerCase() === hostname.toLowerCase() && d.os === os;
 
-  const newDevice: ManagedDevice = {
-    id: deviceId,
-    name: hostname || `${os.toUpperCase()}-ENDPOINT`,
-    hostname: hostname || 'unknown',
-    clientId: enrollmentToken.clientId,
-    clientName,
-    siteId: enrollmentToken.siteId,
-    siteName: enrollmentToken.siteId || 'Default Site',
-    os: os || 'windows',
-    osVersion: osVersion || '',
-    serialNumber: serialNumber || '',
-    ipAddress: ipAddress || req.ip || '',
-    publicIp: req.ip || '',
-    macAddress: macAddress || '',
-    health: 'healthy',
-    metrics: {
-      cpuUsage: 5,
-      ramUsage: 25,
-      diskUsage: 30,
-      uptimeDays: 0.1,
-      lastSeen: new Date().toISOString()
-    },
-    rustDeskId: '',
-    rustDeskOnline: false,
-    mdmEnrolled: true,
-    encryptionStatus: 'pending',
-    patchCompliance: 100,
-    pendingPatchesCount: 0,
-    installedApps: [],
-    services: [],
-    eventLogs: [],
-    tags: ['new-enrollment'],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
+    if (sameSerial || sameMac || sameHost) {
+      existingDevice = d;
+      break;
+    }
+  }
 
-  // Save device with deviceSecret internally
-  (newDevice as any).deviceSecret = deviceSecret;
-  store.devices.set(deviceId, newDevice);
+  let deviceId: string;
+  let deviceSecret: string;
+
+  if (existingDevice) {
+    deviceId = existingDevice.id;
+    deviceSecret = (existingDevice as any).deviceSecret || `sec-${uuidv4()}`;
+    existingDevice.hostname = hostname || existingDevice.hostname;
+    existingDevice.name = hostname || existingDevice.name;
+    existingDevice.os = os || existingDevice.os;
+    existingDevice.osVersion = osVersion || existingDevice.osVersion;
+    if (serialNumber && serialNumber !== 'WIN-SERIAL-UNKNOWN') {
+      existingDevice.serialNumber = serialNumber;
+    }
+    if (macAddress) existingDevice.macAddress = macAddress;
+    if (ipAddress) existingDevice.ipAddress = ipAddress;
+    existingDevice.publicIp = req.ip || existingDevice.publicIp;
+    (existingDevice as any).deviceSecret = deviceSecret;
+    existingDevice.updatedAt = new Date().toISOString();
+    store.devices.set(deviceId, existingDevice);
+  } else {
+    deviceId = `dev-${os.substring(0, 3)}-${uuidv4().substring(0, 6)}`;
+    deviceSecret = `sec-${uuidv4()}`;
+
+    const newDevice: ManagedDevice = {
+      id: deviceId,
+      name: hostname || `${os.toUpperCase()}-ENDPOINT`,
+      hostname: hostname || 'unknown',
+      clientId: enrollmentToken.clientId,
+      clientName,
+      siteId: enrollmentToken.siteId,
+      siteName: enrollmentToken.siteId || 'Default Site',
+      os: os || 'windows',
+      osVersion: osVersion || '',
+      serialNumber: serialNumber || '',
+      ipAddress: ipAddress || req.ip || '',
+      publicIp: req.ip || '',
+      macAddress: macAddress || '',
+      health: 'healthy',
+      metrics: {
+        cpuUsage: 5,
+        ramUsage: 25,
+        diskUsage: 30,
+        uptimeDays: 0.1,
+        lastSeen: new Date().toISOString()
+      },
+      rustDeskId: '',
+      rustDeskOnline: false,
+      mdmEnrolled: true,
+      encryptionStatus: 'pending',
+      patchCompliance: 100,
+      pendingPatchesCount: 0,
+      installedApps: [],
+      services: [],
+      eventLogs: [],
+      tags: ['new-enrollment'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    (newDevice as any).deviceSecret = deviceSecret;
+    store.devices.set(deviceId, newDevice);
+  }
 
   // Update client total devices count
   if (client) {

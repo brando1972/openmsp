@@ -242,7 +242,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else {
       const labelMap: Record<NavigationTab, string> = {
         'dashboard': 'Home',
-        'rmm': 'Assets',
+        'rmm': 'Devices',
         'psa-tickets': 'Tickets',
         'remote-support': 'Remote Support',
         'vault': 'Vault',
@@ -250,8 +250,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'automations': 'Automations',
         'ai-copilot': 'Apex AI Lab',
         'network-map': 'Network Map',
-        'mdm': 'MDM',
-        'apex-mdm': 'ApexMDM',
+        'mdm': 'MDM Management',
         'settings': 'Settings'
       };
       const newId = `tab-${navTab}`;

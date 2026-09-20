@@ -133,9 +133,6 @@ class DataStore {
       if (snap.rustDeskConfig) this.rustDeskConfig = snap.rustDeskConfig;
       const hasData = this.users.size > 0 || this.orgs.size > 0;
       if (hasData) {
-        if (this.devices.size === 0) {
-          this.seedDefaultDevices();
-        }
         console.log(`[store] restored from ${this.dataFile}: ${this.devices.size} devices, ${this.users.size} users, ${this.clients.size} clients`);
       }
       return hasData;
@@ -143,93 +140,6 @@ class DataStore {
       console.warn('[store] hydrate failed (starting fresh):', (e as Error).message);
       return false;
     }
-  }
-
-  public seedDefaultDevices(): void {
-    const client1 = this.clients.get('c-brandon-ray') || Array.from(this.clients.values())[0];
-    if (!client1) return;
-
-    const dev1: ManagedDevice = {
-      id: 'dev-win-01',
-      name: 'ACME-EXEC-PC',
-      hostname: 'acme-exec-pc.local',
-      clientId: client1.id,
-      clientName: client1.name,
-      siteName: 'HQ - Downtown',
-      os: 'windows',
-      osVersion: 'Windows 11 Pro 23H2',
-      serialNumber: '5CD2394XZ1',
-      ipAddress: '192.168.1.105',
-      publicIp: '198.51.100.42',
-      macAddress: '00:1A:2B:3C:4D:5E',
-      health: 'healthy',
-      metrics: {
-        cpuUsage: 18,
-        ramUsage: 48,
-        diskUsage: 52,
-        uptimeDays: 8.4,
-        lastSeen: new Date().toISOString()
-      },
-      rustDeskId: '948271032',
-      rustDeskOnline: true,
-      mdmEnrolled: true,
-      encryptionStatus: 'encrypted',
-      patchCompliance: 98,
-      pendingPatchesCount: 0,
-      installedApps: [
-        { id: '1', name: 'Microsoft 365 Apps for enterprise', version: '16.0.17328.20142', publisher: 'Microsoft', installDate: '2025-01-15' },
-        { id: '2', name: 'Google Chrome', version: '122.0.6261.94', publisher: 'Google LLC', installDate: '2025-02-10' }
-      ],
-      services: [
-        { name: 'Spooler', displayName: 'Print Spooler', status: 'running', startupType: 'auto' },
-        { name: 'wuauserv', displayName: 'Windows Update', status: 'running', startupType: 'auto' }
-      ],
-      eventLogs: [
-        { id: '1', timestamp: new Date().toISOString(), level: 'info', source: 'Service Control Manager', message: 'The Print Spooler service entered the running state.', eventId: 7036 }
-      ],
-      tags: ['executive', 'vip', 'finance']
-    };
-
-    const dev2: ManagedDevice = {
-      id: 'dev-mac-01',
-      name: 'ACME-DEV-MACBOOK',
-      hostname: 'acme-dev-mac.local',
-      clientId: client1.id,
-      clientName: client1.name,
-      siteName: 'HQ - Downtown',
-      os: 'macos',
-      osVersion: 'macOS Sequoia 15.3',
-      serialNumber: 'C02G8391MD6R',
-      ipAddress: '192.168.1.112',
-      publicIp: '198.51.100.42',
-      macAddress: 'F4:D4:88:5A:21:9C',
-      health: 'healthy',
-      metrics: {
-        cpuUsage: 12,
-        ramUsage: 64,
-        diskUsage: 38,
-        uptimeDays: 14.1,
-        lastSeen: new Date().toISOString()
-      },
-      rustDeskId: '827192044',
-      rustDeskOnline: true,
-      mdmEnrolled: true,
-      encryptionStatus: 'encrypted',
-      patchCompliance: 100,
-      pendingPatchesCount: 0,
-      installedApps: [
-        { id: '1', name: 'Xcode', version: '16.0', publisher: 'Apple Inc.', installDate: '2025-01-10' },
-        { id: '2', name: 'Docker Desktop', version: '4.35.0', publisher: 'Docker Inc.', installDate: '2025-02-01' }
-      ],
-      services: [
-        { name: 'com.docker.helper', displayName: 'Docker Helper', status: 'running', startupType: 'auto' }
-      ],
-      eventLogs: [],
-      tags: ['developer', 'engineering']
-    };
-
-    this.devices.set(dev1.id, dev1);
-    this.devices.set(dev2.id, dev2);
   }
 
   public persist(): void {
