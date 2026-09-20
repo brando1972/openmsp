@@ -32,6 +32,13 @@ interface Props {
 const KEY_DOWN = 1;
 const KEY_UP = 2;
 
+// MeshCentral KVM cursor enumeration (MNG_KVM_MOUSE_CURSOR = 88)
+const MOUSE_CURSORS = [
+  'default', 'progress', 'crosshair', 'pointer', 'help', 'text', 'no-drop', 'move',
+  'nesw-resize', 'ns-resize', 'nwse-resize', 'w-resize', 'alias', 'wait', 'default',
+  'not-allowed', 'col-resize', 'row-resize', 'copy', 'zoom-in', 'zoom-out'
+];
+
 // JS keyCode -> Windows virtual-key code is identity for the keys we map here.
 const isPrintable = (key: string) => key.length === 1;
 
@@ -47,6 +54,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
   const [message, setMessage] = useState('Requesting session…');
   const [session, setSession] = useState<MeshSession | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [cursorStyle, setCursorStyle] = useState<string>('default');
 
   // ---- outgoing helpers ----
   const send = useCallback((bytes: number[]) => {
@@ -101,8 +109,13 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
       const x = (view[4] << 8) + view[5];
       const y = (view[6] << 8) + view[7];
       if (view.length > 8) drawTile(x, y, view.subarray(8));
+    } else if (cmd === 88 && view.length >= 5) {
+      // MNG_KVM_MOUSE_CURSOR: cursor style from remote host
+      const idx = view[4];
+      if (idx < MOUSE_CURSORS.length) {
+        setCursorStyle(MOUSE_CURSORS[idx]);
+      }
     }
-    // other commands (copy/cursor/displays/keystate) are non-essential for view+control
   }, [drawTile]);
 
   const feed = useCallback((chunk: Uint8Array) => {
@@ -231,6 +244,28 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
     send([0x00, 0x02, 0x00, 0x0a, 0x00, button & 0xff, (pt.x >> 8) & 0xff, pt.x & 0xff, (pt.y >> 8) & 0xff, pt.y & 0xff]);
   }, [send, toScreen]);
 
+  const sendWheel = useCallback((clientX: number, clientY: number, deltaY: number) => {
+    const pt = toScreen(clientX, clientY);
+    if (!pt) return;
+    const delta = deltaY > 0 ? -120 : 120;
+    let deltaHigh = 0;
+    let deltaLow = 0;
+    if (delta < 0) {
+      deltaHigh = 255 - (Math.abs(delta) >> 8);
+      deltaLow = 255 - (Math.abs(delta) & 0xff);
+    } else {
+      deltaHigh = (delta >> 8) & 0xff;
+      deltaLow = delta & 0xff;
+    }
+    // Command 2, size 12 for scroll
+    send([
+      0x00, 0x02, 0x00, 0x0c, 0x00, 0x00,
+      (pt.x >> 8) & 0xff, pt.x & 0xff,
+      (pt.y >> 8) & 0xff, pt.y & 0xff,
+      deltaHigh & 0xff, deltaLow & 0xff
+    ]);
+  }, [send, toScreen]);
+
   const btnDown = (b: number) => (b === 0 ? 0x02 : b === 2 ? 0x08 : 0x20);
   const btnUp = (b: number) => (b === 0 ? 0x04 : b === 2 ? 0x10 : 0x40);
 
@@ -330,11 +365,13 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
         <div className="flex-1 min-h-0 bg-black relative flex items-center justify-center overflow-hidden">
           <canvas
             ref={canvasRef}
-            className={`max-w-full max-h-full ${phase === 'live' ? 'cursor-none' : 'opacity-0'}`}
-            style={{ imageRendering: 'auto', objectFit: 'contain' }}
+            className={`max-w-full max-h-full ${phase === 'live' ? '' : 'opacity-0'}`}
+            style={{ imageRendering: 'auto', objectFit: 'contain', cursor: phase === 'live' ? cursorStyle : 'default' }}
             onMouseMove={(e) => phase === 'live' && sendMouse(e.clientX, e.clientY, 0x00)}
             onMouseDown={(e) => { if (phase === 'live') { e.preventDefault(); sendMouse(e.clientX, e.clientY, btnDown(e.button)); } }}
             onMouseUp={(e) => { if (phase === 'live') { e.preventDefault(); sendMouse(e.clientX, e.clientY, btnUp(e.button)); } }}
+            onWheel={(e) => { if (phase === 'live') { e.preventDefault(); sendWheel(e.clientX, e.clientY, e.deltaY); } }}
+            onDoubleClick={(e) => { if (phase === 'live') { e.preventDefault(); sendMouse(e.clientX, e.clientY, 0x88); } }}
             onContextMenu={(e) => e.preventDefault()}
           />
 
