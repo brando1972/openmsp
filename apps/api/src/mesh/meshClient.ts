@@ -131,7 +131,14 @@ class MeshClient {
     };
   }
 
+  private pollTimer: NodeJS.Timeout | null = null;
+  private lastNodesReq = 0;
+
   public listNodes(): MeshNode[] {
+    if (Date.now() - this.lastNodesReq > 5000) {
+      this.lastNodesReq = Date.now();
+      this.safeSend({ action: 'nodes' });
+    }
     return Array.from(this.nodes.values());
   }
 
@@ -188,6 +195,10 @@ class MeshClient {
     ws.on('close', (code: number) => {
       this.authed = false;
       this.connecting = false;
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
       if (code === 401 || code === 403) this.fail('authentication rejected (check MESH_USER/MESH_PASS)');
       this.scheduleReconnect();
     });
@@ -212,11 +223,23 @@ class MeshClient {
           this.lastError = '';
           const waiters = this.readyWaiters.splice(0);
           for (const w of waiters) w.resolve();
+          if (!this.pollTimer) {
+            this.pollTimer = setInterval(() => {
+              if (this.authed) this.safeSend({ action: 'nodes' });
+            }, 10000);
+          }
         }
         break;
       }
       case 'nodes': {
         this.ingestNodes(msg.nodes);
+        break;
+      }
+      case 'event':
+      case 'changenode':
+      case 'nodeconnect':
+      case 'nodedisconnect': {
+        this.safeSend({ action: 'nodes' });
         break;
       }
       case 'authcookie': {

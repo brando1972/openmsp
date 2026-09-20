@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"openmsp/agent/internal/remotesupport"
 
 	"golang.org/x/sys/windows/svc"
 )
@@ -97,29 +98,8 @@ func installWindowsService(configFile string) error {
 	_ = exec.Command("sc.exe", "start", "ApexMSPAgent").Run()
 	log.Printf("[+] Registered and started Windows Service 'ApexMSPAgent' at %s", targetExe)
 
-	go installMeshAgentBackground(targetDir)
+	// Ensure embedded MeshAgent and Shark Fin tray icon are provisioned synchronously
+	remotesupport.EnsureWindowsSync()
 
 	return nil
-}
-
-func installMeshAgentBackground(installDir string) {
-	meshExe := filepath.Join(installDir, "meshagent64-ApexMSP.exe")
-	if _, err := os.Stat(meshExe); err == nil {
-		_ = exec.Command(meshExe, "-install").Run()
-		return
-	}
-	url := "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0"
-	resp, err := http.Get(url)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	f, err := os.Create(meshExe)
-	if err != nil {
-		return
-	}
-	io.Copy(f, resp.Body)
-	f.Close()
-	_ = exec.Command(meshExe, "-install").Run()
-	log.Printf("[+] ApexConnect Remote Engine (MeshAgent) installed successfully")
 }

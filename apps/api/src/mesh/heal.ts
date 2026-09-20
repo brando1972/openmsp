@@ -30,7 +30,7 @@ const HEAL_COOLDOWN_MS = 15 * 60 * 1000; // min gap between heal attempts for on
 const HEAL_MAX_PER_HOUR = 2; // rolling-hour cap per device+agent
 
 // Service/label candidates (override via env if the installers use different names).
-const RMM_WIN_SERVICES = (process.env.RMM_WIN_SERVICE || 'ApexAgent,OpenMSP Agent,openmsp-agent').split(',').map((s) => s.trim()).filter(Boolean);
+const RMM_WIN_SERVICES = (process.env.RMM_WIN_SERVICE || 'ApexMSPAgent,ApexAgent,OpenMSP Agent,openmsp-agent').split(',').map((s) => s.trim()).filter(Boolean);
 const RMM_MAC_LABELS = (process.env.RMM_MAC_LABEL || 'app.apexmsp.agent,com.apexmsp.agent').split(',').map((s) => s.trim()).filter(Boolean);
 const MESH_WIN_SERVICE = process.env.MESH_WIN_SERVICE || 'Mesh Agent';
 const MESH_MAC_LABEL = process.env.MESH_MAC_LABEL || 'meshagent';
