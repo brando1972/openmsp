@@ -1147,19 +1147,21 @@ const QrModal: React.FC<{ config: NativeMdmConfig; qrBase: string; onClose: () =
   const [wifiPass, setWifiPass] = useState<string>(config.wifiPassword || (config.wifiSsid === 'Raytreat' ? '11073CoRd1' : ''));
   const [copied, setCopied] = useState(false);
 
+  const dpcDownloadUrl = 'https://api.apexmsp.app/api/v1/apexmdm/dpc/latest.apk?v=2';
+  const dpcSha256Checksum = 'JT1tyKVWthy1tZALtQemYceEGJFkIUUEO0ZLGOX4fAc';
+
   const payload: Record<string, any> = {
     'android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_NAME': 'app.apexmsp.kiosk',
     'android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME': 'app.apexmsp.kiosk/app.apexmsp.kiosk.ApexAdminReceiver',
-    'android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION': `${qrBase}/dpc/latest.apk`,
-    'android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM': '0xR6fh4AZYbrsMoZcsLTpPPVNqRaxeSaJWhACZ9QQFU',
-    'android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM': 'JT1tyKVWthy1tZALtQemYceEGJFkIUUEO0ZLGOX4fAc',
+    'android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION': dpcDownloadUrl,
+    'android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM': dpcSha256Checksum,
     'android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED': true,
     'android.app.extra.PROVISIONING_SKIP_ENCRYPTION': true,
     'android.app.extra.PROVISIONING_SKIP_USER_CONSENT': true,
     'android.app.extra.PROVISIONING_SKIP_EDUCATION_SCREENS': true,
     'android.app.extra.PROVISIONING_SKIP_USER_SETUP': true,
     'android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE': {
-      serverUrl: qrBase,
+      serverUrl: 'https://api.apexmsp.app',
       configId: config.id,
       configName: config.name,
       startUrl: config.startUrl || 'https://raytreat.com',

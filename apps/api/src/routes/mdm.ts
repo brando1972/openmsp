@@ -463,7 +463,7 @@ router.post('/profiles', async (req: AuthenticatedRequest, res) => {
 // Native ApexMDM module — Devices / Configurations / Applications / Files
 // Backed by ground-up ApexMDM configuration store with Headwind fallback.
 // ---------------------------------------------------------------------------
-const QR_PUBLIC_BASE = (process.env.HMDM_PUBLIC_URL || 'https://backgrounds-peers-approved-aids.trycloudflare.com').replace(/\/+$/, '');
+const QR_PUBLIC_BASE = (process.env.APEXMDM_PUBLIC_URL || process.env.API_PUBLIC_URL || 'https://api.apexmsp.app').replace(/\/+$/, '');
 
 interface GroundUpConfig {
   id: number;

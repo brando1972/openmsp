@@ -114,6 +114,9 @@ function findApkFile(name: string, fallbackPaths: string[]): string | null {
 // Public Android Enterprise DPC APK download endpoint
 app.get(['/api/v1/apexmdm/dpc/latest.apk', '/dpc/latest.apk'], (_req, res) => {
   const apkPath = findApkFile('ApexMDM-DPC.apk', [
+    '/Users/brandonray/Downloads/ApexMDM-DPC.apk',
+    '/Users/brandonray/Downloads/ApexMSP-Kiosk-1.0.0.apk',
+    '/Users/brandonray/dev/openmsp-ws/builds/ApexMDM-DPC.apk',
     '/Users/brandonray/dev/ApexMSP-Kiosk/app/build/outputs/apk/release/app-release.apk'
   ]);
   if (apkPath) {
