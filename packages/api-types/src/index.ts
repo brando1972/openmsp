@@ -665,7 +665,7 @@ export interface DispatchTech {
 // Staged Applications & Software Deployment
 // ---------------------------------------------------------------------------
 export type StagedAppCategory = 'remote_access' | 'security' | 'utility' | 'productivity';
-export type StagedAppOs = 'windows' | 'macos' | 'linux' | 'all';
+export type StagedAppOs = 'windows' | 'macos' | 'linux' | 'android' | 'all';
 
 export interface StagedApp {
   id: string;
@@ -684,11 +684,13 @@ export interface StagedApp {
     windows?: string;
     macos?: string;
     linux?: string;
+    android?: string;
   };
   uninstallScript?: {
     windows?: string;
     macos?: string;
     linux?: string;
+    android?: string;
   };
   createdAt: string;
   updatedAt: string;

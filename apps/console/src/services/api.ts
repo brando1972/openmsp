@@ -583,6 +583,14 @@ export const mdm = {
     request(`/mdm/devices/${encodeURIComponent(device)}/runapp`, {
       method: 'POST', body: JSON.stringify(pkg ? { pkg } : {})
     }),
+  relaunchApp: async (device: string, pkg?: string): Promise<{ ok: boolean }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/runapp`, {
+      method: 'POST', body: JSON.stringify(pkg ? { pkg } : {})
+    }),
+  rebootTablet: async (device: string): Promise<{ ok: boolean }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/reboot`, { method: 'POST' }),
+  syncTablet: async (device: string): Promise<{ ok: boolean }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/sync`, { method: 'POST' }),
   // Lock the tablet into a kiosk profile (lock=true) or unlock it to the Recovery profile (lock=false).
   setKiosk: async (device: string, lock: boolean, configId?: number | null): Promise<{ ok: boolean; configId: number }> =>
     request(`/mdm/devices/${encodeURIComponent(device)}/kiosk`, {
@@ -605,6 +613,16 @@ export const mdm = {
       body: JSON.stringify({ clientId })
     });
   },
+  runAdb: async (device: string, action: 'allow_media' | 'custom', command?: string): Promise<{ ok: boolean; output?: string; error?: string; note?: string }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/adb`, {
+      method: 'POST',
+      body: JSON.stringify({ action, command })
+    }),
+  getAdbStatus: async (device: string): Promise<{ ok: boolean; connected: boolean; devicesOutput?: string; error?: string }> =>
+    request(`/mdm/devices/${encodeURIComponent(device)}/adb-status`),
+  getAllowMediaBatUrl: (): string => `${API_V1}/installers/android/allowmedia.bat`,
+  getAllowMediaShUrl: (): string => `${API_V1}/installers/android/allowmedia.sh`,
+  getProvisionBatUrl: (): string => `${API_V1}/installers/android/provision.bat`,
   // Authenticated tablet screenshot fetch (null when none available / offline)
   thumbnailBlob: async (opts: { device: string; maxAgeSec?: number; refresh?: boolean }): Promise<{ blob: Blob; capturedAt: number } | null> => {
     const p = new URLSearchParams({ device: opts.device });

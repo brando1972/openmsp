@@ -2,6 +2,8 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { store } from '../db/store.js';
 import { captureRelayThumb, getRelayThumb } from '../mesh/relayCapture.js';
@@ -1040,6 +1042,108 @@ router.delete('/native/configurations/:id/files/:fileId', async (req: Authentica
   if (!ok) { res.status(502).json({ error: 'remove failed' }); return; }
   store.recordAudit({ orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name, action: 'mdm.native_config_file_remove', targetType: 'config', targetId: String(id), details: { fileId }, ipAddress: req.ip });
   res.json({ ok: true });
+});
+
+const execFileAsync = promisify(execFile);
+
+function getAdbBin(): string {
+  const candidates = [
+    '/usr/local/bin/adb',
+    '/opt/homebrew/bin/adb',
+    '/usr/bin/adb',
+    'adb'
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'adb';
+}
+
+// POST /api/v1/mdm/devices/:id/adb — execute ADB action or command on tablet
+router.post('/devices/:id/adb', async (req: AuthenticatedRequest, res) => {
+  const serial = String(req.params.id);
+  const { action, command } = req.body || {};
+  const adbBin = getAdbBin();
+
+  try {
+    const listRes = await execFileAsync(adbBin, ['devices']);
+    const stdout = listRes.stdout || '';
+
+    let targetArg: string[] = [];
+    if (serial && stdout.includes(serial)) {
+      targetArg = ['-s', serial];
+    }
+
+    if (action === 'allow_media') {
+      const outputLines: string[] = [];
+      const cmds = [
+        ['shell', 'appops', 'set', 'net.christianbeier.droidvnc_ng', 'PROJECT_MEDIA', 'allow'],
+        ['shell', 'appops', 'set', 'net.christianbeier.droidvnc_ng', 'SYSTEM_ALERT_WINDOW', 'allow'],
+        ['shell', 'appops', 'set', 'app.apexmsp.agent', 'SYSTEM_ALERT_WINDOW', 'allow'],
+        ['shell', 'appops', 'set', 'com.hmdm.launcher', 'SYSTEM_ALERT_WINDOW', 'allow'],
+        ['shell', 'am', 'start-foreground-service', '-n', 'net.christianbeier.droidvnc_ng/.MainActivity']
+      ];
+
+      for (const cmdArgs of cmds) {
+        try {
+          const runRes = await execFileAsync(adbBin, [...targetArg, ...cmdArgs]);
+          if (runRes.stdout) outputLines.push(runRes.stdout.trim());
+        } catch (e: any) {
+          outputLines.push(`(adb shell: ${e.message.split('\n')[0]})`);
+        }
+      }
+
+      store.recordAudit({
+        orgId: req.user!.orgId,
+        userId: req.user!.id,
+        actorName: req.user!.name,
+        action: 'mdm.adb_allow_media',
+        targetType: 'device',
+        targetId: serial,
+        details: { output: outputLines.join('\n') },
+        ipAddress: req.ip
+      });
+
+      res.json({
+        ok: true,
+        output: outputLines.filter(Boolean).join('\n') || 'MediaProjection and Overlay permissions successfully granted to DroidVNC-NG and ApexAgent!'
+      });
+      return;
+    }
+
+    if (action === 'custom' && command) {
+      // Split command safely or pass to shell
+      const parts = String(command).trim().replace(/^adb\s+shell\s+/i, '').split(/\s+/);
+      const runRes = await execFileAsync(adbBin, [...targetArg, 'shell', ...parts]);
+      res.json({ ok: true, output: runRes.stdout || runRes.stderr || 'Command executed successfully.' });
+      return;
+    }
+
+    res.json({ ok: true, output: stdout });
+  } catch (err: any) {
+    res.status(200).json({
+      ok: false,
+      error: err.message,
+      note: 'Ensure tablet is connected with USB Debugging enabled, or execute allowmedia.bat from the tech workstation.'
+    });
+  }
+});
+
+// GET /api/v1/mdm/devices/:id/adb-status — check if device is seen by local ADB
+router.get('/devices/:id/adb-status', async (req: AuthenticatedRequest, res) => {
+  const serial = String(req.params.id);
+  const adbBin = getAdbBin();
+  try {
+    const listRes = await execFileAsync(adbBin, ['devices']);
+    const stdout = listRes.stdout || '';
+    const isConnected = stdout.split('\n').some(line => {
+      const parts = line.trim().split(/\s+/);
+      return parts.length >= 2 && parts[1] === 'device' && (parts[0] === serial || parts[0].includes('device'));
+    });
+    res.json({ ok: true, connected: isConnected, devicesOutput: stdout });
+  } catch (err: any) {
+    res.json({ ok: false, connected: false, error: err.message });
+  }
 });
 
 export default router;

@@ -535,6 +535,27 @@ class DataStore {
       updatedAt: new Date().toISOString()
     };
     this.stagedApps.set(googleChromeApp.id, googleChromeApp);
+
+    const androidRemoteApp: import('@openmsp/api-types').StagedApp = {
+      id: 'staged-android-remote',
+      name: 'Android Unattended Remote Control (DroidVNC + MediaProjection)',
+      description: 'DroidVNC-NG server pre-authorized with ProjectMedia for silent background screen viewing',
+      version: '1.0.3',
+      category: 'remote_access',
+      os: 'android',
+      enabled: true,
+      autoDeploy: true,
+      detection: {
+        type: 'app_name',
+        target: 'droidvnc'
+      },
+      installScript: {
+        android: `adb shell appops set net.christianbeier.droidvnc_ng PROJECT_MEDIA allow && adb shell appops set net.christianbeier.droidvnc_ng SYSTEM_ALERT_WINDOW allow && adb shell appops set app.apexmsp.agent SYSTEM_ALERT_WINDOW allow`
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    this.stagedApps.set(androidRemoteApp.id, androidRemoteApp);
   }
 
   public recordAudit(event: Omit<AuditEvent, 'id' | 'createdAt'>): AuditEvent {

@@ -214,6 +214,49 @@ echo "[+] Enrollment completed successfully."
     return;
   }
 
+  if (os === 'android') {
+    const batScript = `@echo off
+REM ============================================================
+REM  ApexMSP Android Remote Control - Unattended MediaProjection
+REM  Target: net.christianbeier.droidvnc_ng & app.apexmsp.agent
+REM ============================================================
+echo [ApexMSP] Waiting for connected Android tablet (USB debugging ON)...
+adb wait-for-device
+echo [ApexMSP] Tablet detected. Applying permissions...
+
+REM 1. DroidVNC-NG Silent Screen Capture (MediaProjection)
+adb shell appops set net.christianbeier.droidvnc_ng PROJECT_MEDIA allow
+
+REM 2. DroidVNC-NG Overlay & Unattended Running
+adb shell appops set net.christianbeier.droidvnc_ng SYSTEM_ALERT_WINDOW allow
+
+REM 3. ApexMSP Agent System Alert Window
+adb shell appops set app.apexmsp.agent SYSTEM_ALERT_WINDOW allow
+
+REM 4. Headwind Kiosk Launcher permissions (if enrolled as Kiosk)
+adb shell appops set com.hmdm.launcher SYSTEM_ALERT_WINDOW allow 2>nul
+adb shell appops set com.hmdm.launcher GET_USAGE_STATS allow 2>nul
+adb shell appops set com.hmdm.launcher WRITE_SETTINGS allow 2>nul
+adb shell pm grant com.hmdm.launcher android.permission.WRITE_SECURE_SETTINGS 2>nul
+
+echo.
+echo [ApexMSP] Restarting DroidVNC service to engage silent remote control...
+adb shell am force-stop net.christianbeier.droidvnc_ng 2>nul
+adb shell am start-foreground-service -n net.christianbeier.droidvnc_ng/.MainActivity 2>nul || adb shell monkey -p net.christianbeier.droidvnc_ng -c android.intent.category.LAUNCHER 1 2>nul
+
+echo.
+echo ============================================================
+echo [ApexMSP] SUCCESS: Unattended remote screen capture enabled!
+echo ============================================================
+echo You can now connect via ApexConnect Backstage or Remote Control.
+pause
+`;
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', 'attachment; filename="allowmedia.bat"');
+    res.send(batScript);
+    return;
+  }
+
   // Windows PowerShell script
   const script = `# OpenMSP Windows Agent Enrollment & Shark Fin Tray Script
 $ErrorActionPreference = 'SilentlyContinue'
@@ -464,9 +507,92 @@ router.get('/script', (req, res) => {
 // GET /api/v1/installers/quick/:ext (ps1, sh)
 router.get(['/quick/:ext', '/quick'], (req, res) => {
   const ext = String(req.params.ext || '').toLowerCase();
-  const os = (ext === 'ps1' || ext === 'bat' || ext === 'cmd' || ext === 'windows') ? 'windows' : 'macos';
+  const os = (ext === 'ps1' || ext === 'bat' || ext === 'cmd' || ext === 'windows') ? 'windows' : (ext === 'android' ? 'android' : 'macos');
   const token = req.query.token as string | undefined;
   renderScript(os, token, req, res);
+});
+
+// GET /api/v1/installers/android/allowmedia.bat
+router.get('/android/allowmedia.bat', (_req, res) => {
+  const batScript = `@echo off
+REM ============================================================
+REM  ApexMSP Android Remote Control - Unattended MediaProjection
+REM  Pre-grants MediaProjection and Overlay permissions
+REM ============================================================
+echo [ApexMSP] Waiting for connected Android tablet (USB debugging ON)...
+adb wait-for-device
+echo [ApexMSP] Tablet detected. Applying permissions...
+
+adb shell appops set net.christianbeier.droidvnc_ng PROJECT_MEDIA allow
+adb shell appops set net.christianbeier.droidvnc_ng SYSTEM_ALERT_WINDOW allow
+adb shell appops set app.apexmsp.agent SYSTEM_ALERT_WINDOW allow
+adb shell appops set com.hmdm.launcher SYSTEM_ALERT_WINDOW allow 2>nul
+adb shell appops set com.hmdm.launcher GET_USAGE_STATS allow 2>nul
+adb shell appops set com.hmdm.launcher WRITE_SETTINGS allow 2>nul
+adb shell pm grant com.hmdm.launcher android.permission.WRITE_SECURE_SETTINGS 2>nul
+
+echo.
+echo [ApexMSP] Restarting DroidVNC service...
+adb shell am force-stop net.christianbeier.droidvnc_ng 2>nul
+adb shell am start-foreground-service -n net.christianbeier.droidvnc_ng/.MainActivity 2>nul || adb shell monkey -p net.christianbeier.droidvnc_ng -c android.intent.category.LAUNCHER 1 2>nul
+
+echo.
+echo [ApexMSP] Done! Unattended remote screen capture enabled.
+pause
+`;
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Disposition', 'attachment; filename="allowmedia.bat"');
+  res.send(batScript);
+});
+
+// GET /api/v1/installers/android/allowmedia.sh
+router.get('/android/allowmedia.sh', (_req, res) => {
+  const shScript = `#!/bin/bash
+echo "[ApexMSP] Waiting for connected Android tablet (USB debugging ON)..."
+adb wait-for-device
+echo "[ApexMSP] Tablet detected. Applying permissions..."
+adb shell appops set net.christianbeier.droidvnc_ng PROJECT_MEDIA allow
+adb shell appops set net.christianbeier.droidvnc_ng SYSTEM_ALERT_WINDOW allow
+adb shell appops set app.apexmsp.agent SYSTEM_ALERT_WINDOW allow
+adb shell appops set com.hmdm.launcher SYSTEM_ALERT_WINDOW allow 2>/dev/null || true
+adb shell appops set com.hmdm.launcher GET_USAGE_STATS allow 2>/dev/null || true
+adb shell appops set com.hmdm.launcher WRITE_SETTINGS allow 2>/dev/null || true
+adb shell pm grant com.hmdm.launcher android.permission.WRITE_SECURE_SETTINGS 2>/dev/null || true
+echo "[ApexMSP] Restarting DroidVNC service..."
+adb shell am force-stop net.christianbeier.droidvnc_ng 2>/dev/null || true
+adb shell am start-foreground-service -n net.christianbeier.droidvnc_ng/.MainActivity 2>/dev/null || adb shell monkey -p net.christianbeier.droidvnc_ng -c android.intent.category.LAUNCHER 1 2>/dev/null || true
+echo "[ApexMSP] Done! Unattended remote screen capture enabled."
+`;
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Disposition', 'attachment; filename="allowmedia.sh"');
+  res.send(shScript);
+});
+
+// GET /api/v1/installers/android/provision.bat
+router.get('/android/provision.bat', (_req, res) => {
+  const provScript = `@echo off
+REM ============================================================
+REM  ApexMSP Tablet Provisioning Script (Headwind + Remote)
+REM ============================================================
+echo [ApexMSP] Waiting for connected Android tablet...
+adb wait-for-device
+echo [ApexMSP] Applying full Headwind Kiosk + Remote permissions...
+adb shell appops set com.hmdm.launcher SYSTEM_ALERT_WINDOW allow
+adb shell appops set com.hmdm.launcher GET_USAGE_STATS allow
+adb shell appops set com.hmdm.launcher WRITE_SETTINGS allow
+adb shell pm grant com.hmdm.launcher android.permission.WRITE_SECURE_SETTINGS
+adb shell appops set net.christianbeier.droidvnc_ng PROJECT_MEDIA allow
+adb shell appops set net.christianbeier.droidvnc_ng SYSTEM_ALERT_WINDOW allow
+adb shell appops set app.apexmsp.agent SYSTEM_ALERT_WINDOW allow
+echo.
+echo [ApexMSP] Rebooting tablet...
+adb reboot
+echo [ApexMSP] Complete!
+pause
+`;
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Disposition', 'attachment; filename="provision_apex_tablet.bat"');
+  res.send(provScript);
 });
 
 export default router;

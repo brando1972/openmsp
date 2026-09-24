@@ -4,3 +4,4 @@ export * from './BackstageProcesses';
 export * from './BackstageServices';
 export * from './BackstageFiles';
 export * from './BackstageEventViewer';
+export * from './BackstageAndroidAssistant';

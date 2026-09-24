@@ -171,16 +171,21 @@ router.get('/devices/:deviceId', (req, res) => {
     if (app.detection.type === 'service') {
       const target = app.detection.target.toLowerCase();
       isPresent = (device.services || []).some(
-        s => s.name.toLowerCase() === target || s.displayName.toLowerCase() === target
+        s => s.name.toLowerCase() === target || s.displayName.toLowerCase() === target ||
+             (target.includes('droidvnc') && (s.name.toLowerCase().includes('droidvnc') || s.displayName.toLowerCase().includes('droidvnc')))
       );
       if (!isPresent && app.id === 'staged-apexconnect-remote' && meshClient.configured()) {
         const meshNode = meshClient.resolveNode([device.hostname, device.name].filter(Boolean) as string[]);
         if (meshNode) isPresent = true;
       }
     } else if (app.detection.type === 'app_name') {
-      const target = app.detection.target.toLowerCase();
+      const target = app.detection.target.toLowerCase().replace(/[-_]/g, '');
       isPresent = (device.installedApps || []).some(
-        a => a.name.toLowerCase().includes(target)
+        a => a.name.toLowerCase().replace(/[-_]/g, '').includes(target) ||
+             (a.id && a.id.toLowerCase().includes(target))
+      ) || (device.services || []).some(
+        s => s.name.toLowerCase().replace(/[-_]/g, '').includes(target) ||
+             s.displayName.toLowerCase().replace(/[-_]/g, '').includes(target)
       );
     }
 
@@ -230,7 +235,7 @@ router.post('/:id/deploy/:deviceId', (req: AuthenticatedRequest, res) => {
   const deviceOs = (device.os || '').toLowerCase();
   const script = deviceOs === 'windows'
     ? app.installScript.windows
-    : (deviceOs === 'macos' ? app.installScript.macos : app.installScript.linux);
+    : (deviceOs === 'macos' ? app.installScript.macos : (deviceOs === 'android' ? app.installScript.android : app.installScript.linux));
 
   if (!script) {
     res.status(400).json({ error: `No install script configured for OS: ${device.os}` });
@@ -297,7 +302,7 @@ router.post('/:id/deploy-fleet', (req: AuthenticatedRequest, res) => {
 
     const script = deviceOs === 'windows'
       ? app.installScript.windows
-      : (deviceOs === 'macos' ? app.installScript.macos : app.installScript.linux);
+      : (deviceOs === 'macos' ? app.installScript.macos : (deviceOs === 'android' ? app.installScript.android : app.installScript.linux));
     if (!script) continue;
 
     const cmdId = `cmd-stage-${uuidv4().substring(0, 8)}`;
