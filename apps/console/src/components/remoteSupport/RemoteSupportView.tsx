@@ -360,19 +360,17 @@ export const RemoteSupportView: React.FC = () => {
     }
 
     if (tabletsRes.status === 'fulfilled' && tabletsRes.value.configured !== false) {
-      const realTablets = (tabletsRes.value.devices || []).filter(
-        (t: any) => t.id !== 'HNQ01Q1C' && t.name !== 'Richs Auburn'
-      );
+      const realTablets = tabletsRes.value.devices || [];
       if (realTablets.length > 0) {
         for (const t of realTablets) {
           const tabletClientId = (t.clientId && t.clientId !== 'c-raytreat' && t.clientId !== 'c-richs') ? t.clientId : (selectedClientId !== 'all' ? selectedClientId : 'c-brandon-ray');
           const tabletClientName = (t.clientName && t.clientId !== 'c-raytreat' && t.clientId !== 'c-richs') ? t.clientName : 'Brandon Ray';
-          const tabletName = (t.name === 'Raytreat Lenovo Kiosk' || t.id === 'apex-lenovo-01') ? 'Lenovo Tab TB373FU' : t.name;
+          const tabletName = (t.name === 'Raytreat Lenovo Kiosk' || t.id === 'apex-lenovo-01' || t.id === 'HNQ01Q1C') ? 'Lenovo Tab TB373FU' : t.name;
           next.push({
             key: 'tablet:' + t.id,
             kind: 'tablet',
             device: 'Robertsdale',
-            viewerUrl: t.viewerUrl || 'https://vnc.apexmsp.app/?device=05c7cea3b3e2b8ba',
+            viewerUrl: t.viewerUrl || 'https://vnc.apexmsp.app/?device=bdf535e319cf5501',
             name: tabletName,
             client: tabletClientName,
             clientId: tabletClientId,
@@ -386,7 +384,7 @@ export const RemoteSupportView: React.FC = () => {
           key: 'tablet:apex-lenovo-01',
           kind: 'tablet',
           device: 'Robertsdale',
-          viewerUrl: 'https://vnc.apexmsp.app/?device=05c7cea3b3e2b8ba',
+          viewerUrl: 'https://vnc.apexmsp.app/?device=bdf535e319cf5501',
           name: 'Lenovo Tab TB373FU',
           client: 'Brandon Ray',
           clientId: 'c-brandon-ray',

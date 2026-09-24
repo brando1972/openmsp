@@ -103,13 +103,12 @@ router.get('/devices', async (_req: AuthenticatedRequest, res) => {
   // Surface known tablets from local store
   const primaryClient = store.clients.get('c-brandon-ray') || Array.from(store.clients.values())[0];
   for (const [serial, c] of store.mdmClients) {
-    if (serial === 'HNQ01Q1C' || c.name === 'Richs Auburn') continue;
     if (liveSerials.has(serial)) continue;
-    const targetId = serial === 'apex-lenovo-01' ? '05c7cea3b3e2b8ba' : serial;
+    const targetId = serial === 'apex-lenovo-01' ? (liveSerials.values().next().value || 'bdf535e319cf5501') : serial;
     const persistentDev = getMdmDevice(serial);
     const clientId = (c.clientId && c.clientId !== 'c-raytreat' && c.clientId !== 'c-richs') ? c.clientId : (primaryClient?.id || 'c-brandon-ray');
     const clientName = (c.clientName && c.clientId !== 'c-raytreat' && c.clientId !== 'c-richs') ? c.clientName : (primaryClient?.name || 'Brandon Ray');
-    const cleanName = (c.name === 'Raytreat Lenovo Kiosk' || serial === 'apex-lenovo-01') ? 'Lenovo Tab TB373FU' : (c.name || serial);
+    const cleanName = (c.name === 'Raytreat Lenovo Kiosk' || serial === 'apex-lenovo-01' || serial === 'HNQ01Q1C') ? 'Lenovo Tab TB373FU' : (c.name || serial);
 
     devices.push({
       id: serial,
@@ -185,9 +184,12 @@ router.get(['/viewer-url', '/devices/:id/viewer-url'], async (req: Authenticated
         const devList = data.devices || [];
         // Direct match
         let dev = devList.find(d => d.device === requestedId);
-        // Alias match for Lenovo TB373FU tablet
-        if (!dev && (requestedId === 'apex-lenovo-01' || requestedId === 'HA1A99Z2')) {
-          dev = devList.find(d => d.device === '05c7cea3b3e2b8ba' || (d.model && d.model.includes('TB373FU')) || d.device === 'HA1A99Z2');
+        // Alias match for Lenovo tablet or fallback to first live device
+        if (!dev) {
+          dev = devList.find(d => d.device === 'bdf535e319cf5501' || (d.model && d.model.includes('TB373FU')) || d.device === requestedId);
+        }
+        if (!dev && devList.length > 0) {
+          dev = devList[0];
         }
         if (dev) {
           targetDevice = dev.device;
@@ -204,8 +206,8 @@ router.get(['/viewer-url', '/devices/:id/viewer-url'], async (req: Authenticated
     return;
   }
 
-  if (targetDevice === 'apex-lenovo-01' || targetDevice === 'HA1A99Z2') {
-    targetDevice = '05c7cea3b3e2b8ba';
+  if (targetDevice === 'apex-lenovo-01' || targetDevice === 'HA1A99Z2' || targetDevice === 'HNQ01Q1C') {
+    targetDevice = 'bdf535e319cf5501';
   }
 
   const url = getRelayViewerUrl(targetDevice);

@@ -39,7 +39,7 @@ import {
   CheckCircle2,
   Clock
 } from 'lucide-react';
-import { createEnrollmentToken, API_BASE, stagedApps as stagedAppsApi, type DeviceStagedAppStatus } from '../../services/api';
+import { createEnrollmentToken, API_BASE, stagedApps as stagedAppsApi, type DeviceStagedAppStatus, api } from '../../services/api';
 import { ManagedTabletsView } from './ManagedTabletsView';
 import { DeviceTerminal } from './DeviceTerminal';
 import { BackstageHub } from './backstage';
@@ -188,9 +188,14 @@ export const RMMView: React.FC = () => {
     }
   };
 
-  const handleConnectDevice = (device: ManagedDevice) => {
+  const handleConnectDevice = async (device: ManagedDevice) => {
     if (device.os === 'android') {
-      window.open('https://vnc.apexmsp.app/?device=05c7cea3b3e2b8ba', '_blank', 'noopener,noreferrer');
+      try {
+        const res = await api.mdm.getViewerUrl(device.id || 'bdf535e319cf5501');
+        window.open(res.url, '_blank', 'noopener,noreferrer');
+      } catch {
+        window.open('https://vnc.apexmsp.app/?device=bdf535e319cf5501', '_blank', 'noopener,noreferrer');
+      }
     } else {
       launchRustDeskSession(device.id);
     }
