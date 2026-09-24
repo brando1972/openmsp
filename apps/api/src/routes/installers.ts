@@ -165,7 +165,16 @@ PLISTEOF
   echo "[+] Background daemon registered and running."
 
   echo "[*] Configuring ApexConnect Remote Desktop..."
-  curl -fsSL "https://mesh.apexmsp.app/meshagents?script=1&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib" | bash 2>/dev/null || true
+  TMP_MESH="/tmp/meshagent_$$\"
+  mkdir -p \"\$TMP_MESH\"
+  if curl -fsSL "https://mesh.apexmsp.app/meshosxagent?id=29&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib" -o \"\$TMP_MESH/MeshAgent.zip\"; then
+    unzip -qo \"\$TMP_MESH/MeshAgent.zip\" -d \"\$TMP_MESH\" 2>/dev/null || true
+    if [ -f \"\$TMP_MESH/MeshAgent.pkg\" ]; then
+      installer -pkg \"\$TMP_MESH/MeshAgent.pkg\" -target / 2>/dev/null || true
+      echo "[+] ApexConnect Remote Desktop engine installed."
+    fi
+  fi
+  rm -rf \"\$TMP_MESH\"
 
   echo "[*] Installing ApexMSP Shark Fin menu bar app..."
   APP_DIR="/Applications/ApexMSP.app/Contents/MacOS"

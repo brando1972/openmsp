@@ -660,3 +660,48 @@ export interface DispatchTech {
   location?: TechLocation;
   openJobs: number;
 }
+
+// ---------------------------------------------------------------------------
+// Staged Applications & Software Deployment
+// ---------------------------------------------------------------------------
+export type StagedAppCategory = 'remote_access' | 'security' | 'utility' | 'productivity';
+export type StagedAppOs = 'windows' | 'macos' | 'linux' | 'all';
+
+export interface StagedApp {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  category: StagedAppCategory;
+  os: StagedAppOs;
+  enabled: boolean;
+  autoDeploy: boolean;
+  detection: {
+    type: 'service' | 'file' | 'app_name' | 'command';
+    target: string;
+  };
+  installScript: {
+    windows?: string;
+    macos?: string;
+    linux?: string;
+  };
+  uninstallScript?: {
+    windows?: string;
+    macos?: string;
+    linux?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeviceStagedAppStatus {
+  appId: string;
+  appName: string;
+  category: StagedAppCategory;
+  status: 'not_installed' | 'queued' | 'installing' | 'installed' | 'failed';
+  lastChecked: string;
+  lastInstalled?: string;
+  error?: string;
+  commandId?: string;
+}
+

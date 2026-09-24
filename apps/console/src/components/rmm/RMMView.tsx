@@ -34,9 +34,12 @@ import {
   Maximize2,
   Minimize2,
   Smartphone,
-  ExternalLink
+  ExternalLink,
+  Package,
+  CheckCircle2,
+  Clock
 } from 'lucide-react';
-import { createEnrollmentToken, API_BASE } from '../../services/api';
+import { createEnrollmentToken, API_BASE, stagedApps as stagedAppsApi, type DeviceStagedAppStatus } from '../../services/api';
 import { ManagedTabletsView } from './ManagedTabletsView';
 import { DeviceTerminal } from './DeviceTerminal';
 import { BackstageHub } from './backstage';
@@ -71,12 +74,41 @@ export const RMMView: React.FC = () => {
   const [filterOS, setFilterOS] = useState<DeviceOS | 'all'>('all');
   const [filterHealth, setFilterHealth] = useState<DeviceHealth | 'all'>('all');
 
-  // Interactive Drawer State
   const [activeTabDrawer, setActiveTabDrawer] = useState<'metrics' | 'backstage' | 'terminal' | 'software' | 'services' | 'logs'>('metrics');
   const [isDrawerExpanded, setIsDrawerExpanded] = useState(false);
   const [terminalScript, setTerminalScript] = useState('Get-Process | Sort-Object CPU -Descending | Select-Object -First 5');
   const [terminalOutput, setTerminalOutput] = useState<string | null>(null);
   const [isRunningScript, setIsRunningScript] = useState(false);
+
+  // Staged Applications State in Drawer
+  const [softwareSubTab, setSoftwareSubTab] = useState<'inventory' | 'staged'>('staged');
+  const [deviceStagedStatus, setDeviceStagedStatus] = useState<DeviceStagedAppStatus[]>([]);
+  const [loadingStaged, setLoadingStaged] = useState(false);
+  const [deployingAppId, setDeployingAppId] = useState<string | null>(null);
+
+  const loadDeviceStagedApps = async (deviceId: string) => {
+    setLoadingStaged(true);
+    try {
+      const statuses = await stagedAppsApi.getDeviceStatus(deviceId);
+      setDeviceStagedStatus(statuses);
+    } catch (e) {
+      console.error('Failed to load device staged apps:', e);
+    } finally {
+      setLoadingStaged(false);
+    }
+  };
+
+  const handleDeployStagedToDevice = async (appId: string, deviceId: string) => {
+    setDeployingAppId(appId);
+    try {
+      await stagedAppsApi.deployToDevice(appId, deviceId);
+      await loadDeviceStagedApps(deviceId);
+    } catch (e: any) {
+      alert(`Deploy failed: ${e.message}`);
+    } finally {
+      setDeployingAppId(null);
+    }
+  };
 
   // Agent Enrollment Modal
   const [showEnrollModal, setShowEnrollModal] = useState(false);
@@ -128,6 +160,12 @@ export const RMMView: React.FC = () => {
   });
 
   const selectedDevice = devices.find(d => d.id === selectedDeviceId);
+
+  React.useEffect(() => {
+    if (selectedDevice?.id && activeTabDrawer === 'software') {
+      loadDeviceStagedApps(selectedDevice.id);
+    }
+  }, [selectedDevice?.id, activeTabDrawer]);
 
   const handleRunScript = async () => {
     if (!selectedDevice || !terminalScript.trim()) return;
@@ -700,17 +738,136 @@ export const RMMView: React.FC = () => {
                 )}
 
                 {activeTabDrawer === 'software' && (
-                  <div className="space-y-2">
-                    <div className="font-bold text-slate-800 mb-2">Installed Application Inventory</div>
-                    {selectedDevice.installedApps.map(app => (
-                      <div key={app.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between">
-                        <div>
-                          <div className="font-bold text-slate-800">{app.name}</div>
-                          <div className="text-[10px] text-slate-500">{app.publisher}</div>
+                  <div className="space-y-3">
+                    {/* Sub-tab toggle */}
+                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
+                      <button
+                        onClick={() => setSoftwareSubTab('staged')}
+                        className={`flex-1 py-1.5 rounded-md flex items-center justify-center gap-1.5 transition ${
+                          softwareSubTab === 'staged'
+                            ? 'bg-white text-blue-600 shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Package className="w-3.5 h-3.5" />
+                        <span>Staged Packages ({deviceStagedStatus.length})</span>
+                      </button>
+                      <button
+                        onClick={() => setSoftwareSubTab('inventory')}
+                        className={`flex-1 py-1.5 rounded-md flex items-center justify-center gap-1.5 transition ${
+                          softwareSubTab === 'inventory'
+                            ? 'bg-white text-blue-600 shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <span>Installed Inventory ({selectedDevice.installedApps.length})</span>
+                      </button>
+                    </div>
+
+                    {softwareSubTab === 'staged' ? (
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center text-[11px] text-slate-500 font-semibold mb-1">
+                          <span>Required & Staged Applications</span>
+                          <button
+                            onClick={() => loadDeviceStagedApps(selectedDevice.id)}
+                            className="text-blue-600 hover:underline flex items-center gap-1"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${loadingStaged ? 'animate-spin' : ''}`} />
+                            <span>Refresh</span>
+                          </button>
                         </div>
-                        <div className="font-mono text-slate-600 text-[11px]">{app.version}</div>
+
+                        {deviceStagedStatus.length === 0 ? (
+                          <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-center text-slate-500 text-xs">
+                            No staged applications found for this operating system.
+                          </div>
+                        ) : (
+                          deviceStagedStatus.map((app) => (
+                            <div
+                              key={app.appId}
+                              className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2"
+                            >
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                    <Package className="w-3.5 h-3.5 text-blue-500" />
+                                    <span>{app.appName}</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 capitalize">{app.category.replace('_', ' ')}</div>
+                                </div>
+
+                                {/* Status Badge */}
+                                {app.status === 'installed' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Installed
+                                  </span>
+                                )}
+                                {app.status === 'queued' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-amber-600" /> Queued
+                                  </span>
+                                )}
+                                {app.status === 'installing' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1">
+                                    <RefreshCw className="w-3 h-3 text-blue-600 animate-spin" /> Installing
+                                  </span>
+                                )}
+                                {app.status === 'failed' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3 text-rose-600" /> Failed
+                                  </span>
+                                )}
+                                {app.status === 'not_installed' && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-600">
+                                    Not Installed
+                                  </span>
+                                )}
+                              </div>
+
+                              {app.error && (
+                                <div className="text-[10px] font-mono text-rose-600 bg-rose-50 p-1.5 rounded border border-rose-200 break-all">
+                                  {app.error}
+                                </div>
+                              )}
+
+                              <div className="flex justify-between items-center pt-1 border-t border-slate-200 text-[10px] text-slate-500">
+                                <span>Checked: {new Date(app.lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                <button
+                                  disabled={deployingAppId === app.appId}
+                                  onClick={() => handleDeployStagedToDevice(app.appId, selectedDevice.id)}
+                                  className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] transition disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                                >
+                                  {deployingAppId === app.appId ? (
+                                    <>
+                                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                      <span>Dispatching...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="w-2.5 h-2.5" />
+                                      <span>{app.status === 'installed' ? 'Reinstall' : 'Deploy Now'}</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
-                    ))}
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="font-bold text-slate-800 mb-2">Installed Application Inventory</div>
+                        {selectedDevice.installedApps.map(app => (
+                          <div key={app.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between">
+                            <div>
+                              <div className="font-bold text-slate-800">{app.name}</div>
+                              <div className="text-[10px] text-slate-500">{app.publisher}</div>
+                            </div>
+                            <div className="font-mono text-slate-600 text-[11px]">{app.version}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 

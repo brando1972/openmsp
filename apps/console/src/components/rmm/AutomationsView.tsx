@@ -12,8 +12,10 @@ import {
   Terminal,
   X,
   Laptop,
-  Server
+  Server,
+  Package
 } from 'lucide-react';
+import { StagedAppsView } from './StagedAppsView';
 
 export const AutomationsView: React.FC = () => {
   const {
@@ -22,8 +24,19 @@ export const AutomationsView: React.FC = () => {
     toggleAutomationRule,
     addAutomationRule,
     triggerAutomationRuleDryRun,
-    devices
+    devices,
+    activeSubRailView
   } = useApp();
+
+  const [activeTab, setActiveTab] = useState<'rules' | 'staged'>(
+    activeSubRailView === 'staged-apps' ? 'staged' : 'rules'
+  );
+
+  React.useEffect(() => {
+    if (activeSubRailView === 'staged-apps') {
+      setActiveTab('staged');
+    }
+  }, [activeSubRailView]);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [ruleName, setRuleName] = useState('');
@@ -58,7 +71,39 @@ export const AutomationsView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto custom-scrollbar bg-[#f4f6f8] text-[#1a1a24] space-y-6">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#f4f6f8]">
+      {/* View Switcher Bar */}
+      <div className="bg-white border-b border-slate-200 px-8 py-3 flex items-center justify-between shrink-0 shadow-2xs">
+        <div className="flex items-center gap-2 text-xs font-bold">
+          <button
+            onClick={() => setActiveTab('staged')}
+            className={`px-3.5 py-2 rounded-lg flex items-center gap-2 transition cursor-pointer ${
+              activeTab === 'staged'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Package className="w-4 h-4" />
+            <span>Staged Applications & Software Packages</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('rules')}
+            className={`px-3.5 py-2 rounded-lg flex items-center gap-2 transition cursor-pointer ${
+              activeTab === 'rules'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Zap className="w-4 h-4" />
+            <span>Self-Healing Automations ({automations.length})</span>
+          </button>
+        </div>
+      </div>
+
+      {activeTab === 'staged' ? (
+        <StagedAppsView />
+      ) : (
+        <div className="flex-1 p-8 overflow-y-auto custom-scrollbar text-[#1a1a24] space-y-6">
       {/* Header */}
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -283,6 +328,8 @@ export const AutomationsView: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
         </div>
       )}
     </div>

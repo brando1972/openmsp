@@ -86,6 +86,10 @@ class DataStore {
   public techShifts: Map<string, import('@openmsp/api-types').ShiftState> = new Map();       // key = userId
   private jobSeq = 1000;
 
+  // ---- staged applications (modular software deployment & remote engines) ----
+  public stagedApps: Map<string, import('@openmsp/api-types').StagedApp> = new Map();
+  public deviceStagedDeployments: Map<string, import('@openmsp/api-types').DeviceStagedAppStatus> = new Map(); // key = `${deviceId}:${appId}`
+
   public nextJobNumber(): string {
     // Keep the counter ahead of any restored jobs.
     for (const j of this.dispatchJobs.values()) {
@@ -102,7 +106,8 @@ class DataStore {
   private readonly mapNames = [
     'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
     'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients', 'netScan',
-    'dispatchJobs', 'jobMessages', 'techLocations', 'techShifts'
+    'dispatchJobs', 'jobMessages', 'techLocations', 'techShifts',
+    'stagedApps', 'deviceStagedDeployments'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -112,6 +117,9 @@ class DataStore {
       this.initialized = true;
     } else {
       this.seedDefaults();
+    }
+    if (this.stagedApps.size === 0) {
+      this.seedDefaultStagedApps();
     }
     this.startPersistence();
   }
@@ -479,6 +487,54 @@ class DataStore {
       details: { name: defaultOrg.name },
       createdAt: new Date().toISOString()
     });
+
+    this.seedDefaultStagedApps();
+  }
+
+  public seedDefaultStagedApps() {
+    const apexConnectApp: import('@openmsp/api-types').StagedApp = {
+      id: 'staged-apexconnect-remote',
+      name: 'ApexConnect Remote Engine',
+      description: 'Dual-channel remote desktop & background management shell (MeshAgent)',
+      version: '2.0.4',
+      category: 'remote_access',
+      os: 'all',
+      enabled: true,
+      autoDeploy: true,
+      detection: {
+        type: 'service',
+        target: 'Mesh Agent'
+      },
+      installScript: {
+        windows: `$m = "$env:ProgramData\\ApexMSP\\meshagent64.exe"; New-Item -ItemType Directory -Force -Path "$env:ProgramData\\ApexMSP" | Out-Null; if (!(Get-Service "Mesh Agent" -ErrorAction SilentlyContinue)) { Invoke-WebRequest -Uri "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0" -OutFile $m -UseBasicParsing; Start-Process -FilePath $m -ArgumentList "-install" -WindowStyle Hidden -Wait; Start-Sleep -Seconds 2; Start-Service "Mesh Agent" -ErrorAction SilentlyContinue }`,
+        macos: `if [ ! -d /usr/local/mesh_services/meshagent ]; then TMP_DIR="/tmp/meshagent_$$\"; mkdir -p "$TMP_DIR"; if curl -fsSL "https://mesh.apexmsp.app/meshosxagent?id=29&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib" -o "$TMP_DIR/MeshAgent.zip"; then unzip -qo "$TMP_DIR/MeshAgent.zip" -d "$TMP_DIR" 2>/dev/null && [ -f "$TMP_DIR/MeshAgent.pkg" ] && installer -pkg "$TMP_DIR/MeshAgent.pkg" -target / 2>/dev/null; fi; rm -rf "$TMP_DIR"; fi`
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    this.stagedApps.set(apexConnectApp.id, apexConnectApp);
+
+    const googleChromeApp: import('@openmsp/api-types').StagedApp = {
+      id: 'staged-google-chrome',
+      name: 'Google Chrome Enterprise',
+      description: 'Enterprise secure web browser deployment',
+      version: 'latest',
+      category: 'productivity',
+      os: 'all',
+      enabled: false,
+      autoDeploy: false,
+      detection: {
+        type: 'app_name',
+        target: 'Google Chrome'
+      },
+      installScript: {
+        windows: `winget install --id Google.Chrome -e --silent --accept-source-agreements --accept-package-agreements`,
+        macos: `curl -fsSL "https://dl.google.com/chrome/mac/stable/accept_tos%3Dhttps%253A%252F%252Fwww.google.com%252Fintl%252Fen_us%252Fchrome%252Fterms%252F%26_and_accept_tos%3Dhttps%253A%252F%252Fpolicies.google.com%252Fterms/googlechrome.pkg" -o /tmp/chrome.pkg && installer -pkg /tmp/chrome.pkg -target / && rm -f /tmp/chrome.pkg`
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    this.stagedApps.set(googleChromeApp.id, googleChromeApp);
   }
 
   public recordAudit(event: Omit<AuditEvent, 'id' | 'createdAt'>): AuditEvent {

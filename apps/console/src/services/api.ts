@@ -27,8 +27,12 @@ import type {
   AuthLoginResponse,
   EnrollmentToken,
   WSMessageType,
-  WSEvent
+  WSEvent,
+  StagedApp,
+  DeviceStagedAppStatus
 } from '@openmsp/api-types';
+
+export type { StagedApp, DeviceStagedAppStatus };
 
 // API & Storage configuration
 const getApiBase = (): string => {
@@ -1114,6 +1118,25 @@ export const dispatch = {
   listTechs: async (): Promise<{ techs: DispatchTech[] }> => request('/dispatch/techs')
 };
 
+// Staged Applications & Software Deployment
+export const stagedApps = {
+  list: async (): Promise<StagedApp[]> => request('/staged-apps'),
+  create: async (app: Partial<StagedApp>): Promise<StagedApp> =>
+    request('/staged-apps', { method: 'POST', body: JSON.stringify(app) }),
+  update: async (id: string, app: Partial<StagedApp>): Promise<StagedApp> =>
+    request(`/staged-apps/${id}`, { method: 'PATCH', body: JSON.stringify(app) }),
+  delete: async (id: string): Promise<{ ok: boolean; deleted: string }> =>
+    request(`/staged-apps/${id}`, { method: 'DELETE' }),
+  getDeviceStatus: async (deviceId: string): Promise<DeviceStagedAppStatus[]> =>
+    request(`/staged-apps/devices/${deviceId}`),
+  deployToDevice: async (appId: string, deviceId: string): Promise<{ ok: boolean; commandId: string; status: string }> =>
+    request(`/staged-apps/${appId}/deploy/${deviceId}`, { method: 'POST' }),
+  deployFleet: async (appId: string): Promise<{ ok: boolean; queuedCount: number; targets: string[] }> =>
+    request(`/staged-apps/${appId}/deploy-fleet`, { method: 'POST' }),
+  getFleetStatus: async (): Promise<any[]> =>
+    request('/staged-apps/fleet-status')
+};
+
 // Unified export object
 export const api = {
   auth,
@@ -1131,7 +1154,9 @@ export const api = {
   mdm,
   mesh,
   net,
-  ws
+  ws,
+  stagedApps
 };
 
 export default api;
+

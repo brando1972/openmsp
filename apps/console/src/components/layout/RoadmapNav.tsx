@@ -97,7 +97,8 @@ const GROUPS: Group[] = [
       { key: 'assets', label: 'Devices', Icon: Monitor, tint: '#d946ef', built: true, tab: 'rmm', sub: 'all-assets', children: ASSET_CHILDREN },
       { key: 'alerts', label: 'Alerts', Icon: Bell, tint: '#ef4444', built: true, tab: 'rmm', sub: 'critical' },
       { key: 'patches', label: 'Patches', Icon: ShieldCheck, tint: '#22c55e', built: true, tab: 'patching' },
-      { key: 'scripts', label: 'Scripts & Automations', Icon: Code2, tint: '#10b981', built: true, tab: 'automations' },
+      { key: 'staged-apps', label: 'Staged Applications', Icon: Package, tint: '#3b82f6', built: true, tab: 'automations', sub: 'staged-apps', badge: 'Active' },
+      { key: 'scripts', label: 'Scripts & Automations', Icon: Code2, tint: '#10b981', built: true, tab: 'automations', sub: 'rules' },
       { key: 'netmon', label: 'Network Monitoring', Icon: Activity, tint: '#3b82f6', built: true, tab: 'network-map' },
       { key: 'remote', label: 'Remote Support', Icon: Headphones, tint: '#f59e0b', built: true, tab: 'remote-support' },
       { key: 'vault', label: 'Vault', Icon: KeyRound, tint: '#14b8a6', built: true, tab: 'vault' }

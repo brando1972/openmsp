@@ -40,6 +40,7 @@ packages/**/dist/
 
 # Agent binaries & configs
 bin/
+builds/
 apps/**/bin/
 apps/agent/*.json
 apps/agent/openmsp-agent

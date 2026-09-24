@@ -13,7 +13,8 @@ import type {
   AgentHeartbeatResponse,
   ManagedDevice,
   DeviceCommand,
-  PSATicket
+  PSATicket,
+  DeviceStagedAppStatus
 } from '@openmsp/api-types';
 
 const router = Router();
@@ -302,32 +303,84 @@ router.post('/heartbeat', (req, res) => {
     }
   }
 
-  // Auto-provision Remote Support engine (MeshAgent) silently if device is not yet linked
-  if (meshClient.configured()) {
-    const meshNode = meshClient.resolveNode([device.hostname, device.name].filter(Boolean) as string[]);
-    if (!meshNode) {
-      const hasRecentMeshCmd = Array.from(store.deviceCommands.values()).some(
-        (c) => c.deviceId === device.id &&
-               (c.payload as any)?.purpose === 'provision-mesh-agent' &&
-               (c.status === 'pending' || c.status === 'dispatched' || (c.completedAt && (Date.now() - new Date(c.completedAt).getTime() < 300000)))
+  // Staged Applications Reconciliation Hook: Check required apps and auto-provision missing ones
+  const deviceOs = (device.os || '').toLowerCase();
+  for (const stagedApp of store.stagedApps.values()) {
+    if (!stagedApp.enabled || !stagedApp.autoDeploy) continue;
+    if (stagedApp.os !== 'all' && stagedApp.os !== deviceOs) continue;
+
+    let isPresent = false;
+    if (stagedApp.detection.type === 'service') {
+      const targetService = stagedApp.detection.target.toLowerCase();
+      isPresent = (device.services || []).some(
+        s => s.name.toLowerCase() === targetService || s.displayName.toLowerCase() === targetService
       );
-      if (!hasRecentMeshCmd) {
-        const isWin = /windows/i.test(device.os);
-        const meshCmd: DeviceCommand = {
-          id: `cmd-mesh-${uuidv4().substring(0, 8)}`,
+      if (!isPresent && stagedApp.id === 'staged-apexconnect-remote' && meshClient.configured()) {
+        const meshNode = meshClient.resolveNode([device.hostname, device.name].filter(Boolean) as string[]);
+        if (meshNode) isPresent = true;
+      }
+    } else if (stagedApp.detection.type === 'app_name') {
+      const targetApp = stagedApp.detection.target.toLowerCase();
+      isPresent = (device.installedApps || []).some(
+        a => a.name.toLowerCase().includes(targetApp)
+      );
+    }
+
+    const deployKey = `${device.id}:${stagedApp.id}`;
+    const existingDeployment = store.deviceStagedDeployments.get(deployKey);
+
+    if (isPresent) {
+      if (!existingDeployment || existingDeployment.status !== 'installed') {
+        store.deviceStagedDeployments.set(deployKey, {
+          appId: stagedApp.id,
+          appName: stagedApp.name,
+          category: stagedApp.category,
+          status: 'installed',
+          lastChecked: new Date().toISOString(),
+          lastInstalled: existingDeployment?.lastInstalled || new Date().toISOString()
+        });
+      }
+      continue;
+    }
+
+    // App is missing; check if an install command was already queued or recently dispatched
+    const hasRecentCmd = Array.from(store.deviceCommands.values()).some(
+      (c) => c.deviceId === device.id &&
+             (c.payload as any)?.stagedAppId === stagedApp.id &&
+             (c.status === 'pending' || c.status === 'dispatched' || (c.completedAt && (Date.now() - new Date(c.completedAt).getTime() < 300000)))
+    );
+
+    if (!hasRecentCmd) {
+      const script = deviceOs === 'windows'
+        ? stagedApp.installScript.windows
+        : (deviceOs === 'macos' ? stagedApp.installScript.macos : stagedApp.installScript.linux);
+
+      if (script) {
+        const cmdId = `cmd-stage-${uuidv4().substring(0, 8)}`;
+        const stageCmd: DeviceCommand = {
+          id: cmdId,
           deviceId: device.id,
           orgId,
           commandType: 'run_script',
           payload: {
-            purpose: 'provision-mesh-agent',
-            script: isWin
-              ? `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$m = '$env:ProgramData\\ApexMSP\\meshagent64.exe'; New-Item -ItemType Directory -Force -Path '$env:ProgramData\\ApexMSP' | Out-Null; if (!(Get-Service 'Mesh Agent' -ErrorAction SilentlyContinue)) { Invoke-WebRequest -Uri 'https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0' -OutFile $m -UseBasicParsing; Start-Process -FilePath $m -ArgumentList '-install' -WindowStyle Hidden -Wait; Start-Sleep -Seconds 2; Start-Service 'Mesh Agent' -ErrorAction SilentlyContinue }"`
-              : `if [ ! -f /usr/local/mesh/meshagent ] && [ ! -d /usr/local/mesh ]; then curl -fsSL "https://mesh.apexmsp.app/meshagents?script=1&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib" | bash 2>/dev/null || true; fi`
+            purpose: 'deploy-staged-app',
+            stagedAppId: stagedApp.id,
+            stagedAppName: stagedApp.name,
+            script
           },
           status: 'pending',
           createdAt: new Date().toISOString()
         };
-        store.deviceCommands.set(meshCmd.id, meshCmd);
+        store.deviceCommands.set(stageCmd.id, stageCmd);
+
+        store.deviceStagedDeployments.set(deployKey, {
+          appId: stagedApp.id,
+          appName: stagedApp.name,
+          category: stagedApp.category,
+          status: 'queued',
+          lastChecked: new Date().toISOString(),
+          commandId: cmdId
+        });
       }
     }
   }
@@ -390,6 +443,23 @@ router.post('/command-result', (req, res) => {
   command.error = error;
   command.completedAt = new Date().toISOString();
   store.deviceCommands.set(command.id, command);
+
+  // Update staged deployment record if this command was a staged app deployment
+  if (command.payload?.purpose === 'deploy-staged-app' && command.payload?.stagedAppId) {
+    const deployKey = `${command.deviceId}:${command.payload.stagedAppId}`;
+    const dep: DeviceStagedAppStatus = store.deviceStagedDeployments.get(deployKey) || {
+      appId: command.payload.stagedAppId,
+      appName: command.payload.stagedAppName || 'Staged App',
+      category: 'utility' as any,
+      status: 'installing',
+      lastChecked: new Date().toISOString()
+    };
+    dep.status = status === 'completed' ? 'installed' : 'failed';
+    dep.lastChecked = new Date().toISOString();
+    if (status === 'completed') dep.lastInstalled = new Date().toISOString();
+    if (error) dep.error = error;
+    store.deviceStagedDeployments.set(deployKey, dep);
+  }
 
   // Broadcast command update
   wsManager.broadcastToOrg(command.orgId, 'command.updated', {
