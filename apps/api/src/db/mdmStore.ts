@@ -206,3 +206,41 @@ export function recordTabletHeartbeat(body: any, ip?: string): { status: string;
     command: cmd
   };
 }
+
+export interface QueuedTabletCommand {
+  id: string;
+  type: string;
+  payload?: any;
+  createdAt: number;
+}
+
+const pendingCommands = new Map<string, QueuedTabletCommand[]>();
+
+export function queueTabletCommand(serial: string, type: string, payload?: any): QueuedTabletCommand {
+  const list = pendingCommands.get(serial) || [];
+  const cmd: QueuedTabletCommand = {
+    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    type,
+    payload,
+    createdAt: Date.now()
+  };
+  list.push(cmd);
+  pendingCommands.set(serial, list);
+  return cmd;
+}
+
+export function drainTabletCommands(serial: string): QueuedTabletCommand[] {
+  const specific = pendingCommands.get(serial) || [];
+  pendingCommands.delete(serial);
+  const wildcard = pendingCommands.get('*') || [];
+  pendingCommands.delete('*');
+  const seen = new Set<string>();
+  const combined: QueuedTabletCommand[] = [];
+  for (const c of [...specific, ...wildcard]) {
+    if (!seen.has(c.id)) {
+      seen.add(c.id);
+      combined.push(c);
+    }
+  }
+  return combined;
+}

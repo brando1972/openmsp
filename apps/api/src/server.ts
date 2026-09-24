@@ -50,7 +50,7 @@ app.use((req, res, next) => {
 import fs from 'fs';
 import path from 'path';
 
-import { getTargetTabletUrl, setTargetTabletUrl, recordTabletHeartbeat, getMdmDevice, updateMdmDevice } from './db/mdmStore.js';
+import { getTargetTabletUrl, setTargetTabletUrl, recordTabletHeartbeat, getMdmDevice, updateMdmDevice, queueTabletCommand, drainTabletCommands } from './db/mdmStore.js';
 
 // Health check
 app.get('/health', (req, res) => {
@@ -67,8 +67,69 @@ app.post(['/api/v1/mdm/devices/:id/push-url', '/api/v1/mdm/push-url'], (req, res
   setTargetTabletUrl(fullUrl);
   const deviceId = String(req.params?.id || req.body?.deviceId || 'apex-lenovo-01');
   updateMdmDevice(deviceId, { targetUrl: fullUrl });
-  console.log(`[ApexMDM] Target URL set to: ${fullUrl}`);
+  queueTabletCommand(deviceId, 'setUrl', { url: fullUrl });
+  queueTabletCommand('*', 'setUrl', { url: fullUrl });
+  console.log(`[ApexMDM] Target URL set to: ${fullUrl} (command queued for device)`);
   res.json({ ok: true, targetUrl: fullUrl });
+});
+
+// POST /api/v1/device/register — Native ApexMDM registration from CheckinManager.kt
+app.post(['/api/v1/device/register', '/device/register'], (req, res) => {
+  const { serial, enrollToken, model, name } = req.body || {};
+  const s = String(serial || 'apex-lenovo-01');
+  const targetUrl = getTargetTabletUrl() || 'https://www.google.com';
+  console.log(`[ApexMDM] Device registered: serial=${s} model=${model || ''}`);
+  updateMdmDevice(s, {
+    model: model || 'Lenovo Tablet',
+    name: name || 'Lenovo Tablet',
+    online: true,
+    lastUpdate: Date.now(),
+    targetUrl
+  });
+  res.json({
+    ok: true,
+    profileId: 1,
+    policy: {
+      kiosk: true,
+      kioskUrl: targetUrl,
+      adminPin: '1024',
+      screenAlwaysOn: true,
+      allowedApps: [],
+      kioskPackage: 'app.apexmsp.kiosk'
+    }
+  });
+});
+
+// POST /api/v1/device/checkin — Native ApexMDM 60-second periodic check-in from CheckinManager.kt
+app.post(['/api/v1/device/checkin', '/device/checkin'], (req, res) => {
+  const { serial, model, name, battery } = req.body || {};
+  const s = String(serial || 'apex-lenovo-01');
+  const targetUrl = getTargetTabletUrl() || 'https://www.google.com';
+  updateMdmDevice(s, {
+    model: model || undefined,
+    name: name || undefined,
+    battery: typeof battery === 'number' ? battery : undefined,
+    online: true,
+    lastUpdate: Date.now(),
+    targetUrl
+  });
+  const commands = drainTabletCommands(s);
+  if (commands.length > 0) {
+    console.log(`[ApexMDM] Delivering ${commands.length} queued command(s) to tablet ${s}:`, commands);
+  }
+  res.json({
+    ok: true,
+    serverTime: Date.now(),
+    policy: {
+      kiosk: true,
+      kioskUrl: targetUrl,
+      adminPin: '1024',
+      screenAlwaysOn: true,
+      allowedApps: [],
+      kioskPackage: 'app.apexmsp.kiosk'
+    },
+    commands
+  });
 });
 
 // POST /api/v1/mdm/heartbeat — unauthenticated check-in from enrolled tablet
