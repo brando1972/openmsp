@@ -14,8 +14,7 @@ import {
   Play
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
-import { useApp } from '../../../data/AppContext';
-import { runRemoteChecked, runRemotePsList } from './remoteExec';
+import { runDeviceScript, runRemoteChecked, runRemotePsList } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
 
 export interface ProcessItem {
@@ -36,7 +35,8 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
   device,
   onOpenTerminalWithCommand
 }) => {
-  const { runRemoteScriptOnDevice } = useApp();
+  // Backstage waits for a full agent check-in; AppContext's runner gives up at 25s.
+  const runRemoteScriptOnDevice = runDeviceScript;
   const [processes, setProcesses] = useState<ProcessItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');

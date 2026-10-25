@@ -12,8 +12,7 @@ import {
   Filter
 } from 'lucide-react';
 import { ManagedDevice, DeviceService } from '../../../types';
-import { useApp } from '../../../data/AppContext';
-import { runRemotePsJson, runRemotePsList, psQuote } from './remoteExec';
+import { runDeviceScript, runRemotePsJson, runRemotePsList, psQuote } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
 
 interface ServiceRow {
@@ -42,7 +41,8 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
   device,
   onOpenTerminalWithCommand
 }) => {
-  const { runRemoteScriptOnDevice } = useApp();
+  // Backstage waits for a full agent check-in; AppContext's runner gives up at 25s.
+  const runRemoteScriptOnDevice = runDeviceScript;
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'stopped'>('all');
   const [activeAction, setActiveAction] = useState<string | null>(null);

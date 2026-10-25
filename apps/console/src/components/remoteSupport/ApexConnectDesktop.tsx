@@ -73,6 +73,10 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
   const reconnectTriesRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pastingRef = useRef(false);
+  // Browsers only raise 'paste' when an editable element has focus, so a hidden
+  // textarea holds focus while the session is live and receives ⌘V.
+  const pasteSinkRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastPasteAtRef = useRef(0);
 
   // ---- outgoing helpers ----
   const send = useCallback((bytes: number[]) => {
@@ -379,27 +383,37 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
     }
   }, [sendKey, sendUnicode]);
 
-  const pasteFromButton = useCallback(async () => {
+  const pasteFromClipboardApi = useCallback(async (fromShortcut: boolean) => {
     try {
       const text = await navigator.clipboard.readText();
       if (!text) setNotice('Your clipboard has no text to paste.');
       else await typeText(text);
     } catch {
-      setNotice('The browser blocked clipboard access. Click the desktop and press ⌘V instead.');
+      setNotice(fromShortcut
+        ? 'The browser blocked clipboard access. Allow clipboard access for this site, or use the Paste button.'
+        : 'The browser blocked clipboard access. Allow clipboard access for this site in the address bar, then try again.');
     }
   }, [typeText]);
 
+  const pasteFromButton = useCallback(() => pasteFromClipboardApi(false), [pasteFromClipboardApi]);
+
+  const focusPasteSink = useCallback(() => {
+    pasteSinkRef.current?.focus({ preventScroll: true });
+  }, []);
+
   useEffect(() => {
     if (phase !== 'live') return;
+    focusPasteSink();
     const onPaste = (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData('text/plain');
       if (text == null) return;
       e.preventDefault();
+      lastPasteAtRef.current = Date.now();
       typeText(text);
     };
     window.addEventListener('paste', onPaste, true);
     return () => window.removeEventListener('paste', onPaste, true);
-  }, [phase, typeText]);
+  }, [phase, typeText, focusPasteSink]);
 
   useEffect(() => {
     if (!notice || notice.startsWith('Pasting')) return;
@@ -410,10 +424,20 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
   useEffect(() => {
     if (phase !== 'live') return;
     const onKeyDown = (e: KeyboardEvent) => {
-      // ⌘V falls through to the browser so it fires a paste event (handled above).
-      if (e.metaKey && e.key.toLowerCase() === 'v') return;
+      // ⌘ shortcuts are never forwarded (⌘ would arrive as the Windows key).
+      // ⌘V is left to the browser so the focused paste sink gets a 'paste'
+      // event; if none arrives (some browsers), read the clipboard directly.
+      if (e.metaKey || META_KEYCODES.has(e.keyCode)) {
+        if (e.key.toLowerCase() === 'v') {
+          focusPasteSink();
+          const pressedAt = Date.now();
+          setTimeout(() => {
+            if (lastPasteAtRef.current < pressedAt) pasteFromClipboardApi(true);
+          }, 150);
+        }
+        return;
+      }
       e.preventDefault();
-      if (META_KEYCODES.has(e.keyCode) || e.metaKey) return;
       if (isPrintable(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         sendUnicode(KEY_DOWN, e.key.charCodeAt(0));
       } else if (e.keyCode) {
@@ -421,8 +445,8 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      e.preventDefault();
       if (META_KEYCODES.has(e.keyCode) || e.metaKey) return;
+      e.preventDefault();
       if (isPrintable(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         sendUnicode(KEY_UP, e.key.charCodeAt(0));
       } else if (e.keyCode) {
@@ -435,7 +459,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [phase, sendKey, sendUnicode]);
+  }, [phase, sendKey, sendUnicode, focusPasteSink, pasteFromClipboardApi]);
 
   const goFullscreen = () => {
     const el = containerRef.current;
@@ -505,12 +529,19 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
 
         {/* Desktop surface */}
         <div className="flex-1 min-h-0 bg-black relative flex items-center justify-center overflow-hidden">
+          <textarea
+            ref={pasteSinkRef}
+            aria-hidden="true"
+            tabIndex={-1}
+            defaultValue=""
+            className="absolute w-px h-px opacity-0 pointer-events-none -left-[9999px] top-0"
+          />
           <canvas
             ref={canvasRef}
             className={`max-w-full max-h-full ${phase === 'live' ? '' : phase === 'reconnecting' ? 'opacity-30' : 'opacity-0'}`}
             style={{ imageRendering: 'auto', objectFit: 'contain', cursor: phase === 'live' ? cursorStyle : 'default' }}
             onMouseMove={(e) => phase === 'live' && sendMouse(e.clientX, e.clientY, 0x00)}
-            onMouseDown={(e) => { if (phase === 'live') { e.preventDefault(); sendMouse(e.clientX, e.clientY, btnDown(e.button)); } }}
+            onMouseDown={(e) => { if (phase === 'live') { e.preventDefault(); focusPasteSink(); sendMouse(e.clientX, e.clientY, btnDown(e.button)); } }}
             onMouseUp={(e) => { if (phase === 'live') { e.preventDefault(); sendMouse(e.clientX, e.clientY, btnUp(e.button)); } }}
             onWheel={(e) => { if (phase === 'live') { e.preventDefault(); sendWheel(e.clientX, e.clientY, e.deltaY); } }}
             onDoubleClick={(e) => { if (phase === 'live') { e.preventDefault(); sendMouse(e.clientX, e.clientY, 0x88); } }}

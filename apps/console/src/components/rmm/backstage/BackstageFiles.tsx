@@ -19,8 +19,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
-import { useApp } from '../../../data/AppContext';
-import { runRemotePsJson, runRemotePsList, psQuote } from './remoteExec';
+import { runDeviceScript, runRemotePsJson, runRemotePsList, psQuote } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
 import { MeshFileChannel, TransferCancelled } from './meshFiles';
 import { buildZip, ZipEntry } from './zipStore';
@@ -77,7 +76,8 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
   device,
   onOpenTerminalWithCommand
 }) => {
-  const { runRemoteScriptOnDevice } = useApp();
+  // Backstage waits for a full agent check-in; AppContext's runner gives up at 25s.
+  const runRemoteScriptOnDevice = runDeviceScript;
   const isWindows = device.os === 'windows';
   const initialRoot = isWindows ? 'C:\\' : '/';
 

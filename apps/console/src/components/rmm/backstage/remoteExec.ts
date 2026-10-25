@@ -3,8 +3,41 @@
 // bracketed text. These helpers turn that text back into real errors so a tab
 // can show an error state instead of rendering something it made up.
 
+import { devices } from '../../../services/api';
+
 type Shell = 'powershell' | 'cmd' | 'bash';
 export type RunRemote = (deviceId: string, script: string, shell?: Shell) => Promise<string>;
+
+// The agent only picks up commands on its heartbeat (30s by default), so a
+// request can sit queued for a full cycle before it even starts running.
+const DEVICE_WAIT_MS = 90_000;
+const POLL_MS = 1_500;
+
+/**
+ * Same contract as AppContext's runRemoteScriptOnDevice (bracketed failure
+ * text, never throws), but waits long enough to span an agent check-in.
+ */
+export const runDeviceScript: RunRemote = async (deviceId, script, shell = 'powershell') => {
+  let commandId: string;
+  try {
+    const cmd = await devices.sendCommand(deviceId, { commandType: 'run_script', payload: { script, shell } });
+    commandId = cmd.id;
+  } catch (e) {
+    return `[ApexMSP Agent Error]\n${e instanceof Error ? e.message : String(e)}`;
+  }
+  const started = Date.now();
+  while (Date.now() - started < DEVICE_WAIT_MS) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    try {
+      const c = await devices.getDeviceCommand(deviceId, commandId);
+      if (c?.status === 'completed') return c.output || '[Command executed successfully (no output)]';
+      if (c?.status === 'failed') return `[Execution Failed]\n${c.error || c.output || 'Unknown error occurred on agent'}`;
+    } catch {
+      // transient network error: keep polling
+    }
+  }
+  return `[Command Dispatched (ID: ${commandId})]`;
+};
 
 const JSON_MARK = '<<APEX-JSON>>';
 const ERR_MARK = '<<APEX-ERR>>';
@@ -13,7 +46,7 @@ const ERR_MARK = '<<APEX-ERR>>';
 export function remoteOutputError(output: string): string | null {
   const t = output.trimStart();
   if (t.startsWith('[Command Dispatched')) {
-    return 'The device did not answer within 25 seconds. It may be offline, asleep or busy.';
+    return "The ApexMSP agent on this device didn't pick up the request within 90 seconds. Check that the ApexMSPAgent service is running and the device shows online.";
   }
   if (t.startsWith('[Execution Failed]')) {
     return t.slice('[Execution Failed]'.length).trim() || 'The command failed on the device.';

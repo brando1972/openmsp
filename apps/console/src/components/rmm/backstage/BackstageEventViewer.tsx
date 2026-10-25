@@ -13,8 +13,7 @@ import {
   Play
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
-import { useApp } from '../../../data/AppContext';
-import { runRemotePsList } from './remoteExec';
+import { runDeviceScript, runRemotePsList } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
 
 const MAX_EVENTS = 200;
@@ -40,7 +39,8 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
   device,
   onOpenTerminalWithCommand
 }) => {
-  const { runRemoteScriptOnDevice } = useApp();
+  // Backstage waits for a full agent check-in; AppContext's runner gives up at 25s.
+  const runRemoteScriptOnDevice = runDeviceScript;
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState<'All' | 'Critical' | 'Error' | 'Warning' | 'Information'>('All');
   const [channelFilter, setChannelFilter] = useState<'All' | 'System' | 'Application' | 'Security'>('All');

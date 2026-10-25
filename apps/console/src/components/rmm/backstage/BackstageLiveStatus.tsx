@@ -16,7 +16,7 @@ export const BackstageLiveStatus: React.FC<BackstageLiveStatusProps> = ({ state,
       <div className="py-12 text-center text-slate-400 font-sans">
         <RefreshCw className="w-7 h-7 mx-auto mb-2 text-sky-400 animate-spin" />
         <div className="font-bold text-slate-300">Loading {what} from {deviceName}…</div>
-        <div className="text-xs text-slate-500 mt-1">This can take up to 25 seconds while the agent responds.</div>
+        <div className="text-xs text-slate-500 mt-1">The agent checks in every 30 seconds, so this can take up to a minute.</div>
       </div>
     );
   }
