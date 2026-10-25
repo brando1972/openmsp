@@ -14,7 +14,7 @@ import {
   Play
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
-import { runDeviceScript, runRemoteChecked, runRemotePsList } from './remoteExec';
+import { runDeviceScript, runRemotePsJson, runRemotePsList } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
 
 export interface ProcessItem {
@@ -35,7 +35,7 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
   device,
   onOpenTerminalWithCommand
 }) => {
-  // Backstage waits for a full agent check-in; AppContext's runner gives up at 25s.
+  // Runs over the always-connected MeshCentral agent (see remoteExec/meshShell).
   const runRemoteScriptOnDevice = runDeviceScript;
   const [processes, setProcesses] = useState<ProcessItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -98,7 +98,7 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
         ? `Stop-Process -Id ${proc.id} -Force -ErrorAction Stop`
         : `kill -9 ${proc.id}`;
       
-      await runRemoteChecked(runRemoteScriptOnDevice, device.id, killCmd, device.os === 'windows' ? 'powershell' : 'bash');
+      await runRemotePsJson(runRemoteScriptOnDevice, device.id, `${killCmd}; $true`);
 
       setProcesses(prev => prev.filter(p => p.id !== proc.id));
       setActionMessage({ text: `Terminated ${proc.name} (PID: ${proc.id}).`, type: 'success' });

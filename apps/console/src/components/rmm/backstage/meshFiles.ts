@@ -9,6 +9,11 @@ import { mesh } from '../../../services/api';
  *             ← {action:'download', sub:'start'|'cancel', id}
  *             → {sub:'startack'} then one {sub:'ack'} per block received
  *             ← binary blocks: [u32 flags][data], flags 0x01000001 = last block
+ *   ls:       → {action:'ls', reqid, path}             ← {path, reqid, dir:[{n, t, s, d}] | null}
+ *             (t: 1 drive, 2 folder, 3 file; dir is null when the path can't be read)
+ *   rm:       → {action:'rm', path, delfiles:[names], rec}   (no reply)
+ *   mkdir:    → {action:'mkdir', path}                        (no reply; throws on the
+ *             agent if the folder already exists, so only create missing folders)
  *   upload:   → {action:'upload', reqid, path}       ← {action:'uploadstart'|'uploaderror'}
  *             → binary blocks (prefixed with 0x00 when they start with 0x00 or '{')
  *             ← {action:'uploadack'} per block
@@ -27,6 +32,13 @@ const LAST_BLOCK_FLAG = 0x01000001;
 export type Progress = (done: number, total: number | null) => void;
 
 interface JsonMsg { action?: string; sub?: string; id?: number; reqid?: number; [k: string]: unknown }
+
+export interface RemoteDirEntry {
+  n: string;
+  t: 1 | 2 | 3;
+  s?: number;
+  d?: string;
+}
 
 type Handler = {
   onJson: (msg: JsonMsg) => void;
@@ -102,7 +114,7 @@ export class MeshFileChannel {
   private dispatchText(text: string) {
     let msg: JsonMsg;
     try { msg = JSON.parse(text); } catch { return; }
-    if (msg && msg.action) this.handler?.onJson(msg);
+    if (msg && typeof msg === 'object') this.handler?.onJson(msg);
   }
 
   private send(value: JsonMsg | Uint8Array) {
@@ -114,6 +126,38 @@ export class MeshFileChannel {
     const next = this.queue.then(run, run);
     this.queue = next.catch(() => undefined);
     return next;
+  }
+
+  /** Lists a folder. Resolves null when the agent can't read it (missing or access denied). */
+  ls(path: string): Promise<RemoteDirEntry[] | null> {
+    return this.enqueue(() => new Promise<RemoteDirEntry[] | null>((resolve, reject) => {
+      const reqid = this.nextId++;
+      const timer = setTimeout(() => finish(new Error('The device did not answer the folder listing in time.')), 30_000);
+      const finish = (err: Error | null, value?: RemoteDirEntry[] | null) => {
+        clearTimeout(timer);
+        this.handler = null;
+        if (err) reject(err); else resolve(value ?? null);
+      };
+      this.handler = {
+        onJson: (msg) => {
+          if (msg.reqid !== reqid || msg.action) return;
+          finish(null, Array.isArray(msg.dir) ? (msg.dir as RemoteDirEntry[]) : null);
+        },
+        onBinary: () => {},
+        onClose: (reason) => finish(new Error(reason))
+      };
+      try { this.send({ action: 'ls', reqid, path }); } catch (e) { finish(e as Error); }
+    }));
+  }
+
+  /** Deletes entries of `dir` (recursively for folders). The agent sends no reply; verify with ls. */
+  rm(dir: string, names: string[]): Promise<void> {
+    return this.enqueue(async () => { this.send({ action: 'rm', path: dir, delfiles: names, rec: true }); });
+  }
+
+  /** Creates one folder. Only call for folders that don't exist yet. */
+  mkdir(path: string): Promise<void> {
+    return this.enqueue(async () => { this.send({ action: 'mkdir', path }); });
   }
 
   /** Downloads one file. `signal` aborts the transfer. */

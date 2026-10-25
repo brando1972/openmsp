@@ -41,7 +41,7 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
   device,
   onOpenTerminalWithCommand
 }) => {
-  // Backstage waits for a full agent check-in; AppContext's runner gives up at 25s.
+  // Runs over the always-connected MeshCentral agent (see remoteExec/meshShell).
   const runRemoteScriptOnDevice = runDeviceScript;
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'stopped'>('all');

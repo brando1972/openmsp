@@ -19,9 +19,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
-import { runDeviceScript, runRemotePsJson, runRemotePsList, psQuote } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
-import { MeshFileChannel, TransferCancelled } from './meshFiles';
+import { MeshFileChannel, RemoteDirEntry, TransferCancelled } from './meshFiles';
 import { buildZip, ZipEntry } from './zipStore';
 
 // Folder downloads are zipped in browser memory, so keep them bounded.
@@ -51,6 +50,22 @@ const saveBlob = (blob: Blob, name: string) => {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 };
 
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const formatModified = (d?: string): string | undefined => {
+  if (!d) return undefined;
+  const t = new Date(d);
+  if (isNaN(t.getTime())) return undefined;
+  return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
+};
+
+const toItem = (dir: string, e: RemoteDirEntry): RemoteFileItem => ({
+  name: e.n,
+  path: joinWin(dir, e.n),
+  isDir: e.t !== 3,
+  sizeBytes: e.t === 3 ? e.s : undefined,
+  modified: formatModified(e.d)
+});
+
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${Math.round(bytes / 1024)} KB`;
@@ -76,8 +91,6 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
   device,
   onOpenTerminalWithCommand
 }) => {
-  // Backstage waits for a full agent check-in; AppContext's runner gives up at 25s.
-  const runRemoteScriptOnDevice = runDeviceScript;
   const isWindows = device.os === 'windows';
   const initialRoot = isWindows ? 'C:\\' : '/';
 
@@ -94,17 +107,36 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
   const [transfer, setTransfer] = useState<TransferState | null>(null);
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
   const requestSeq = useRef(0);
-  const channelRef = useRef<MeshFileChannel | null>(null);
+  // Everything here (listing, delete, transfers) goes over MeshCentral's file
+  // relay, which stays connected; the ApexMSP agent's queue is far slower.
+  const channelRef = useRef<Promise<MeshFileChannel> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => () => channelRef.current?.close(), []);
+  useEffect(() => () => { channelRef.current?.then((c) => c.close()).catch(() => {}); }, []);
 
-  const getChannel = useCallback(async () => {
-    if (channelRef.current && !channelRef.current.closed) return channelRef.current;
-    channelRef.current = await MeshFileChannel.open(device.id);
-    return channelRef.current;
+  const getChannel = useCallback(async (): Promise<MeshFileChannel> => {
+    const existing = channelRef.current;
+    if (existing) {
+      try {
+        const c = await existing;
+        if (!c.closed) return c;
+      } catch { /* reopen below */ }
+    }
+    const opening = MeshFileChannel.open(device.id);
+    channelRef.current = opening;
+    opening.catch(() => { if (channelRef.current === opening) channelRef.current = null; });
+    return opening;
   }, [device.id]);
+
+  const listDir = useCallback(async (path: string): Promise<RemoteFileItem[]> => {
+    const channel = await getChannel();
+    const entries = await channel.ls(path);
+    if (!entries) throw new Error(`Can't open ${path}: it doesn't exist or access is denied.`);
+    const items = entries.filter((e) => e.t !== 1).map((e) => toItem(path, e));
+    items.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
+    return items;
+  }, [getChannel]);
 
   const navigateTo = useCallback(async (newPath: string) => {
     const seq = ++requestSeq.current;
@@ -118,30 +150,16 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
 
     setIsLoading(true);
     try {
-      const rows = await runRemotePsList<{ Name: string; FullName: string; IsDir: boolean; Length: number | null; Modified: string }>(
-        runRemoteScriptOnDevice,
-        device.id,
-        `Get-ChildItem -LiteralPath ${psQuote(newPath)} -Force | Select-Object Name, FullName, ` +
-          `@{N='IsDir';E={$_.PSIsContainer}}, @{N='Length';E={if ($_.PSIsContainer) { $null } else { $_.Length }}}, ` +
-          `@{N='Modified';E={$_.LastWriteTime.ToString('yyyy-MM-dd HH:mm')}}`
-      );
+      const items = await listDir(newPath);
       if (seq !== requestSeq.current) return;
-      const mapped: RemoteFileItem[] = rows.map((item) => ({
-        name: item.Name,
-        path: item.FullName,
-        isDir: Boolean(item.IsDir),
-        sizeBytes: item.Length ?? undefined,
-        modified: item.Modified
-      }));
-      mapped.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
-      setFiles(mapped);
+      setFiles(items);
     } catch (err) {
       if (seq !== requestSeq.current) return;
       setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       if (seq === requestSeq.current) setIsLoading(false);
     }
-  }, [device.id, isWindows, runRemoteScriptOnDevice]);
+  }, [isWindows, listDir]);
 
   useEffect(() => {
     navigateTo(initialRoot);
@@ -168,11 +186,12 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
     setIsDeleting(true);
     setActionMessage({ text: `Deleting "${item.name}"…`, type: 'info' });
     try {
-      await runRemotePsJson(
-        runRemoteScriptOnDevice,
-        device.id,
-        `Remove-Item -LiteralPath ${psQuote(item.path)} -Recurse -Force; $true`
-      );
+      const channel = await getChannel();
+      await channel.rm(currentPath, [item.name]);
+      const after = await listDir(currentPath);
+      if (after.some((f) => f.name.toLowerCase() === item.name.toLowerCase())) {
+        throw new Error('it is still there. It may be in use by another program, or access is denied.');
+      }
       setConfirmDelete(null);
       await navigateTo(currentPath);
       setActionMessage({ text: `Deleted "${item.name}".`, type: 'success' });
@@ -212,13 +231,29 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
         return;
       }
 
-      const rows = await runRemotePsList<{ Rel: string; Length: number; Modified: string }>(
-        runRemoteScriptOnDevice,
-        device.id,
-        `$root = (Get-Item -LiteralPath ${psQuote(item.path)}).FullName.TrimEnd('\\'); ` +
-          `Get-ChildItem -LiteralPath $root -Recurse -File -Force | Select-Object ` +
-          `@{N='Rel';E={$_.FullName.Substring($root.Length + 1)}}, Length, @{N='Modified';E={$_.LastWriteTime.ToString('o')}}`
-      );
+      // Walk the folder over the file channel to find every file in it.
+      const walker = await getChannel();
+      const rows: { Rel: string; Length: number; Modified?: string }[] = [];
+      const pending: string[] = [''];
+      let walkedBytes = 0;
+      while (pending.length > 0) {
+        if (controller.signal.aborted) throw new TransferCancelled();
+        const rel = pending.shift()!;
+        const abs = rel ? joinWin(item.path, rel) : item.path;
+        setTransfer((t) => (t ? { ...t, label: `Scanning "${item.name}"… ${rows.length} files found` } : t));
+        const entries = await walker.ls(abs);
+        if (!entries) throw new Error(`can't read ${abs} (access denied?).`);
+        for (const e of entries) {
+          const childRel = rel ? `${rel}\\${e.n}` : e.n;
+          if (e.t === 3) {
+            rows.push({ Rel: childRel, Length: e.s ?? 0, Modified: e.d });
+            walkedBytes += e.s ?? 0;
+          } else if (e.t === 2) {
+            pending.push(childRel);
+          }
+        }
+        if (rows.length > MAX_FOLDER_FILES || walkedBytes > MAX_FOLDER_BYTES) break;
+      }
       if (controller.signal.aborted) throw new TransferCancelled();
       const totalBytes = rows.reduce((n, r) => n + Number(r.Length || 0), 0);
       if (rows.length > MAX_FOLDER_FILES || totalBytes > MAX_FOLDER_BYTES) {
@@ -280,17 +315,33 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
     setActionMessage(null);
     setTransfer({ label: `Preparing upload of ${what}…`, done: 0, total: totalBytes, controller });
     try {
-      const dirs = Array.from(new Set(
-        items.map((i) => i.relPath.split('\\').slice(0, -1).join('\\')).filter(Boolean)
-      )).map((d) => joinWin(target, d));
-      if (dirs.length > 0) {
-        await runRemotePsJson(
-          runRemoteScriptOnDevice,
-          device.id,
-          `@(${dirs.map(psQuote).join(',')}) | ForEach-Object { New-Item -ItemType Directory -Force -Path $_ | Out-Null }; $true`
-        );
-      }
       const channel = await getChannel();
+      // Create missing folders level by level. The agent's mkdir fails on a
+      // folder that already exists, so check each parent's listing first.
+      const dirs = Array.from(new Set(
+        items.flatMap((i) => {
+          const parts = i.relPath.split('\\').slice(0, -1);
+          return parts.map((_, k) => parts.slice(0, k + 1).join('\\'));
+        })
+      )).sort((a, b) => a.split('\\').length - b.split('\\').length);
+      const known = new Map<string, Set<string>>();
+      for (const rel of dirs) {
+        const parts = rel.split('\\');
+        const name = parts.pop()!;
+        const parentAbs = parts.length ? joinWin(target, parts.join('\\')) : target;
+        let names = known.get(parentAbs.toLowerCase());
+        if (!names) {
+          const entries = await channel.ls(parentAbs);
+          if (!entries) throw new Error(`can't read ${parentAbs} (access denied?).`);
+          names = new Set(entries.map((e) => e.n.toLowerCase()));
+          known.set(parentAbs.toLowerCase(), names);
+        }
+        if (!names.has(name.toLowerCase())) {
+          await channel.mkdir(joinWin(parentAbs, name));
+          names.add(name.toLowerCase());
+          known.set(joinWin(parentAbs, name).toLowerCase(), new Set());
+        }
+      }
       let doneBefore = 0;
       for (let i = 0; i < items.length; i++) {
         const { file, relPath } = items[i];

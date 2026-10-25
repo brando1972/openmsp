@@ -4,6 +4,7 @@
 // can show an error state instead of rendering something it made up.
 
 import { devices } from '../../../services/api';
+import { runMeshPowerShell } from './meshShell';
 
 type Shell = 'powershell' | 'cmd' | 'bash';
 export type RunRemote = (deviceId: string, script: string, shell?: Shell) => Promise<string>;
@@ -15,9 +16,24 @@ const POLL_MS = 1_500;
 
 /**
  * Same contract as AppContext's runRemoteScriptOnDevice (bracketed failure
- * text, never throws), but waits long enough to span an agent check-in.
+ * text, never throws). Uses the MeshCentral agent when it can, else waits
+ * long enough to span an ApexMSP agent check-in.
  */
 export const runDeviceScript: RunRemote = async (deviceId, script, shell = 'powershell') => {
+  // Prefer the always-connected MeshCentral agent; fall back to the ApexMSP
+  // agent's command queue only if a MeshCentral session can't be opened.
+  if (shell === 'powershell') {
+    let sessionOpened = false;
+    try {
+      return await runMeshPowerShell(deviceId, script, () => { sessionOpened = true; });
+    } catch (e) {
+      if (sessionOpened) return `[Execution Failed]\n${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  return runViaAgentQueue(deviceId, script, shell);
+};
+
+const runViaAgentQueue: RunRemote = async (deviceId, script, shell = 'powershell') => {
   let commandId: string;
   try {
     const cmd = await devices.sendCommand(deviceId, { commandType: 'run_script', payload: { script, shell } });
