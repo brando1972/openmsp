@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   FileText,
   Search,
@@ -14,6 +14,13 @@ import {
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
 import { useApp } from '../../../data/AppContext';
+import { runRemotePsList } from './remoteExec';
+import { BackstageLiveStatus } from './BackstageLiveStatus';
+
+const MAX_EVENTS = 200;
+
+const levelName = (level: number): EventLogItem['level'] =>
+  level === 1 ? 'Critical' : level === 2 ? 'Error' : level === 3 ? 'Warning' : 'Information';
 
 export interface EventLogItem {
   id: number;
@@ -39,67 +46,49 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
   const [channelFilter, setChannelFilter] = useState<'All' | 'System' | 'Application' | 'Security'>('All');
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
 
-  // Baseline standard Windows system event logs
-  const defaultLogs = useMemo<EventLogItem[]>(() => [
-    {
-      id: 7036,
-      time: '2026-09-19 21:05:12',
-      level: 'Information',
-      provider: 'Service Control Manager',
-      channel: 'System',
-      message: 'The Mesh Agent service entered the running state.'
-    },
-    {
-      id: 10016,
-      time: '2026-09-19 20:45:30',
-      level: 'Warning',
-      provider: 'Microsoft-Windows-DistributedCOM',
-      channel: 'System',
-      message: 'The application-specific permission settings do not grant Local Activation permission for the COM Server application with CLSID {2593F8B9-4EAF-457C-B68A-50F6B8EA6B54}.'
-    },
-    {
-      id: 41,
-      time: '2026-09-19 18:22:04',
-      level: 'Critical',
-      provider: 'Microsoft-Windows-Kernel-Power',
-      channel: 'System',
-      message: 'The system has rebooted without cleanly shutting down first. This error could be caused if the system stopped responding, crashed, or lost power unexpectedly.'
-    },
-    {
-      id: 1000,
-      time: '2026-09-19 17:15:20',
-      level: 'Error',
-      provider: 'Application Error',
-      channel: 'Application',
-      message: 'Faulting application name: explorer.exe, version: 10.0.19041.1000, faulting module name: ntdll.dll, version: 10.0.19041.1000, exception code: 0xc0000005.'
-    },
-    {
-      id: 6005,
-      time: '2026-09-19 18:22:15',
-      level: 'Information',
-      provider: 'EventLog',
-      channel: 'System',
-      message: 'The Event log service was started.'
-    },
-    {
-      id: 7001,
-      time: '2026-09-19 16:30:10',
-      level: 'Error',
-      provider: 'Service Control Manager',
-      channel: 'System',
-      message: 'The Netlogon service depends on the LanmanWorkstation service which failed to start because of the following error: The service cannot be started, either because it is disabled or because it has no enabled devices associated with it.'
-    },
-    {
-      id: 4624,
-      time: '2026-09-19 21:00:00',
-      level: 'Information',
-      provider: 'Microsoft-Windows-Security-Auditing',
-      channel: 'Security',
-      message: `An account was successfully logged on. Subject User: ${device.loggedInUser || 'joshg'}, Logon Type: 2 (Interactive Console).`
-    }
-  ], [device.loggedInUser]);
+  const isWindows = device.os === 'windows';
+  const [logs, setLogs] = useState<EventLogItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
-  const [logs] = useState<EventLogItem[]>(defaultLogs);
+  const fetchEvents = useCallback(async () => {
+    if (!isWindows) return;
+    setIsLoading(true);
+    setExpandedEventId(null);
+    try {
+      // Security is only read when picked explicitly: it is large and mostly noise.
+      const logNames = channelFilter === 'All' ? ['System', 'Application'] : [channelFilter];
+      const names = logNames.map((n) => `'${n}'`).join(',');
+      const rows = await runRemotePsList<{ Id: number; Time: string; Level: number; Provider: string; LogName: string; Message: string | null }>(
+        runRemoteScriptOnDevice,
+        device.id,
+        `$(try { Get-WinEvent -FilterHashtable @{ LogName = @(${names}) } -MaxEvents ${MAX_EVENTS} -ErrorAction Stop } ` +
+          `catch { if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') { @() } else { throw } }) | ` +
+          `Select-Object Id, @{N='Time';E={$_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')}}, Level, ` +
+          `@{N='Provider';E={$_.ProviderName}}, LogName, ` +
+          `@{N='Message';E={ $m = $_.Message; if ($m -and $m.Length -gt 2000) { $m.Substring(0, 2000) + '...' } else { $m } }}`
+      );
+      setLogs(rows.map((r) => ({
+        id: Number(r.Id),
+        time: r.Time,
+        level: levelName(r.Level),
+        provider: r.Provider || '',
+        channel: (r.LogName as EventLogItem['channel']) || 'System',
+        message: r.Message || '(No message text)'
+      })).sort((x, y) => y.time.localeCompare(x.time)));
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoading(false);
+      setHasLoaded(true);
+    }
+  }, [device.id, isWindows, runRemoteScriptOnDevice, channelFilter]);
+
+  useEffect(() => {
+    fetchEvents();
+  }, [fetchEvents]);
 
   const filteredLogs = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -109,10 +98,9 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
         String(l.id).includes(q);
       if (!matchQ) return false;
       if (levelFilter !== 'All' && l.level !== levelFilter) return false;
-      if (channelFilter !== 'All' && l.channel !== channelFilter) return false;
       return true;
     });
-  }, [logs, searchQuery, levelFilter, channelFilter]);
+  }, [logs, searchQuery, levelFilter]);
 
   const getLevelBadge = (level: EventLogItem['level']) => {
     switch (level) {
@@ -145,8 +133,27 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
           </div>
         </div>
 
-        {/* Severity Filters */}
+        {/* Log + Severity Filters */}
         <div className="flex items-center gap-1.5 shrink-0 text-xs">
+          <select
+            value={channelFilter}
+            onChange={(e) => setChannelFilter(e.target.value as typeof channelFilter)}
+            className="px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-200 text-xs"
+            title="Which event log to read from the device"
+          >
+            <option value="All">System + Application</option>
+            <option value="System">System</option>
+            <option value="Application">Application</option>
+            <option value="Security">Security</option>
+          </select>
+          <button
+            onClick={fetchEvents}
+            disabled={isLoading || !isWindows}
+            title="Reload events from the device"
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded border border-slate-700 transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-sky-400' : ''}`} />
+          </button>
           {(['All', 'Critical', 'Error', 'Warning', 'Information'] as const).map((lvl) => (
             <button
               key={lvl}
@@ -162,6 +169,12 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
           ))}
         </div>
       </div>
+
+      {logs.length > 0 && loadError && (
+        <div className="px-3 py-2 text-xs border-b shrink-0 bg-amber-950/70 text-amber-300 border-amber-800">
+          Refresh failed, showing the last events received from the device: {loadError}
+        </div>
+      )}
 
       {/* Table Header */}
       <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-[#0d111d] border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
@@ -204,18 +217,24 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
           );
         })}
 
-        {filteredLogs.length === 0 && (
+        {!isWindows ? (
+          <BackstageLiveStatus state="unsupported" deviceName={device.name} what="event logs" />
+        ) : isLoading && logs.length === 0 ? (
+          <BackstageLiveStatus state="loading" deviceName={device.name} what="event logs" />
+        ) : loadError && logs.length === 0 ? (
+          <BackstageLiveStatus state="error" deviceName={device.name} what="event logs" error={loadError} onRetry={fetchEvents} />
+        ) : hasLoaded && filteredLogs.length === 0 ? (
           <div className="py-12 text-center text-slate-500 font-sans">
             <FileText className="w-8 h-8 mx-auto mb-2 text-slate-600" />
             <div className="font-bold text-slate-400">No events matched filters</div>
             <div className="text-xs text-slate-600 mt-1">Try selecting "All" severity levels</div>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Footer */}
       <div className="px-3 py-2 bg-[#090c14] border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between shrink-0">
-        <span>Showing <strong className="text-slate-200">{filteredLogs.length}</strong> event records</span>
+        <span>Showing <strong className="text-slate-200">{filteredLogs.length}</strong> of the latest {logs.length} events</span>
 
         {onOpenTerminalWithCommand && (
           <button

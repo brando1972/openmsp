@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Monitor, X, RefreshCw, Maximize2, Keyboard, Loader2, AlertTriangle, Wifi } from 'lucide-react';
+import { Monitor, X, RefreshCw, Maximize2, Keyboard, Loader2, AlertTriangle, Wifi, ClipboardPaste } from 'lucide-react';
 import { mesh, type MeshSession } from '../../services/api';
 
 /**
@@ -18,7 +18,7 @@ import { mesh, type MeshSession } from '../../services/api';
  * Handshake: server sends 'c'/'cr' → we send protocol "2" → binary stream.
  */
 
-type Phase = 'requesting' | 'connecting' | 'live' | 'error' | 'closed';
+type Phase = 'requesting' | 'connecting' | 'live' | 'reconnecting' | 'error' | 'closed';
 
 interface Props {
   deviceId?: string;
@@ -42,6 +42,20 @@ const MOUSE_CURSORS = [
 // JS keyCode -> Windows virtual-key code is identity for the keys we map here.
 const isPrintable = (key: string) => key.length === 1;
 
+// Mac ⌘ (and the context-menu key) would arrive on Windows as the Windows key.
+const META_KEYCODES = new Set([91, 92, 93, 224]);
+
+// Idle relays get cut by proxies/firewalls (Cloudflare drops idle sockets at ~100s).
+const KEEPALIVE_MS = 25_000;
+// Unexpected drops are retried automatically with backoff before giving up.
+const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
+// Pasted text is typed out in small batches so the agent's input queue keeps up.
+const PASTE_BATCH = 40;
+const PASTE_MAX_CHARS = 20_000;
+
+const VK_TAB = 0x09;
+const VK_RETURN = 0x0d;
+
 export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceName, clientName, onClose }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -55,6 +69,10 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
   const [session, setSession] = useState<MeshSession | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [cursorStyle, setCursorStyle] = useState<string>('default');
+  const [notice, setNotice] = useState<string | null>(null);
+  const reconnectTriesRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pastingRef = useRef(false);
 
   // ---- outgoing helpers ----
   const send = useCallback((bytes: number[]) => {
@@ -102,6 +120,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
           canvas.width = w;
           canvas.height = h;
         }
+        reconnectTriesRef.current = 0;
         setPhase('live');
       }
     } else if (cmd === 3) {
@@ -156,6 +175,10 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
 
   // ---- connection lifecycle ----
   const cleanup = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     const ws = wsRef.current;
     wsRef.current = null;
     if (ws) { try { ws.onmessage = null; ws.onclose = null; ws.close(); } catch { /* ignore */ } }
@@ -163,9 +186,30 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
     stateRef.current.handshook = false;
   }, []);
 
+  const scheduleReconnect = useCallback(() => {
+    const tries = reconnectTriesRef.current;
+    if (tries >= RECONNECT_DELAYS_MS.length) {
+      setPhase('closed');
+      setMessage('Connection lost and could not be restored.');
+      return;
+    }
+    reconnectTriesRef.current = tries + 1;
+    setPhase('reconnecting');
+    setMessage(`Connection lost. Reconnecting (attempt ${tries + 1} of ${RECONNECT_DELAYS_MS.length})…`);
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      setAttempt((a) => a + 1);
+    }, RECONNECT_DELAYS_MS[tries]);
+  }, []);
+
+  const manualReconnect = useCallback(() => {
+    reconnectTriesRef.current = 0;
+    setAttempt((a) => a + 1);
+  }, []);
+
   const openRelay = useCallback((s: MeshSession) => {
-    setPhase('connecting');
-    setMessage(`Connecting to ${s.deviceName}…`);
+    setPhase((p) => (p === 'reconnecting' ? p : 'connecting'));
+    if (reconnectTriesRef.current === 0) setMessage(`Connecting to ${s.deviceName}…`);
     const sep = s.relayUrl.includes('?') ? '&' : '?';
     const url =
       `${s.relayUrl}${sep}browser=1&p=${s.protocol}&nodeid=${encodeURIComponent(s.nodeid)}` +
@@ -194,29 +238,51 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
       if (ev.data instanceof ArrayBuffer) feed(new Uint8Array(ev.data));
     };
     ws.onclose = () => {
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-        setPhase((p) => (p === 'live' || p === 'connecting' ? 'closed' : p));
-        setMessage('Session ended.');
-      }
+      if (wsRef.current !== ws) return;
+      wsRef.current = null;
+      scheduleReconnect();
     };
     ws.onerror = () => { /* surfaced via onclose */ };
-  }, [feed, sendStartup]);
+  }, [feed, sendStartup, scheduleReconnect]);
 
   const start = useCallback(async () => {
     cleanup();
-    setPhase('requesting');
-    setMessage('Requesting session…');
+    const reconnecting = reconnectTriesRef.current > 0;
+    if (!reconnecting) {
+      setPhase('requesting');
+      setMessage('Requesting session…');
+    }
     try {
       const s = await mesh.startSession({ deviceId, nodeid });
       setSession(s);
       if (!s.online) setMessage(`${s.deviceName} appears offline — trying anyway…`);
       openRelay(s);
     } catch (e) {
+      if (reconnecting) {
+        scheduleReconnect();
+        return;
+      }
       setPhase('error');
       setMessage(e instanceof Error ? e.message : 'Could not start remote session');
     }
-  }, [cleanup, deviceId, nodeid, openRelay]);
+  }, [cleanup, deviceId, nodeid, openRelay, scheduleReconnect]);
+
+  // Keep the relay busy so idle-timeout proxies don't cut it. Re-sending
+  // "unpause" is a no-op for the agent but counts as traffic both ways.
+  useEffect(() => {
+    if (phase !== 'live') return;
+    const id = setInterval(() => send([0x00, 0x08, 0x00, 0x05, 0x00]), KEEPALIVE_MS);
+    return () => clearInterval(id);
+  }, [phase, send]);
+
+  // Coming back online after a Wi-Fi blip: retry straight away.
+  useEffect(() => {
+    const onOnline = () => {
+      if (phase === 'reconnecting' || phase === 'closed') manualReconnect();
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [phase, manualReconnect]);
 
   useEffect(() => {
     start();
@@ -277,11 +343,77 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
   }, [send]);
   const sendCtrlAltDel = useCallback(() => { send([0x00, 0x0a, 0x00, 0x04]); }, [send]);
 
+  // Types text on the remote machine as keystrokes. Works anywhere input works
+  // (login screen, UAC, Backstage), unlike clipboard sync.
+  const typeText = useCallback(async (raw: string) => {
+    if (pastingRef.current) return;
+    const text = raw.replace(/\r\n?/g, '\n');
+    if (!text) return;
+    if (text.length > PASTE_MAX_CHARS) {
+      setNotice(`Clipboard has ${text.length.toLocaleString()} characters; paste is limited to ${PASTE_MAX_CHARS.toLocaleString()}.`);
+      return;
+    }
+    pastingRef.current = true;
+    setNotice(`Pasting ${text.length.toLocaleString()} characters…`);
+    try {
+      for (let i = 0; i < text.length; i++) {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          setNotice('Paste stopped: the connection dropped.');
+          return;
+        }
+        const ch = text[i];
+        if (ch === '\n' || ch === '\t') {
+          const vk = ch === '\n' ? VK_RETURN : VK_TAB;
+          sendKey(KEY_DOWN, vk);
+          sendKey(KEY_UP, vk);
+        } else {
+          const code = text.charCodeAt(i);
+          sendUnicode(KEY_DOWN, code);
+          sendUnicode(KEY_UP, code);
+        }
+        if ((i + 1) % PASTE_BATCH === 0) await new Promise((r) => setTimeout(r, 15));
+      }
+      setNotice(null);
+    } finally {
+      pastingRef.current = false;
+    }
+  }, [sendKey, sendUnicode]);
+
+  const pasteFromButton = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) setNotice('Your clipboard has no text to paste.');
+      else await typeText(text);
+    } catch {
+      setNotice('The browser blocked clipboard access. Click the desktop and press ⌘V instead.');
+    }
+  }, [typeText]);
+
+  useEffect(() => {
+    if (phase !== 'live') return;
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text/plain');
+      if (text == null) return;
+      e.preventDefault();
+      typeText(text);
+    };
+    window.addEventListener('paste', onPaste, true);
+    return () => window.removeEventListener('paste', onPaste, true);
+  }, [phase, typeText]);
+
+  useEffect(() => {
+    if (!notice || notice.startsWith('Pasting')) return;
+    const id = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(id);
+  }, [notice]);
+
   useEffect(() => {
     if (phase !== 'live') return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key.toLowerCase() === 'v') return; // let paste pass to allow future clipboard
+      // ⌘V falls through to the browser so it fires a paste event (handled above).
+      if (e.metaKey && e.key.toLowerCase() === 'v') return;
       e.preventDefault();
+      if (META_KEYCODES.has(e.keyCode) || e.metaKey) return;
       if (isPrintable(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         sendUnicode(KEY_DOWN, e.key.charCodeAt(0));
       } else if (e.keyCode) {
@@ -290,6 +422,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
     };
     const onKeyUp = (e: KeyboardEvent) => {
       e.preventDefault();
+      if (META_KEYCODES.has(e.keyCode) || e.metaKey) return;
       if (isPrintable(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         sendUnicode(KEY_UP, e.key.charCodeAt(0));
       } else if (e.keyCode) {
@@ -314,6 +447,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
   const statusPill = () => {
     if (phase === 'live') return <span className="flex items-center gap-1.5 text-emerald-400"><Wifi className="w-3.5 h-3.5" /> Live</span>;
     if (phase === 'error') return <span className="flex items-center gap-1.5 text-red-400"><AlertTriangle className="w-3.5 h-3.5" /> Error</span>;
+    if (phase === 'reconnecting') return <span className="flex items-center gap-1.5 text-amber-400"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Reconnecting</span>;
     if (phase === 'closed') return <span className="flex items-center gap-1.5 text-slate-400">Disconnected</span>;
     return <span className="flex items-center gap-1.5 text-amber-400"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting</span>;
   };
@@ -342,6 +476,14 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
           <div className="flex items-center gap-1.5 sm:gap-2">
             <span className="hidden sm:flex text-[11px] font-semibold mr-1">{statusPill()}</span>
             <button
+              onClick={pasteFromButton}
+              disabled={phase !== 'live'}
+              title="Type your clipboard text on the remote machine (or press ⌘V on the desktop)"
+              className="h-8 px-2.5 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-40 transition"
+            >
+              <ClipboardPaste className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Paste</span>
+            </button>
+            <button
               onClick={sendCtrlAltDel}
               disabled={phase !== 'live'}
               title="Send Ctrl+Alt+Del"
@@ -352,7 +494,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
             <button onClick={goFullscreen} title="Fullscreen" className="h-8 w-8 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition">
               <Maximize2 className="w-4 h-4" />
             </button>
-            <button onClick={() => setAttempt((a) => a + 1)} title="Reconnect" className="h-8 w-8 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition">
+            <button onClick={manualReconnect} title="Reconnect" className="h-8 w-8 rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition">
               <RefreshCw className="w-4 h-4" />
             </button>
             <button onClick={() => { cleanup(); onClose(); }} title="Close" className="h-8 w-8 rounded-lg bg-red-500/15 hover:bg-red-500/30 text-red-300 flex items-center justify-center transition">
@@ -365,7 +507,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
         <div className="flex-1 min-h-0 bg-black relative flex items-center justify-center overflow-hidden">
           <canvas
             ref={canvasRef}
-            className={`max-w-full max-h-full ${phase === 'live' ? '' : 'opacity-0'}`}
+            className={`max-w-full max-h-full ${phase === 'live' ? '' : phase === 'reconnecting' ? 'opacity-30' : 'opacity-0'}`}
             style={{ imageRendering: 'auto', objectFit: 'contain', cursor: phase === 'live' ? cursorStyle : 'default' }}
             onMouseMove={(e) => phase === 'live' && sendMouse(e.clientX, e.clientY, 0x00)}
             onMouseDown={(e) => { if (phase === 'live') { e.preventDefault(); sendMouse(e.clientX, e.clientY, btnDown(e.button)); } }}
@@ -382,11 +524,24 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
             </div>
           )}
 
+          {phase === 'reconnecting' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-200">
+              <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+              <div className="text-sm font-semibold">{message}</div>
+            </div>
+          )}
+
+          {notice && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded-lg bg-slate-900/95 border border-slate-700 text-xs text-slate-200 shadow-lg">
+              {notice}
+            </div>
+          )}
+
           {phase === 'error' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
               <AlertTriangle className="w-9 h-9 text-amber-400" />
               <div className="text-sm font-semibold text-white max-w-md">{message}</div>
-              <button onClick={() => setAttempt((a) => a + 1)} className="mt-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">
+              <button onClick={manualReconnect} className="mt-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">
                 Try again
               </button>
             </div>
@@ -397,7 +552,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
               <Monitor className="w-9 h-9 text-slate-500" />
               <div className="text-sm font-semibold text-slate-300">{message}</div>
               <div className="flex items-center gap-2 mt-1">
-                <button onClick={() => setAttempt((a) => a + 1)} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">Reconnect</button>
+                <button onClick={manualReconnect} className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">Reconnect</button>
                 <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold">Close</button>
               </div>
             </div>

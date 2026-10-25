@@ -31,6 +31,10 @@ interface DeviceTerminalProps {
   onToggleExpand?: () => void;
 }
 
+// Idle relays get cut by proxies/firewalls (Cloudflare drops idle sockets at ~100s).
+const KEEPALIVE_MS = 25_000;
+const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
+
 type TerminalStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
@@ -61,6 +65,8 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const reconnectTriesRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Determine protocol number:
   // 6 = PowerShell (Windows)
@@ -92,6 +98,10 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
 
   // Teardown previous session
   const teardown = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     if (wsRef.current) {
       try {
         wsRef.current.onmessage = null;
@@ -114,6 +124,10 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
     }
   }, []);
 
+  // Unexpected drops are retried with backoff. A reconnect opens a fresh shell,
+  // so the old scrollback is replaced; the notice below says so.
+  const scheduleReconnectRef = useRef<(shell: 'powershell' | 'cmd' | 'bash') => void>(() => {});
+
   // Connect to live session
   const connectSession = useCallback(async (shellType: 'powershell' | 'cmd' | 'bash') => {
     teardown();
@@ -129,6 +143,10 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
         protocol
       });
     } catch (err: any) {
+      if (reconnectTriesRef.current > 0) {
+        scheduleReconnectRef.current(shellType);
+        return;
+      }
       setStatus('error');
       setStatusMessage(err?.message || 'Failed to initialize live terminal session.');
       return;
@@ -227,6 +245,7 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
           } catch {
             /* ignore */
           }
+          reconnectTriesRef.current = 0;
           setStatus('connected');
           setStatusMessage('Live');
           term.focus();
@@ -267,15 +286,12 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
 
     ws.onclose = () => {
       if (wsRef.current === ws) {
-        setStatus('disconnected');
-        setStatusMessage('Session disconnected');
+        wsRef.current = null;
+        scheduleReconnectRef.current(shellType);
       }
     };
 
-    ws.onerror = () => {
-      setStatus('error');
-      setStatusMessage('Connection error occurred');
-    };
+    ws.onerror = () => { /* surfaced via onclose */ };
 
     // User typing in the xterm terminal -> send straight over WebSocket
     term.onData((data: string) => {
@@ -285,11 +301,41 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
     });
   }, [device.id, device.name, teardown]);
 
+  scheduleReconnectRef.current = (shell) => {
+    const tries = reconnectTriesRef.current;
+    if (tries >= RECONNECT_DELAYS_MS.length) {
+      setStatus('disconnected');
+      setStatusMessage('Connection lost and could not be restored.');
+      return;
+    }
+    reconnectTriesRef.current = tries + 1;
+    setStatus('connecting');
+    setStatusMessage(`Connection lost. Reconnecting to a new shell (attempt ${tries + 1} of ${RECONNECT_DELAYS_MS.length})…`);
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      connectSession(shell);
+    }, RECONNECT_DELAYS_MS[tries]);
+  };
+
+  const manualReconnect = useCallback(() => {
+    reconnectTriesRef.current = 0;
+    connectSession(activeShell);
+  }, [activeShell, connectSession]);
+
   // Initial connect and reconnect on shell switch
   useEffect(() => {
+    reconnectTriesRef.current = 0;
     connectSession(activeShell);
     return () => teardown();
   }, [activeShell, connectSession, teardown]);
+
+  // Keep the relay busy so idle-timeout proxies don't cut it; a same-size
+  // termsize message is a no-op for the agent.
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const id = setInterval(sendResize, KEEPALIVE_MS);
+    return () => clearInterval(id);
+  }, [status, sendResize]);
 
   // Refit terminal on container size change or expand toggle
   useEffect(() => {
@@ -482,7 +528,7 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
               </span>
             ) : (
               <button
-                onClick={() => connectSession(activeShell)}
+                onClick={manualReconnect}
                 className="flex items-center gap-1 text-[11px] text-rose-400 hover:text-rose-300 font-semibold underline"
                 title="Click to reconnect"
               >
@@ -589,7 +635,7 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
             <AlertCircle className="w-8 h-8 text-rose-400" />
             <p className="text-xs font-mono max-w-md">{statusMessage}</p>
             <button
-              onClick={() => connectSession(activeShell)}
+              onClick={manualReconnect}
               className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition mt-2"
             >
               <RefreshCw className="w-3.5 h-3.5" /> Reconnect

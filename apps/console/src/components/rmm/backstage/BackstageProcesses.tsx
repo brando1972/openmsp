@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
 import { useApp } from '../../../data/AppContext';
+import { runRemoteChecked, runRemotePsList } from './remoteExec';
+import { BackstageLiveStatus } from './BackstageLiveStatus';
 
 export interface ProcessItem {
   id: number;
@@ -45,59 +47,35 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
   const [confirmKill, setConfirmKill] = useState<ProcessItem | null>(null);
   const [isKilling, setIsKilling] = useState(false);
 
-  // Baseline mock fallback processes for Windows based on live telemetry
-  const baselineWindowsProcesses = useMemo<ProcessItem[]>(() => [
-    { id: 4, name: 'System', memoryMB: 0.2, cpuSeconds: 8537.0, path: 'ntoskrnl.exe', user: 'NT AUTHORITY\\SYSTEM' },
-    { id: 1368, name: 'dwm.exe', memoryMB: 70.3, cpuSeconds: 21356.3, path: 'C:\\Windows\\System32\\dwm.exe', user: device.loggedInUser || 'joshg' },
-    { id: 3852, name: 'svchost.exe', memoryMB: 14.8, cpuSeconds: 7789.1, path: 'C:\\Windows\\System32\\svchost.exe', user: 'NT AUTHORITY\\SYSTEM' },
-    { id: 17112, name: 'chrome.exe', memoryMB: 240.0, cpuSeconds: 5485.9, path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', user: device.loggedInUser || 'joshg' },
-    { id: 16060, name: 'chrome.exe', memoryMB: 182.8, cpuSeconds: 4865.5, path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', user: device.loggedInUser || 'joshg' },
-    { id: 2292, name: 'svchost.exe', memoryMB: 164.1, cpuSeconds: 4512.9, path: 'C:\\Windows\\System32\\svchost.exe', user: 'NT AUTHORITY\\NETWORK SERVICE' },
-    { id: 15240, name: 'msedgewebview2.exe', memoryMB: 126.5, cpuSeconds: 4367.8, path: 'C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\msedgewebview2.exe', user: device.loggedInUser || 'joshg' },
-    { id: 12920, name: 'chrome.exe', memoryMB: 218.4, cpuSeconds: 3212.8, path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', user: device.loggedInUser || 'joshg' },
-    { id: 3588, name: 'AvastSvc.exe', memoryMB: 196.3, cpuSeconds: 2640.7, path: 'C:\\Program Files\\AVAST Software\\Avast\\AvastSvc.exe', user: 'NT AUTHORITY\\SYSTEM' },
-    { id: 8344, name: 'ATTray.exe', memoryMB: 26.5, cpuSeconds: 2059.3, path: 'C:\\Program Files\\Audio\\ATTray.exe', user: device.loggedInUser || 'joshg' },
-    { id: 4120, name: 'explorer.exe', memoryMB: 98.4, cpuSeconds: 1845.2, path: 'C:\\Windows\\explorer.exe', user: device.loggedInUser || 'joshg' },
-    { id: 5624, name: 'meshagent64.exe', memoryMB: 28.2, cpuSeconds: 1120.4, path: 'C:\\ProgramData\\ApexMSP\\meshagent64.exe', user: 'NT AUTHORITY\\SYSTEM' },
-    { id: 6280, name: 'powershell.exe', memoryMB: 48.6, cpuSeconds: 45.2, path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', user: 'NT AUTHORITY\\SYSTEM' },
-    { id: 7420, name: 'spoolsv.exe', memoryMB: 12.1, cpuSeconds: 18.9, path: 'C:\\Windows\\System32\\spoolsv.exe', user: 'NT AUTHORITY\\SYSTEM' }
-  ], [device.loggedInUser]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const hasData = processes.length > 0;
+  const isWindows = device.os === 'windows';
 
   const fetchProcesses = useCallback(async () => {
+    if (!isWindows) return;
     setIsLoading(true);
-    setActionMessage(null);
     try {
-      if (device.os === 'windows') {
-        const psScript = `Get-Process | Select-Object Id, ProcessName, @{N='MemoryMB';E={[math]::Round($_.WorkingSet64/1MB,1)}}, @{N='CPU';E={[math]::Round($_.CPU,1)}}, Path | ConvertTo-Json -Compress`;
-        const res = await runRemoteScriptOnDevice(device.id, psScript, 'powershell');
-        
-        // Attempt to parse JSON response
-        const jsonMatch = res.match(/\[\s*\{.*\}\s*\]|\{\s*".*"\s*:\s*.*\}/s);
-        if (jsonMatch) {
-          const raw = JSON.parse(jsonMatch[0]);
-          const arr = Array.isArray(raw) ? raw : [raw];
-          const mapped: ProcessItem[] = arr.map((item: any) => ({
-            id: Number(item.Id || item.id),
-            name: String(item.ProcessName || item.name || 'unknown'),
-            memoryMB: Number(item.MemoryMB || 0),
-            cpuSeconds: Number(item.CPU || 0),
-            path: item.Path || item.path || ''
-          }));
-          if (mapped.length > 0) {
-            setProcesses(mapped);
-            setIsLoading(false);
-            return;
-          }
-        }
-      }
-      // If script is pending or parsing failed, use baseline snapshot
-      setProcesses(baselineWindowsProcesses);
-    } catch {
-      setProcesses(baselineWindowsProcesses);
+      const rows = await runRemotePsList<{ Id: number; ProcessName: string; MemoryMB: number; CPU: number | null; Path: string | null; UserName: string | null }>(
+        runRemoteScriptOnDevice,
+        device.id,
+        `Get-Process -IncludeUserName | Select-Object Id, ProcessName, ` +
+          `@{N='MemoryMB';E={[math]::Round($_.WorkingSet64/1MB,1)}}, @{N='CPU';E={[math]::Round($_.CPU,1)}}, Path, UserName`
+      );
+      setProcesses(rows.map((item) => ({
+        id: Number(item.Id),
+        name: String(item.ProcessName || 'unknown'),
+        memoryMB: Number(item.MemoryMB || 0),
+        cpuSeconds: Number(item.CPU || 0),
+        path: item.Path || '',
+        user: item.UserName || undefined
+      })));
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsLoading(false);
     }
-  }, [device.id, device.os, runRemoteScriptOnDevice, baselineWindowsProcesses]);
+  }, [device.id, isWindows, runRemoteScriptOnDevice]);
 
   useEffect(() => {
     fetchProcesses();
@@ -117,17 +95,16 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
     setActionMessage({ text: `Killing process ${proc.name} (PID: ${proc.id})…`, type: 'info' });
     try {
       const killCmd = device.os === 'windows'
-        ? `Stop-Process -Id ${proc.id} -Force`
+        ? `Stop-Process -Id ${proc.id} -Force -ErrorAction Stop`
         : `kill -9 ${proc.id}`;
       
-      await runRemoteScriptOnDevice(device.id, killCmd, device.os === 'windows' ? 'powershell' : 'bash');
+      await runRemoteChecked(runRemoteScriptOnDevice, device.id, killCmd, device.os === 'windows' ? 'powershell' : 'bash');
 
-      // Optimistically remove from state
       setProcesses(prev => prev.filter(p => p.id !== proc.id));
-      setActionMessage({ text: `Successfully terminated ${proc.name} (PID: ${proc.id}).`, type: 'success' });
+      setActionMessage({ text: `Terminated ${proc.name} (PID: ${proc.id}).`, type: 'success' });
       setConfirmKill(null);
-    } catch (err: any) {
-      setActionMessage({ text: `Failed to terminate ${proc.name}: ${err?.message || err}`, type: 'error' });
+    } catch (err) {
+      setActionMessage({ text: `Failed to terminate ${proc.name}: ${err instanceof Error ? err.message : err}`, type: 'error' });
     } finally {
       setIsKilling(false);
     }
@@ -228,6 +205,12 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
         </div>
       )}
 
+      {hasData && loadError && (
+        <div className="px-3 py-2 text-xs border-b shrink-0 bg-amber-950/70 text-amber-300 border-amber-800">
+          Refresh failed, showing the last list received from the device: {loadError}
+        </div>
+      )}
+
       {/* Process Table Header */}
       <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-[#0d111d] border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
         <button
@@ -312,13 +295,19 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
           );
         })}
 
-        {filteredProcesses.length === 0 && (
+        {!isWindows ? (
+          <BackstageLiveStatus state="unsupported" deviceName={device.name} what="process list" />
+        ) : !hasData && isLoading ? (
+          <BackstageLiveStatus state="loading" deviceName={device.name} what="processes" />
+        ) : !hasData && loadError ? (
+          <BackstageLiveStatus state="error" deviceName={device.name} what="processes" error={loadError} onRetry={fetchProcesses} />
+        ) : hasData && filteredProcesses.length === 0 ? (
           <div className="py-12 text-center text-slate-500 font-sans">
             <Activity className="w-8 h-8 mx-auto mb-2 text-slate-600" />
             <div className="font-bold text-slate-400">No matching processes found</div>
             <div className="text-xs text-slate-600 mt-1">Try modifying your search query</div>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Footer Summary Stats */}

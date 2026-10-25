@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Cog,
   Search,
@@ -13,6 +13,25 @@ import {
 } from 'lucide-react';
 import { ManagedDevice, DeviceService } from '../../../types';
 import { useApp } from '../../../data/AppContext';
+import { runRemotePsJson, runRemotePsList, psQuote } from './remoteExec';
+import { BackstageLiveStatus } from './BackstageLiveStatus';
+
+interface ServiceRow {
+  Name: string;
+  DisplayName: string | null;
+  State: string | null;
+  StartMode: string | null;
+}
+
+const toDeviceService = (row: ServiceRow): DeviceService => {
+  const mode = (row.StartMode || '').toLowerCase();
+  return {
+    name: row.Name,
+    displayName: row.DisplayName || row.Name,
+    status: row.State === 'Running' ? 'running' : 'stopped',
+    startupType: mode === 'disabled' ? 'disabled' : mode === 'manual' ? 'manual' : 'auto'
+  };
+};
 
 interface BackstageServicesProps {
   device: ManagedDevice;
@@ -29,61 +48,55 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  // Baseline standard Windows services
-  const defaultServices = useMemo<DeviceService[]>(() => {
-    if (device.services && device.services.length > 0) {
-      return device.services;
-    }
-    return [
-      { name: 'Spooler', displayName: 'Print Spooler', status: 'running', startupType: 'auto' },
-      { name: 'wuauserv', displayName: 'Windows Update', status: 'running', startupType: 'auto' },
-      { name: 'Mesh Agent', displayName: 'MeshCentral Background Agent', status: 'running', startupType: 'auto' },
-      { name: 'ApexMSPAgent', displayName: 'ApexMSP Endpoint Service', status: 'running', startupType: 'auto' },
-      { name: 'WinDefend', displayName: 'Microsoft Defender Antivirus Service', status: 'running', startupType: 'auto' },
-      { name: 'W32Time', displayName: 'Windows Time', status: 'running', startupType: 'auto' },
-      { name: 'EventLog', displayName: 'Windows Event Log', status: 'running', startupType: 'auto' },
-      { name: 'BITS', displayName: 'Background Intelligent Transfer Service', status: 'running', startupType: 'auto' },
-      { name: 'LanmanServer', displayName: 'Server (SMB)', status: 'running', startupType: 'auto' },
-      { name: 'LanmanWorkstation', displayName: 'Workstation', status: 'running', startupType: 'auto' },
-      { name: 'Dhcp', displayName: 'DHCP Client', status: 'running', startupType: 'auto' },
-      { name: 'Dnscache', displayName: 'DNS Client', status: 'running', startupType: 'auto' },
-      { name: 'TermService', displayName: 'Remote Desktop Services', status: 'stopped', startupType: 'manual' },
-      { name: 'RemoteRegistry', displayName: 'Remote Registry', status: 'stopped', startupType: 'disabled' },
-      { name: 'SysMain', displayName: 'SysMain / Superfetch', status: 'running', startupType: 'auto' },
-      { name: 'WerSvc', displayName: 'Windows Error Reporting Service', status: 'stopped', startupType: 'manual' }
-    ];
-  }, [device.services]);
+  const isWindows = device.os === 'windows';
+  const [servicesList, setServicesList] = useState<DeviceService[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [servicesList, setServicesList] = useState<DeviceService[]>(defaultServices);
+  const fetchServices = useCallback(async () => {
+    if (!isWindows) return;
+    setIsLoading(true);
+    try {
+      const rows = await runRemotePsList<ServiceRow>(
+        runRemoteScriptOnDevice,
+        device.id,
+        'Get-CimInstance Win32_Service | Select-Object Name, DisplayName, State, StartMode'
+      );
+      setServicesList(rows.map(toDeviceService).sort((x, y) => (x.displayName || x.name).localeCompare(y.displayName || y.name)));
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [device.id, isWindows, runRemoteScriptOnDevice]);
+
+  useEffect(() => {
+    fetchServices();
+  }, [fetchServices]);
 
   const handleServiceAction = async (serviceName: string, action: 'start' | 'stop' | 'restart') => {
     setActiveAction(`${serviceName}-${action}`);
     setActionMessage({ text: `${action.toUpperCase()}ing service "${serviceName}"…`, type: 'info' });
 
     try {
-      let cmd = '';
-      if (action === 'start') {
-        cmd = `Start-Service -Name '${serviceName}' -ErrorAction SilentlyContinue; Get-Service -Name '${serviceName}' | Select-Object Status`;
-      } else if (action === 'stop') {
-        cmd = `Stop-Service -Name '${serviceName}' -Force -ErrorAction SilentlyContinue; Get-Service -Name '${serviceName}' | Select-Object Status`;
-      } else if (action === 'restart') {
-        cmd = `Restart-Service -Name '${serviceName}' -Force -ErrorAction SilentlyContinue; Get-Service -Name '${serviceName}' | Select-Object Status`;
+      const verb = action === 'start' ? 'Start-Service' : action === 'stop' ? 'Stop-Service -Force' : 'Restart-Service -Force';
+      const name = psQuote(serviceName);
+      const after = await runRemotePsJson<ServiceRow>(
+        runRemoteScriptOnDevice,
+        device.id,
+        `& { ${verb} -Name ${name}; Get-CimInstance Win32_Service | Where-Object Name -eq ${name} | Select-Object Name, DisplayName, State, StartMode }`
+      );
+      const updated = after ? toDeviceService(after) : null;
+      if (updated) {
+        setServicesList(prev => prev.map(s => (s.name.toLowerCase() === serviceName.toLowerCase() ? updated : s)));
       }
-
-      await runRemoteScriptOnDevice(device.id, cmd, 'powershell');
-
-      // Update state optimistically
-      setServicesList(prev => prev.map(s => {
-        if (s.name.toLowerCase() === serviceName.toLowerCase()) {
-          const nextStatus = action === 'stop' ? 'stopped' : 'running';
-          return { ...s, status: nextStatus };
-        }
-        return s;
-      }));
-
-      setActionMessage({ text: `Service "${serviceName}" successfully ${action}ed.`, type: 'success' });
-    } catch (err: any) {
-      setActionMessage({ text: `Failed to ${action} "${serviceName}": ${err?.message || err}`, type: 'error' });
+      setActionMessage({
+        text: `${action === 'start' ? 'Started' : action === 'stop' ? 'Stopped' : 'Restarted'} "${serviceName}"${updated ? ` (now ${updated.status})` : ''}.`,
+        type: 'success'
+      });
+    } catch (err) {
+      setActionMessage({ text: `Failed to ${action} "${serviceName}": ${err instanceof Error ? err.message : err}`, type: 'error' });
     } finally {
       setActiveAction(null);
     }
@@ -126,6 +139,14 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
 
         {/* Filter Pills */}
         <div className="flex items-center gap-1.5 shrink-0 text-xs">
+          <button
+            onClick={fetchServices}
+            disabled={isLoading || !isWindows}
+            title="Refresh services from the device"
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded-lg border border-slate-700 transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-sky-400' : ''}`} />
+          </button>
           <button
             onClick={() => setStatusFilter('all')}
             className={`px-2.5 py-1 rounded-lg font-semibold transition ${
@@ -176,6 +197,12 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
           <button onClick={() => setActionMessage(null)} className="hover:opacity-70">
             <X className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {servicesList.length > 0 && loadError && (
+        <div className="px-3 py-2 text-xs border-b shrink-0 bg-amber-950/70 text-amber-300 border-amber-800">
+          Refresh failed, showing the last list received from the device: {loadError}
         </div>
       )}
 
@@ -263,13 +290,19 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
           );
         })}
 
-        {filteredServices.length === 0 && (
+        {!isWindows ? (
+          <BackstageLiveStatus state="unsupported" deviceName={device.name} what="services" />
+        ) : servicesList.length === 0 && isLoading ? (
+          <BackstageLiveStatus state="loading" deviceName={device.name} what="services" />
+        ) : servicesList.length === 0 && loadError ? (
+          <BackstageLiveStatus state="error" deviceName={device.name} what="services" error={loadError} onRetry={fetchServices} />
+        ) : servicesList.length > 0 && filteredServices.length === 0 ? (
           <div className="py-12 text-center text-slate-500">
             <Cog className="w-8 h-8 mx-auto mb-2 text-slate-600" />
             <div className="font-bold text-slate-400">No matching services found</div>
             <div className="text-xs text-slate-600 mt-1">Try changing filter criteria</div>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Footer */}

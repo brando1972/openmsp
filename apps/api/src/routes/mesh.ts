@@ -167,7 +167,7 @@ router.post('/session', async (req: AuthenticatedRequest, res) => {
     const session = await meshClient.openDesktopSession(nodeid, protocol);
     store.recordAudit({
       orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
-      action: protocol === 2 ? 'remote.desktop_start' : (protocol === 6 ? 'remote.powershell_start' : 'remote.terminal_start'),
+      action: protocol === 2 ? 'remote.desktop_start' : protocol === 6 ? 'remote.powershell_start' : protocol === 5 ? 'remote.files_start' : 'remote.terminal_start',
       targetType: 'device', targetId: deviceId || nodeid,
       details: { nodeid, transport: 'apexconnect-native', deviceName, protocol }, ipAddress: req.ip
     });
