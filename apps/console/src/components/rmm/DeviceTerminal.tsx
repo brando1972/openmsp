@@ -315,12 +315,17 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
     };
   }, [isExpanded, sendResize]);
 
-  // Send a raw command string to the live session
+  // Send a raw command string to the live session.
+  // A PTY's Enter key is a single carriage return (\r) — the same byte xterm emits
+  // when you press Enter in the terminal directly. Sending "\r\n" submits the command
+  // AND feeds an extra line-feed, which PowerShell/PSReadLine treats as the start of a
+  // new incomplete line (the ">>" continuation prompt), leaving the cursor in the wrong
+  // place so the next command lands mid-output. Send "\r" only to match a real Enter.
   const sendCommandText = (cmd: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     const encoder = new TextEncoder();
-    ws.send(encoder.encode(cmd + '\r\n'));
+    ws.send(encoder.encode(cmd + '\r'));
     termRef.current?.focus();
   };
 
