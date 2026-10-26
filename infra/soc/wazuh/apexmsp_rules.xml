@@ -1,0 +1,66 @@
+<!--
+  ApexMSP Custom Wazuh Correlation Rules (v2.0)
+  Rule ID Range: 100500 - 100599
+-->
+<group name="apexmsp,security,edr,unifi,">
+
+  <rule id="100500" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="orgId">^org-</field>
+    <description>ApexMSP Security Telemetry Event Ingested</description>
+  </rule>
+
+  <rule id="100501" level="12">
+    <if_sid>100500</if_sid>
+    <match>EICAR-STANDARD-ANTIVIRUS-TEST-FILE</match>
+    <description>ApexMSP AV Pipeline: EICAR Anti-Malware Test Signature Detected and Quarantined</description>
+    <mitre>
+      <id>T1204</id>
+    </mitre>
+  </rule>
+
+  <rule id="100510" level="15">
+    <if_sid>100500</if_sid>
+    <regex>vssadmin\s+delete\s+shadows|wmic\s+shadowcopy\s+delete|wbadmin\s+delete\s+catalog|bcdedit\s+/set.*recoveryenabled\s+no|cipher\s+/w:</regex>
+    <description>ApexMSP EDR Reflex: Ransomware Volume Shadow Copy / Recovery Inhibition Detected</description>
+    <mitre>
+      <id>T1490</id>
+    </mitre>
+  </rule>
+
+  <rule id="100511" level="3">
+    <if_sid>100510</if_sid>
+    <regex>Veeam|Acronis|wbengine\.exe|TimeMachine|tmutil</regex>
+    <description>ApexMSP EDR Reflex Exclusion: Authorized Backup Service Shadow Maintenance Ignored</description>
+  </rule>
+
+  <rule id="100520" level="15">
+    <if_sid>100500</if_sid>
+    <match>canary_tamper</match>
+    <description>ApexMSP Canary Tripwire: High-Confidence Ransomware File Tamper/Rename Detected</description>
+    <mitre>
+      <id>T1486</id>
+    </mitre>
+  </rule>
+
+  <rule id="100530" level="10">
+    <decoded_as>apexmsp-unifi-cef</decoded_as>
+    <description>ApexMSP UniFi CEF IDS/IPS Network Telemetry Alert</description>
+  </rule>
+
+  <rule id="100535" level="13">
+    <if_sid>100500</if_sid>
+    <match>UNIFIswitchPort=43</match>
+    <description>ApexMSP Gambinos Shared Switch Port 43 Alert (Protected Multi-MAC POS Segment)</description>
+  </rule>
+
+  <rule id="100540" level="12">
+    <if_sid>100500</if_sid>
+    <match>preventive_disabled</match>
+    <description>ApexMSP Endpoint Posture: Native Preventive Antivirus Disabled or Outdated Signatures</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+  </rule>
+
+</group>

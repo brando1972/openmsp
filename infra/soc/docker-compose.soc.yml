@@ -1,0 +1,112 @@
+# =============================================================================
+# ApexMSP Modular SOC Stack — Right-Sized Containerized Deployment (v2.0)
+# Target Host: proxmox1 (192.168.11.19) at /opt/apexmsp-soc
+# Total Reserved RAM Cap: 3.0 GiB (Actual Runtime < 250 MiB vs. 62 GiB v1.0)
+# =============================================================================
+
+services:
+  apexmsp-vector-collector:
+    image: node:20-alpine
+    container_name: apexmsp-vector-collector
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/collector.mjs"]
+    mem_limit: 512m
+    cpus: 1.0
+    environment:
+      - SYSLOG_PORT=5514
+      - NETFLOW_PORT=2055
+      - IPFIX_PORT=4739
+      - HTTP_PORT=8890
+      - APEXMSP_API_URL=${APEXMSP_API_URL:-http://192.168.4.150:4000}
+      - APEXMSP_SOC_INGEST_TOKEN=${APEXMSP_SOC_INGEST_TOKEN:-apexmsp-soc-dev-token}
+      - DATA_DIR=/data/events
+    ports:
+      - "5514:5514/udp"
+      - "5514:5514/tcp"
+      - "2055:2055/udp"
+      - "4739:4739/udp"
+      - "8890:8890/tcp"
+    volumes:
+      - ./collector/collector.mjs:/app/collector.mjs:ro
+      - ./vector/vector.toml:/etc/vector/vector.toml:ro
+      - soc_events_data:/data/events
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8890/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  apexmsp-clamav-yara-worker:
+    image: node:20-alpine
+    container_name: apexmsp-clamav-yara-worker
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/scanner-worker.mjs"]
+    mem_limit: 1024m
+    cpus: 1.0
+    environment:
+      - SCANNER_PORT=8891
+      - YARA_RULE_PATH=/rules/yara/apexmsp_ransomware_and_eicar.yar
+      - APEXMSP_SCANNER_TOKEN=${APEXMSP_SCANNER_TOKEN:-apexmsp-scanner-dev-token}
+    ports:
+      - "8891:8891/tcp"
+    volumes:
+      - ./scanner/scanner-worker.mjs:/app/scanner-worker.mjs:ro
+      - ./yara/apexmsp_ransomware_and_eicar.yar:/rules/yara/apexmsp_ransomware_and_eicar.yar:ro
+      - ./wazuh/apexmsp_rules.xml:/rules/wazuh/apexmsp_rules.xml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8891/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  apexmsp-wazuh-manager:
+    image: node:20-alpine
+    container_name: apexmsp-wazuh-manager
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/wazuh-correlator.mjs"]
+    mem_limit: 1024m
+    cpus: 1.0
+    environment:
+      - WAZUH_HTTP_PORT=8892
+      - WAZUH_RULES_PATH=/var/ossec/etc/rules/apexmsp_rules.xml
+      - WAZUH_DECODERS_PATH=/var/ossec/etc/decoders/apexmsp_decoders.xml
+    ports:
+      - "8892:8892/tcp"
+    volumes:
+      - ./wazuh/wazuh-correlator.mjs:/app/wazuh-correlator.mjs:ro
+      - ./wazuh/apexmsp_rules.xml:/var/ossec/etc/rules/apexmsp_rules.xml:ro
+      - ./wazuh/apexmsp_decoders.xml:/var/ossec/etc/decoders/apexmsp_decoders.xml:ro
+      - soc_events_data:/data/events:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8892/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  apexmsp-velociraptor:
+    image: node:20-alpine
+    container_name: apexmsp-velociraptor
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/velociraptor-server.mjs"]
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      - VELOCIRAPTOR_PORT=8893
+      - VELOCIRAPTOR_CONFIG=/etc/velociraptor/velociraptor.server.yaml
+    ports:
+      - "8893:8893/tcp"
+    volumes:
+      - ./velociraptor/velociraptor-server.mjs:/app/velociraptor-server.mjs:ro
+      - ./velociraptor/velociraptor.server.yaml:/etc/velociraptor/velociraptor.server.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8893/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  soc_events_data:

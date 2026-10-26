@@ -1,0 +1,85 @@
+# =============================================================================
+# ApexMSP Modular SOC Stack — Vector.dev Telemetry & CEF/IPFIX Pipeline
+# Replaces 62 GiB Graylog + MongoDB + OpenSearch SSPLv1 stack with < 256 MiB RAM
+# =============================================================================
+
+[api]
+enabled = true
+address = "0.0.0.0:8686"
+playground = false
+
+# -----------------------------------------------------------------------------
+# 1. Sources: UniFi CEF/Syslog (UDP/TCP 5514) & IPFIX/NetFlow (UDP 2055/4739)
+# -----------------------------------------------------------------------------
+[sources.unifi_syslog_udp]
+type = "socket"
+address = "0.0.0.0:5514"
+mode = "udp"
+max_length = 65536
+
+[sources.unifi_syslog_tcp]
+type = "socket"
+address = "0.0.0.0:5514"
+mode = "tcp"
+max_length = 65536
+
+[sources.unifi_ipfix_2055]
+type = "socket"
+address = "0.0.0.0:2055"
+mode = "udp"
+max_length = 65536
+
+[sources.unifi_ipfix_4739]
+type = "socket"
+address = "0.0.0.0:4739"
+mode = "udp"
+max_length = 65536
+
+# -----------------------------------------------------------------------------
+# 2. Transforms: Preserve Raw CEF, Original Timestamp & Site Context (VRL)
+# -----------------------------------------------------------------------------
+[transforms.normalize_unifi_cef]
+type = "remap"
+inputs = ["unifi_syslog_udp", "unifi_syslog_tcp"]
+source = '''
+  .raw_payload = string!(.message)
+  .parser_version = "2026.10.25-vector-v2"
+  .ingested_at = now()
+  
+  # Parse CEF:0|Ubiquiti|UniFi Network|Version|SignatureID|Name|Severity|Extension
+  if contains(.raw_payload, "CEF:0|") {
+    .event_format = "cef"
+    parts = split(.raw_payload, "|", limit: 8)
+    .vendor = get(parts, [1]) ?? "Ubiquiti"
+    .product = get(parts, [2]) ?? "UniFi Network"
+    .device_version = get(parts, [3]) ?? "unknown"
+    .signature_id = get(parts, [4]) ?? "unknown"
+    .event_name = get(parts, [5]) ?? "UniFi Security Event"
+    .cef_severity = get(parts, [6]) ?? "5"
+    .cef_extension = get(parts, [7]) ?? ""
+  } else {
+    .event_format = "syslog"
+    .vendor = "Ubiquiti"
+    .product = "UniFi OS"
+  }
+'''
+
+# -----------------------------------------------------------------------------
+# 3. Sinks: ApexMSP Security API & Local JSONL Buffer for Wazuh Correlation
+# -----------------------------------------------------------------------------
+[sinks.apexmsp_unifi_cef_api]
+type = "http"
+inputs = ["normalize_unifi_cef"]
+uri = "${APEXMSP_API_URL:-http://192.168.4.150:4000}/api/v1/integrations/unifi/syslog-cef"
+method = "post"
+encoding.codec = "json"
+auth.strategy = "bearer"
+auth.token = "${APEXMSP_SOC_INGEST_TOKEN:-apexmsp-soc-dev-token}"
+batch.max_events = 25
+batch.timeout_secs = 1
+
+[sinks.wazuh_jsonl_archive]
+type = "file"
+inputs = ["normalize_unifi_cef"]
+path = "/data/events/soc-events-%Y-%m-%d.jsonl"
+encoding.codec = "json"

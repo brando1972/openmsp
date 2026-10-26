@@ -1,0 +1,41 @@
+<!--
+  ApexMSP Custom Wazuh Decoders (infra/soc/wazuh/decoders/apexmsp_decoders.xml)
+  Decodes:
+    1. ApexMSP Endpoint Agent JSON / Syslog telemetry (apexmsp-agent)
+    2. UniFi Network / UDM Pro CEF & Syslog IDS/IPS, Wi-Fi Assoc/Roam, and VLAN Firewall logs
+-->
+
+<decoder name="apexmsp-agent-json">
+  <program_name>^openmsp-agent|^apexmsp-agent</program_name>
+  <plugin_decoder>JSON_Decoder</plugin_decoder>
+</decoder>
+
+<decoder name="unifi-cef">
+  <prematch>CEF:0\|Ubiquiti\|UniFi</prematch>
+</decoder>
+
+<decoder name="unifi-cef-fields">
+  <parent>unifi-cef</parent>
+  <regex>CEF:0\|Ubiquiti\|UniFi\|(\S+)\|(\S+)\|([^|]+)\|(\d+)\|.*src=(\S+)\s+dst=(\S+)\s+spt=(\d+)\s+dpt=(\d+)\s+proto=(\S+)</regex>
+  <order>unifi.version, unifi.signature_id, unifi.signature_name, unifi.severity, srcip, dstip, srcport, dstport, protocol</order>
+</decoder>
+
+<decoder name="unifi-firewall-vlan">
+  <prematch>IN=br\d+\s+OUT=br\d+</prematch>
+</decoder>
+
+<decoder name="unifi-firewall-vlan-fields">
+  <parent>unifi-firewall-vlan</parent>
+  <regex>IN=(br\d+)\s+OUT=(br\d+)\s+MAC=(\S+)\s+SRC=(\S+)\s+DST=(\S+).*PROTO=(\S+)\s+SPT=(\d+)\s+DPT=(\d+)</regex>
+  <order>unifi.in_iface, unifi.out_iface, srcmac, srcip, dstip, protocol, srcport, dstport</order>
+</decoder>
+
+<decoder name="unifi-wifi-event">
+  <program_name>^hostapd|^stainfo</program_name>
+</decoder>
+
+<decoder name="unifi-wifi-event-fields">
+  <parent>unifi-wifi-event</parent>
+  <regex>(\S+):\s+STA\s+([0-9a-fA-F:]{17})\s+IEEE 802.11:\s+(\S+)</regex>
+  <order>unifi.vap, srcmac, unifi.wifi_action</order>
+</decoder>

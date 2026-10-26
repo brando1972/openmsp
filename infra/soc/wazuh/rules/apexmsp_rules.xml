@@ -1,0 +1,215 @@
+<!--
+  ApexMSP Custom Wazuh Detection Rules (infra/soc/wazuh/rules/apexmsp_rules.xml)
+  Rule ID allocation: 100500 - 100599
+  Covers:
+    - Ransomware Recovery Inhibition (vssadmin, wmic shadowcopy, wbadmin, bcdedit, cipher)
+    - Explicit Legitimate Backup Exclusions (Veeam, Acronis, Datto, Windows Server Backup scheduled maintenance)
+    - ApexMSP Canary Tripwire Tamper / Encryption / Deletion / Rename (.locked, .encrypted)
+    - EICAR & YARA-X / ClamAV Malware Detections
+    - UniFi IDS/IPS Suricata CEF High-Confidence Alerts
+    - POS Payment VLAN 88 Unauthorized Lateral Movement & Segmentation Violation
+    - Wi-Fi Deauth / Auth Failure Storm (Separated as wifi_diagnostic vs lateral_movement)
+-->
+
+<group name="apexmsp,edr,soc,">
+
+  <!-- Base rule for ApexMSP Endpoint Agent JSON events -->
+  <rule id="100500" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="sourceProvider">^apex_agent$|^yara_x$|^clamav$|^velociraptor$</field>
+    <description>ApexMSP Endpoint Security Telemetry Event: $(ruleName)</description>
+  </rule>
+
+  <!-- ==================================================================== -->
+  <!-- 1. LEGITIMATE BACKUP & ADMIN EXCLUSIONS (Level 0 - Suppress FP)      -->
+  <!--    Evaluated BEFORE or overriding recovery inhibition rules          -->
+  <!-- ==================================================================== -->
+  <rule id="100505" level="0">
+    <if_group>sysmon_event1|windows|apexmsp</if_group>
+    <field name="win.eventdata.parentImage" type="pcre2">(?i)^C:\\Program Files( \(x86\))?\\(Veeam|Acronis|Datto)\\</field>
+    <description>ApexMSP Exclusion: Verified Enterprise Backup Agent (Veeam / Acronis / Datto) VSS Maintenance</description>
+    <group>backup_exclusion,</group>
+  </rule>
+
+  <rule id="100506" level="0">
+    <if_group>sysmon_event1|windows|apexmsp</if_group>
+    <field name="win.eventdata.parentImage" type="pcre2">(?i)^C:\\Windows\\System32\\wbengine\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)--scheduled-maintenance|-keepVersions:</field>
+    <description>ApexMSP Exclusion: Windows Server Backup Scheduled Maintenance Catalog Rotation</description>
+    <group>backup_exclusion,</group>
+  </rule>
+
+  <!-- ==================================================================== -->
+  <!-- 2. RANSOMWARE RECOVERY INHIBITION (MITRE T1490 / T1485)              -->
+  <!-- ==================================================================== -->
+  <rule id="100510" level="15">
+    <if_sid>100500</if_sid>
+    <field name="ruleId">^APEX-EDR-RI-001$</field>
+    <description>ApexMSP CRITICAL: Ransomware Recovery Inhibition - vssadmin shadow copy deletion/resize ($(process.cmdline))</description>
+    <mitre>
+      <id>T1490</id>
+    </mitre>
+    <group>ransomware,recovery_inhibition,pci_dss_11.4,</group>
+  </rule>
+
+  <rule id="100511" level="15">
+    <if_sid>100500</if_sid>
+    <field name="ruleId">^APEX-EDR-RI-002$</field>
+    <description>ApexMSP CRITICAL: Ransomware Recovery Inhibition - wmic shadowcopy delete ($(process.cmdline))</description>
+    <mitre>
+      <id>T1490</id>
+    </mitre>
+    <group>ransomware,recovery_inhibition,pci_dss_11.4,</group>
+  </rule>
+
+  <rule id="100512" level="15">
+    <if_sid>100500</if_sid>
+    <field name="ruleId">^APEX-EDR-RI-003$</field>
+    <description>ApexMSP CRITICAL: Ransomware Recovery Inhibition - wbadmin backup catalog deletion ($(process.cmdline))</description>
+    <mitre>
+      <id>T1490</id>
+    </mitre>
+    <group>ransomware,recovery_inhibition,pci_dss_11.4,</group>
+  </rule>
+
+  <rule id="100513" level="15">
+    <if_sid>100500</if_sid>
+    <field name="ruleId">^APEX-EDR-RI-004$</field>
+    <description>ApexMSP CRITICAL: Ransomware Recovery Inhibition - bcdedit boot recovery disabled ($(process.cmdline))</description>
+    <mitre>
+      <id>T1490</id>
+    </mitre>
+    <group>ransomware,recovery_inhibition,</group>
+  </rule>
+
+  <rule id="100514" level="13">
+    <if_sid>100500</if_sid>
+    <field name="ruleId">^APEX-EDR-RI-005$</field>
+    <description>ApexMSP HIGH: Free-space disk wipe via cipher /w: ($(process.cmdline))</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>ransomware,recovery_inhibition,</group>
+  </rule>
+
+  <rule id="100515" level="12">
+    <if_sid>100500</if_sid>
+    <field name="ruleId">^APEX-EDR-PS-001$</field>
+    <description>ApexMSP HIGH: Suspicious Encoded / Download-Cradle PowerShell Execution ($(process.cmdline))</description>
+    <mitre>
+      <id>T1059.001</id>
+    </mitre>
+    <group>malware,powershell,</group>
+  </rule>
+
+  <!-- Native Windows Sysmon / Security EventLog Recovery Inhibition Catch -->
+  <rule id="100518" level="15">
+    <if_group>sysmon_event1|windows</if_group>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(vssadmin.*(delete\s+shadows|resize\s+shadowstorage)|wmic.*shadowcopy.*delete|wbadmin.*delete\s+(catalog|systemstatebackup)|bcdedit.*(recoveryenabled\s+no|ignoreallfailures))</field>
+    <description>ApexMSP CRITICAL (Sysmon): Windows Recovery Inhibition Command Executed</description>
+    <mitre>
+      <id>T1490</id>
+    </mitre>
+    <group>ransomware,recovery_inhibition,</group>
+  </rule>
+
+  <!-- ==================================================================== -->
+  <!-- 3. APEXMSP CANARY TRIPWIRE ALERTS (MITRE T1486)                      -->
+  <!-- ==================================================================== -->
+  <rule id="100520" level="15">
+    <if_sid>100500</if_sid>
+    <field name="category">^canary_tripwire$</field>
+    <description>ApexMSP CRITICAL: Ransomware Canary Tripwire Triggered ($(ruleId)) on $(file.path)</description>
+    <mitre>
+      <id>T1486</id>
+    </mitre>
+    <group>ransomware,canary_tripwire,fim,pci_dss_11.5,</group>
+  </rule>
+
+  <rule id="100521" level="15">
+    <if_sid>100520</if_sid>
+    <field name="ruleId">^APEX-EDR-CANARY-ENC$</field>
+    <description>ApexMSP CRITICAL: High-Entropy Encryption Detected on Canary Tripwire File $(file.path) (Shannon Entropy=$(rawEvidence.shannonEntropy))</description>
+    <mitre>
+      <id>T1486</id>
+    </mitre>
+    <group>ransomware,canary_tripwire,</group>
+  </rule>
+
+  <!-- ==================================================================== -->
+  <!-- 4. MALWARE / EICAR / YARA-X / CLAMAV DETECTIONS                      -->
+  <!-- ==================================================================== -->
+  <rule id="100530" level="12">
+    <if_sid>100500</if_sid>
+    <field name="ruleId">^APEX-AV-EICAR-001$</field>
+    <description>ApexMSP HIGH: EICAR Standard Antivirus Test Signature Detected in $(file.path) (SHA256=$(file.sha256))</description>
+    <group>malware,eicar_test,av_detection,</group>
+  </rule>
+
+  <rule id="100531" level="14">
+    <if_sid>100500</if_sid>
+    <field name="ruleId">^APEX-AV-HASH-001$|^APEX-YARA-|^APEX-CLAMAV-</field>
+    <description>ApexMSP CRITICAL: Endpoint Malware / Ransomware Payload Detected ($(ruleName)) in $(file.path)</description>
+    <mitre>
+      <id>T1204.002</id>
+    </mitre>
+    <group>malware,av_detection,</group>
+  </rule>
+
+  <!-- ==================================================================== -->
+  <!-- 5. UNIFI IDS/IPS CEF & POS VLAN 88 SEGMENTATION VIOLATIONS           -->
+  <!-- ==================================================================== -->
+  <rule id="100550" level="12">
+    <decoded_as>unifi-cef</decoded_as>
+    <description>ApexMSP UniFi IDS/IPS Alert: $(unifi.signature_name) from $(srcip):$(srcport) to $(dstip):$(dstport)</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+    <group>unifi_ids,network_ids,pci_dss_11.4,</group>
+  </rule>
+
+  <rule id="100555" level="15">
+    <decoded_as>unifi-firewall-vlan</decoded_as>
+    <field name="unifi.out_iface">^br88$</field>
+    <field name="dstport">^22$|^135$|^139$|^445$|^3389$|^5985$|^5986$|^9100$</field>
+    <description>ApexMSP CRITICAL PCI-DSS Violation: Unauthorized Lateral Access Attempt into POS Payment VLAN 88 from $(srcip) to $(dstip):$(dstport)</description>
+    <mitre>
+      <id>T1021</id>
+    </mitre>
+    <group>lateral_movement,pos_vlan88_violation,pci_dss_1.2,pci_dss_11.4,</group>
+  </rule>
+
+  <!-- ==================================================================== -->
+  <!-- 6. UNIFI WI-FI DIAGNOSTIC VS SECURITY ANOMALY SEPARATION             -->
+  <!-- ==================================================================== -->
+  <rule id="100560" level="5">
+    <decoded_as>unifi-wifi-event</decoded_as>
+    <field name="unifi.wifi_action">deauthenticated|disassociated</field>
+    <description>ApexMSP Wi-Fi Telemetry: Client $(srcmac) $(unifi.wifi_action) on VAP $(unifi.vap)</description>
+    <group>wifi_diagnostic,</group>
+  </rule>
+
+  <rule id="100561" level="11" frequency="25" timeframe="60">
+    <if_matched_sid>100560</if_matched_sid>
+    <same_field>unifi.vap</same_field>
+    <description>ApexMSP HIGH: Sustained 802.11 Deauthentication / Roaming Storm on VAP $(unifi.vap) (>25 events/60s)</description>
+    <mitre>
+      <id>T1498</id>
+    </mitre>
+    <group>unifi_anomaly,wifi_deauth_storm,</group>
+  </rule>
+
+  <!-- ==================================================================== -->
+  <!-- 7. MULTI-SIGNAL RANSOMWARE CORRELATION (Recovery Inhibition + Canary)-->
+  <!-- ==================================================================== -->
+  <rule id="100590" level="15" frequency="2" timeframe="300">
+    <if_matched_group>recovery_inhibition|canary_tripwire</if_matched_group>
+    <description>ApexMSP EMERGENCY INCIDENT: Multi-Signal Ransomware Attack Confirmed (Recovery Inhibition + Canary Tripwire within 5m)</description>
+    <mitre>
+      <id>T1486</id>
+      <id>T1490</id>
+    </mitre>
+    <group>ransomware,multi_signal_confirmed,auto_containment_candidate,</group>
+  </rule>
+
+</group>
