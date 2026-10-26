@@ -211,9 +211,9 @@ export const RMMView: React.FC = () => {
   };
 
   const apiBase = API_BASE || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001');
-  const macOSCommand = `curl -fsSL ${apiBase}/api/v1/installers/script?token=${enrollToken}&os=macos | bash`;
-  const windowsCommand = `irm ${apiBase}/api/v1/installers/script?token=${enrollToken}&os=windows | iex`;
-  const binaryCommand = `./openmsp-agent --server=${apiBase} --token=${enrollToken}`;
+  const macOSCommand = `curl -fsSL "${apiBase}/api/v1/installers/macos/${enrollToken}" | bash`;
+  const windowsCommand = `irm "${apiBase}/api/v1/installers/windows/${enrollToken}" | iex`;
+  const binaryCommand = `./openmsp-agent --server="${apiBase}" --token="${enrollToken}"`;
 
   // Managed Tablets (Android MDM / kiosk fleet) — live from the VNC relay
   if (activeSubRailView === 'mdm-tablets') {
