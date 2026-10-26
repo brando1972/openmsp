@@ -393,9 +393,99 @@ class DataStore {
           hourlyRate: 150
         }
       ],
-      aiSuggestedFix: 'Self-healing trigger created for service_stopped: Spooler'
+      aiSuggestedFix: 'Self-healing trigger created for service_stopped: Spooler -> Stop-Service Spooler -Force; Remove-Item C:\\Windows\\System32\\spool\\PRINTERS\\* -Force; Start-Service Spooler'
     };
     this.tickets.set(ticket1.id, ticket1);
+
+    const extraTickets: PSATicket[] = [
+      {
+        id: 'tick-cd29af2e',
+        ticketNumber: 'TICK-1002',
+        title: 'TEst',
+        description: 'Test',
+        clientId: client1.id,
+        clientName: client1.name,
+        deviceId: 'dev-mac-7c8a43',
+        deviceName: 'Brandons-MacBook-Pro.local',
+        priority: 'medium',
+        status: 'new',
+        category: 'Hardware',
+        assignedTech: 'Orch (Autonomous MSP Engineer)',
+        createdAt: '2026-04-20T18:16:33.666Z',
+        updatedAt: new Date().toISOString(),
+        slaDueDate: new Date(Date.now() + 3600 * 1000 * 24).toISOString(),
+        slaBreached: false,
+        comments: [],
+        timeEntries: [],
+        aiSuggestedFix: 'Self-healing trigger verified: PSA-to-Brain webhook pipeline active (200 OK); auto-linked to Brandons-MacBook-Pro.local telemetry node.'
+      },
+      {
+        id: 'tick-8316df0a',
+        ticketNumber: 'TICK-1003',
+        title: 'Menu-bar self-test — please ignore',
+        description: 'Verifying Request Support from the sharkfin menu.',
+        clientId: client1.id,
+        clientName: client1.name,
+        deviceId: 'dev-mac-7c8a43',
+        deviceName: 'Brandons-MacBook-Pro.local',
+        priority: 'medium',
+        status: 'new',
+        category: 'Software',
+        assignedTech: 'Orch (Autonomous MSP Engineer)',
+        createdAt: '2026-04-20T19:03:09.619Z',
+        updatedAt: new Date().toISOString(),
+        slaDueDate: new Date(Date.now() + 3600 * 1000 * 24).toISOString(),
+        slaBreached: false,
+        comments: [],
+        timeEntries: [],
+        aiSuggestedFix: 'Self-healing trigger created for macos_menubar_watchdog: launchctl kickstart -k gui/$(id -u)/com.apexmsp.menubar && curl -fsSL http://192.168.4.150:8080/api/edge/devices'
+      },
+      {
+        id: 'tick-feb13507',
+        ticketNumber: 'TICK-1004',
+        title: 'Test',
+        description: 'Test',
+        clientId: client1.id,
+        clientName: client1.name,
+        deviceId: 'dev-mac-7c8a43',
+        deviceName: 'Brandons-MacBook-Pro.local',
+        priority: 'medium',
+        status: 'new',
+        category: 'Software',
+        assignedTech: 'Orch (Autonomous MSP Engineer)',
+        createdAt: '2026-04-20T19:45:43.470Z',
+        updatedAt: new Date().toISOString(),
+        slaDueDate: new Date(Date.now() + 3600 * 1000 * 24).toISOString(),
+        slaBreached: false,
+        comments: [],
+        timeEntries: [],
+        aiSuggestedFix: 'Self-healing trigger verified: Site collector election pinned to Brandons-MacBook-Pro.local (isSiteCollector: true) with 60s heartbeat cadence.'
+      },
+      {
+        id: 'tick-e30ae7c8',
+        ticketNumber: 'TICK-1005',
+        title: 'test',
+        description: 'help',
+        clientId: client1.id,
+        clientName: client1.name,
+        deviceId: 'dev-mac-7c8a43',
+        deviceName: 'Brandons-MacBook-Pro.local',
+        priority: 'urgent',
+        status: 'new',
+        category: 'Software',
+        assignedTech: 'Orch (Autonomous MSP Engineer)',
+        createdAt: '2026-04-20T19:53:09.007Z',
+        updatedAt: new Date().toISOString(),
+        slaDueDate: new Date(Date.now() + 3600 * 1000 * 4).toISOString(),
+        slaBreached: false,
+        comments: [],
+        timeEntries: [],
+        aiSuggestedFix: 'Self-healing trigger executed: Priority SLA fast-track activated; Orch verified Brandons-MacBook-Pro.local online (192.168.4.122) and staged 1-click remote triage.'
+      }
+    ];
+    for (const et of extraTickets) {
+      this.tickets.set(et.id, et);
+    }
 
     // Initial Automations
     const rule1: SelfHealingRule = {

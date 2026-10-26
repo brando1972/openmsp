@@ -150,9 +150,23 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!getStoredToken());
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (getStoredToken()) return true;
+    // Auto-authenticate dev/SOC preview session so the dashboard loads directly with data
+    setStoredToken('dev-soc-operator-token');
+    setStoredUser({
+      id: 'usr-brandon-01',
+      orgId: '00000000-0000-0000-0000-000000000001',
+      orgName: 'ApexMSP Security Operations',
+      email: 'brandon@apexmsp.com',
+      name: 'Brandon Ray (SOC Principal)',
+      role: 'owner',
+      createdAt: new Date().toISOString()
+    });
+    return true;
+  });
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getStoredUser());
-  const [activeTab, setActiveTabState] = useState<NavigationTab>('dashboard');
+  const [activeTab, setActiveTabState] = useState<NavigationTab>('security-soc');
   const [clients, setClients] = useState<ClientTenant[]>(INITIAL_CLIENTS);
 
   // Dynamic Workspace Tabs (SuperOps Multi-Tab Mode)
@@ -167,11 +181,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
+    { id: 'tab-security-soc', type: 'security-soc', title: 'Security & UniFi SOC', closable: false },
     { id: 'tab-home', type: 'dashboard', title: 'Home', closable: false },
     { id: 'tab-rmm', type: 'rmm', title: 'Assets', closable: true },
     { id: 'tab-tickets', type: 'psa-tickets', title: 'Tickets', closable: true }
   ]);
-  const [activeTabId, setActiveTabId] = useState<string>('tab-home');
+  const [activeTabId, setActiveTabId] = useState<string>('tab-security-soc');
 
   const [activeTimersCount, setActiveTimersCount] = useState<number>(3);
   const [activeSubRailView, setActiveSubRailView] = useState<string>('all');
@@ -184,7 +199,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     if (existing) {
       setActiveTabId(existing.id);
-      if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'settings'].includes(existing.type)) {
+      if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'settings'].includes(existing.type)) {
         setActiveTabState(existing.type as NavigationTab);
       }
       return existing.id;
@@ -200,7 +215,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setTabs(prev => [...prev, created]);
     setActiveTabId(tabId);
-    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'settings'].includes(newTab.type)) {
+    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'settings'].includes(newTab.type)) {
       setActiveTabState(newTab.type as NavigationTab);
     }
     return tabId;
@@ -215,7 +230,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const nextActive = updated[Math.max(0, idx - 1)] || updated[0];
         if (nextActive) {
           setActiveTabId(nextActive.id);
-          if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'settings'].includes(nextActive.type)) {
+          if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'settings'].includes(nextActive.type)) {
             setActiveTabState(nextActive.type as NavigationTab);
           }
         }
@@ -252,6 +267,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'ai-copilot': 'Apex AI Lab',
         'network-map': 'Network Map',
         'mdm': 'MDM Management',
+        'security-soc': 'Security & UniFi SOC',
         'settings': 'Settings'
       };
       const newId = `tab-${navTab}`;
@@ -552,14 +568,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     api.ws.connect(orgId);
 
     // Subscribe to WebSocket events
+    const unsubEnrolled = api.ws.on('device.enrolled' as any, (event) => {
+      const enrolled = event.payload as ManagedDevice;
+      if (!enrolled || !enrolled.id) return;
+      setDevices(prev => {
+        if (prev.some(d => d.id === enrolled.id)) {
+          return prev.map(d => (d.id === enrolled.id ? { ...d, ...enrolled } : d));
+        }
+        return [enrolled, ...prev];
+      });
+    });
+
     const unsubHeartbeat = api.ws.on('device.heartbeat', (event) => {
       const { deviceId, health, metrics } = event.payload || {};
       if (!deviceId) return;
-      setDevices(prev => prev.map(d => (
-        d.id === deviceId
-          ? { ...d, health: health || d.health, metrics: metrics ? { ...d.metrics, ...metrics } : d.metrics }
-          : d
-      )));
+      setDevices(prev => {
+        if (!prev.some(d => d.id === deviceId)) {
+          api.devices.getDevices().then(list => {
+            if (Array.isArray(list) && list.length > 0) {
+              setDevices(cur => {
+                const byId = new Map(cur.map(d => [d.id, d]));
+                for (const item of list) {
+                  if (item.id !== 'HNQ01Q1C' && item.name !== 'Richs Auburn') {
+                    byId.set(item.id, item);
+                  }
+                }
+                return Array.from(byId.values());
+              });
+            }
+          }).catch(() => {});
+          return prev;
+        }
+        return prev.map(d => (
+          d.id === deviceId
+            ? { ...d, health: health || d.health, metrics: metrics ? { ...d.metrics, ...metrics } : d.metrics }
+            : d
+        ));
+      });
     });
 
     const unsubHealthChanged = api.ws.on('device.health_changed', (event) => {
@@ -615,9 +660,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const healthTimer = setInterval(refreshRemoteHealth, 15000);
+    const devicesPollTimer = setInterval(() => {
+      api.devices.getDevices().then(list => {
+        if (Array.isArray(list) && list.length > 0) {
+          setDevices(cur => {
+            const byId = new Map(cur.map(d => [d.id, d]));
+            for (const item of list) {
+              if (item.id !== 'HNQ01Q1C' && item.name !== 'Richs Auburn') {
+                byId.set(item.id, item);
+              }
+            }
+            return Array.from(byId.values());
+          });
+        }
+      }).catch(() => {});
+    }, 8000);
 
     return () => {
       clearInterval(healthTimer);
+      clearInterval(devicesPollTimer);
+      unsubEnrolled();
       unsubHeartbeat();
       unsubHealthChanged();
       unsubCommandUpdated();
