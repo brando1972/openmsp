@@ -1418,7 +1418,7 @@ export const SecuritySocView: React.FC = () => {
                         {events.map(ev => (
                           <tr key={ev.id} className="hover:bg-slate-50">
                             <td className="py-2.5 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">
-                              {new Date(ev.detectedAt).toLocaleTimeString()}
+                              {new Date(ev.ingestTime || ev.sourceTimestamp).toLocaleTimeString()}
                             </td>
                             <td className="py-2.5 px-4 font-semibold text-slate-900">
                               <div className="flex items-center gap-1.5">
