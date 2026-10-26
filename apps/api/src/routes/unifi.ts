@@ -787,7 +787,7 @@ router.get(['/unpoller/gambinos', '/unpoller/:siteId', '/unpoller'], async (_req
     repository: 'https://github.com/timothystewart6/unpoller-unifi',
     siteId: GAMBINOS_SITE_ID,
     clientId: 'c-gambinos',
-    clientName: 'Gambinos Pizza',
+    clientName: 'Gambinos',
     liveProbe: {
       bridgeReachable: bridgeLive,
       prometheusReachable: promLive,

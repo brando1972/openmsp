@@ -600,7 +600,7 @@ async function main() {
           name: 'UNVERIFIED-BYOD-LAPTOP',
           hostname: 'unverified-laptop.local',
           clientId: 'c-gambinos',
-          clientName: 'Gambinos Pizza',
+          clientName: 'Gambinos',
           siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
           siteName: 'Gambinos Main Store',
           os: 'windows',

@@ -2567,7 +2567,7 @@ export const SecuritySocView: React.FC = () => {
                       </span>
                     </div>
                     <h2 className="text-base font-black text-white mt-1.5">
-                      UnPoller + Prometheus + Grafana Telemetry Suite (Gambino&apos;s Pizza UDM Pro — timothystewart6/unpoller-unifi)
+                      UnPoller + Prometheus + Grafana Telemetry Suite (Gambinos UDM Pro — timothystewart6/unpoller-unifi)
                     </h2>
                     <p className="text-xs text-slate-300 mt-0.5">
                       Continuous 30s Prometheus metrics collection from Gambinos UDM Pro (`192.168.2.1`) via UnPoller Bridge (`:9131`), rendered across 7 pre-provisioned Grafana dashboards (`:3030`) with Dozzle container log streaming (`:8896`).
