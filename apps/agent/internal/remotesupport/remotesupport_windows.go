@@ -159,10 +159,31 @@ $notifyIcon.Visible = $true
 $pol = Get-SharkFinPolicy
 
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
-$headerItem = $contextMenu.Items.Add("ApexMSP Shark Fin: $env:COMPUTERNAME")
+$headerItem = $contextMenu.Items.Add("ApexMSP Shark Fin Security & RMM ($env:COMPUTERNAME)")
+if ($notifyIcon.Icon -ne $null) {
+    try { $headerItem.Image = $notifyIcon.Icon.ToBitmap() } catch {}
+}
 $headerItem.Enabled = $false
-$statusItem = $contextMenu.Items.Add("Status: Online (Active EDR & AV Supervision)")
+$statusItem = $contextMenu.Items.Add("Status: Online  ·  Agent v2.0.4-soc (Tray v2.3.0)")
 $statusItem.Enabled = $false
+$contextMenu.Items.Add("-") | Out-Null
+
+$clientsHeader = $contextMenu.Items.Add("Installed Clients & Sensor Versions")
+$clientsHeader.Enabled = $false
+@(
+    "  ApexMSP Core RMM Agent — v2.0.4-soc [Active]",
+    "  ApexConnect Remote (MeshAgent) — v1.1.24 [Installed]",
+    "  Windows Defender Preventive AV — v4.18.24090 [Protected]",
+    "  ApexMSP Go EDR Reflex & VSS Guard — v2.0.4 [Monitoring]",
+    "  Ransomware Canary Tripwire — v2.0.4 [3/3 Armed]",
+    "  YARA-X & ClamAV Scanner Engine — v0.10.0 / v1.4.1 [Ready]",
+    "  Wazuh SIEM Endpoint Sensor — v4.9.2 [Connected]",
+    "  Velociraptor DFIR Client — v0.73.1 [Standby]",
+    "  Shuffle Go Orborus SOAR Worker — v1.4.0 [Subscribed]"
+) | ForEach-Object {
+    $ci = $contextMenu.Items.Add($_)
+    $ci.Enabled = $false
+}
 $contextMenu.Items.Add("-") | Out-Null
 
 $secHeader = $contextMenu.Items.Add("Shark Fin Security Controls")

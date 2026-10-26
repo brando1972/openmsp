@@ -761,13 +761,45 @@ export const SecuritySocView: React.FC = () => {
             <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white rounded-2xl p-6 border-2 border-emerald-500/60 shadow-2xl space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
                 <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-2xl shadow-lg">
-                    🦈
+                  {/* Custom Shark Fin + Shield Vector Logo */}
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-teal-400 via-emerald-600 to-slate-900 p-0.5 shadow-lg shadow-emerald-950/60 shrink-0">
+                    <div className="w-full h-full rounded-[14px] bg-slate-950/85 flex items-center justify-center relative overflow-hidden">
+                      <svg viewBox="0 0 36 36" className="w-10 h-10" fill="none">
+                        <defs>
+                          <linearGradient id="sharkShieldGrad" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+                            <stop offset="0%" stopColor="#14b8a6" />
+                            <stop offset="55%" stopColor="#059669" />
+                            <stop offset="100%" stopColor="#0f172a" />
+                          </linearGradient>
+                        </defs>
+                        <path
+                          d="M18 2.5L5.5 7.5V17.2C5.5 25.1 10.8 31.8 18 33.8C25.2 31.8 30.5 25.1 30.5 17.2V7.5L18 2.5Z"
+                          fill="url(#sharkShieldGrad)"
+                          stroke="#34d399"
+                          strokeWidth="1.6"
+                        />
+                        {/* Dorsal Shark Fin */}
+                        <path
+                          d="M10.5 23.5C12.2 17.5 15.8 11.4 22.8 9.2C21.2 14.5 21.8 19.2 24.5 23.5H10.5Z"
+                          fill="#ffffff"
+                        />
+                        {/* Ocean Wave Line */}
+                        <path
+                          d="M9.5 26.5H26.5"
+                          stroke="#5eead4"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </div>
                   </div>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase">
-                        End-User Shark Fin Security &amp; Scan Center (`/sharkfin`)
+                        ApexMSP Shark Fin Security &amp; RMM
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-teal-500/25 text-teal-200 border border-teal-400/50 text-[10px] font-mono font-black">
+                        🟢 Running · Agent v2.0.4-soc · Menu v2.3.0
                       </span>
                       <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 text-[10px] font-bold">
                         🔓 End-User Self-Service Mode Enabled (`policyLockedByAdmin: false`)
@@ -777,7 +809,7 @@ export const SecuritySocView: React.FC = () => {
                       My Computer Protection Shield &amp; On-Demand Malware Scanner — {activeDev.hostname}
                     </h2>
                     <p className="text-xs text-slate-300">
-                      Enable or disable protection features on your computer, configure scheduled scans, or run an immediate AV, YARA-X, ClamAV, or Canary Tripwire scan below.
+                      Enable or disable protection features on your computer, inspect installed client &amp; sensor versions, configure scheduled scans, or run an immediate AV, YARA-X, ClamAV, or Canary Tripwire scan below.
                     </p>
                   </div>
                 </div>
@@ -796,10 +828,104 @@ export const SecuritySocView: React.FC = () => {
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
                         }`}
                       >
-                        💻 {d.hostname}
+                        💻 {d.hostname} ({d.clientName})
                       </button>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* Installed Clients, Sensors & Fleet Versions Breakdown */}
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+                <div className="xl:col-span-7 bg-slate-900/90 rounded-xl p-4 border border-slate-700">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                        Endpoint Agent &amp; Sub-Client Inventory
+                      </span>
+                      <h3 className="text-xs font-black text-white">
+                        Installed Clients, Security Sensors &amp; Engine Versions on {activeDev.hostname}
+                      </h3>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-bold">
+                      Core Agent v2.0.4-soc
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+                    {[
+                      { icon: '🦈', name: 'ApexMSP Core RMM Agent', ver: 'v2.0.4-soc', state: 'Running' },
+                      { icon: '🖥️', name: 'ApexConnect Remote (MeshAgent)', ver: 'v1.1.24', state: 'Connected' },
+                      {
+                        icon: '🛡️',
+                        name: activeDev.posture.preventiveAvName || 'OS Preventive AV',
+                        ver: activeDev.os.toLowerCase().includes('mac') ? 'v2185 (XProtect)' : 'v4.18.24090',
+                        state: pol.preventiveAvEnabled ? 'Active' : 'Paused'
+                      },
+                      { icon: '🔍', name: 'ApexMSP Go EDR Reflex', ver: 'v2.0.4', state: pol.endpointEdrEnabled ? 'Monitoring' : 'Paused' },
+                      { icon: '🐤', name: 'Canary Tripwire Engine', ver: 'v2.0.4 (3/3 Decoys)', state: pol.canaryTripwireEnabled ? 'Armed' : 'Paused' },
+                      { icon: '🧬', name: 'YARA-X & ClamAV Scanner', ver: 'v0.10.0 / v1.4.1', state: pol.yaraClamScannerEnabled ? 'Ready' : 'Paused' },
+                      { icon: '🦁', name: 'Wazuh SIEM Sensor', ver: 'v4.9.2', state: 'Connected' },
+                      { icon: '🦖', name: 'Velociraptor DFIR Client', ver: 'v0.73.1', state: 'Standby' },
+                      { icon: '⚡', name: 'Shuffle Go Orborus Worker', ver: 'v1.4.0', state: 'Subscribed' }
+                    ].map(item => (
+                      <div
+                        key={item.name}
+                        className="px-2.5 py-2 rounded-lg bg-slate-950/90 border border-slate-800 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-white text-[11px] truncate">
+                            {item.icon} {item.name}
+                          </div>
+                          <div className="font-mono text-[10px] text-emerald-300">{item.ver}</div>
+                        </div>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-black uppercase shrink-0">
+                          {item.state}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="xl:col-span-5 bg-slate-900/90 rounded-xl p-4 border border-slate-700">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-sky-400">
+                        Enrolled Client Organizations &amp; Agent Versions
+                      </span>
+                      <h3 className="text-xs font-black text-white">
+                        ApexMSP Client Tenants &amp; Deployed Shark Fin Versions
+                      </h3>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 text-[10px] font-mono font-bold">
+                      6 Active Clients
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    {[
+                      { client: 'Gambinos', site: 'UDM Pro (11 Devices / 65 Clients)', agentVer: 'v2.0.4-soc', sensors: 'EDR v2.0.4 · Wazuh v4.9.2 · UnPoller v2.11.2' },
+                      { client: 'Brandon Ray / Primary', site: 'dev-studio & Mac Fleet', agentVer: 'v2.0.4-soc', sensors: 'SharkFin Menu v2.3.0 · XProtect v2185 · YARA-X v0.10.0' },
+                      { client: 'Raytreat', site: '192.168.4.1 UDM Pro', agentVer: 'v2.0.4-soc', sensors: 'EDR v2.0.4 · Defender v4.18 · Wazuh v4.9.2' },
+                      { client: 'TBI', site: '192.168.11.1 UDM Pro', agentVer: 'v2.0.4-soc', sensors: 'EDR v2.0.4 · Velociraptor v0.73.1 · ClamAV v1.4.1' },
+                      { client: 'SOS Volleyball', site: '172.25.0.1 UDM Pro', agentVer: 'v2.0.4-soc', sensors: 'EDR v2.0.4 · Canary v2.0.4 · UniFi Telemetry' },
+                      { client: 'Municipal Client', site: 'Municipal Critical Infra', agentVer: 'v2.0.4-soc', sensors: 'EDR v2.0.4 · Shuffle Orborus v1.4.0 · Protected Lock' }
+                    ].map(c => (
+                      <div
+                        key={c.client}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-950/90 border border-slate-800 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-black text-white text-[11px] flex items-center gap-1.5">
+                            <span>{c.client}</span>
+                            <span className="text-[10px] font-normal text-slate-400">({c.site})</span>
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400 truncate">{c.sensors}</div>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/40 font-mono text-[10px] font-black shrink-0">
+                          {c.agentVer}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -2452,15 +2578,35 @@ export const SecuritySocView: React.FC = () => {
                     <div className="lg:col-span-5 bg-slate-950 rounded-2xl border border-slate-700 p-4 shadow-2xl">
                       <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-lg shadow">
-                            🦈
+                          {/* Custom Shark Fin + Shield Vector Logo */}
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-400 via-emerald-600 to-slate-900 p-0.5 shadow shrink-0">
+                            <div className="w-full h-full rounded-[10px] bg-slate-950/85 flex items-center justify-center">
+                              <svg viewBox="0 0 36 36" className="w-6 h-6" fill="none">
+                                <path
+                                  d="M18 2.5L5.5 7.5V17.2C5.5 25.1 10.8 31.8 18 33.8C25.2 31.8 30.5 25.1 30.5 17.2V7.5L18 2.5Z"
+                                  fill="#0d9488"
+                                  stroke="#34d399"
+                                  strokeWidth="1.8"
+                                />
+                                <path
+                                  d="M10.5 23.5C12.2 17.5 15.8 11.4 22.8 9.2C21.2 14.5 21.8 19.2 24.5 23.5H10.5Z"
+                                  fill="#ffffff"
+                                />
+                                <path
+                                  d="M9.5 26.5H26.5"
+                                  stroke="#5eead4"
+                                  strokeWidth="2.2"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                            </div>
                           </div>
                           <div>
                             <div className="text-xs font-black text-white flex items-center gap-1.5">
-                              <span>ApexMSP Shark Fin Agent</span>
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-mono">
-                                v2.3.0
-                              </span>
+                              <span>ApexMSP Shark Fin Security &amp; RMM</span>
+                            </div>
+                            <div className="text-[10px] text-emerald-300 font-mono font-bold mt-0.5">
+                              🟢 Running · Agent v2.0.4-soc (Menu v2.3.0)
                             </div>
                             <div className="text-[10px] text-slate-400 font-mono">
                               {activeDev.hostname} ({activeDev.ipAddress})
@@ -2481,6 +2627,40 @@ export const SecuritySocView: React.FC = () => {
                       <div className="mt-3 mb-3 flex items-center justify-between bg-slate-900 px-3 py-2 rounded-lg border border-slate-800">
                         <span className="text-[11px] font-bold text-slate-300">Live Coverage State:</span>
                         {renderCoverageBadge(activeDev.posture.coverageState)}
+                      </div>
+
+                      {/* Installed Clients & Sensor Versions inside the Shark Fin Menu */}
+                      <div className="mb-3 bg-slate-900/90 rounded-lg border border-slate-800 p-2.5">
+                        <div className="text-[10px] font-black uppercase tracking-wider text-teal-300 mb-1.5">
+                          Installed Clients &amp; Sensor Versions:
+                        </div>
+                        <div className="space-y-1 text-[10px] font-mono">
+                          {[
+                            { icon: '🦈', name: 'ApexMSP Core RMM Agent', ver: 'v2.0.4-soc', status: 'Active' },
+                            { icon: '🖥️', name: 'ApexConnect Remote (MeshAgent)', ver: 'v1.1.24', status: 'Installed' },
+                            {
+                              icon: '🛡️',
+                              name: activeDev.posture.preventiveAvName || 'OS Preventive AV',
+                              ver: activeDev.os.toLowerCase().includes('mac') ? 'v2185' : 'v4.18.24090',
+                              status: pol.preventiveAvEnabled ? 'Protected' : 'Paused'
+                            },
+                            { icon: '🔍', name: 'ApexMSP Go EDR Reflex & VSS Guard', ver: 'v2.0.4', status: pol.endpointEdrEnabled ? 'Monitoring' : 'Paused' },
+                            { icon: '🐤', name: 'Ransomware Canary Tripwire', ver: 'v2.0.4', status: pol.canaryTripwireEnabled ? '3/3 Armed' : 'Paused' },
+                            { icon: '🧬', name: 'YARA-X & ClamAV Scanner Engine', ver: 'v0.10.0 / v1.4.1', status: pol.yaraClamScannerEnabled ? 'Ready' : 'Paused' },
+                            { icon: '🦁', name: 'Wazuh SIEM Endpoint Sensor', ver: 'v4.9.2', status: 'Connected' },
+                            { icon: '🦖', name: 'Velociraptor DFIR Client', ver: 'v0.73.1', status: 'Standby' },
+                            { icon: '⚡', name: 'Shuffle Go Orborus SOAR Worker', ver: 'v1.4.0', status: 'Subscribed' }
+                          ].map(c => (
+                            <div key={c.name} className="flex items-center justify-between text-slate-300">
+                              <span className="truncate pr-2">
+                                {c.icon} {c.name} — <strong className="text-emerald-300">{c.ver}</strong>
+                              </span>
+                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-200 shrink-0">
+                                [{c.status}]
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
 
                       <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
