@@ -84,13 +84,11 @@ const GROUPS: Group[] = [
   {
     title: 'Security & UniFi SOC',
     items: [
-      { key: 'soc-overview', label: 'SOC Command Center', Icon: Shield, tint: '#10b981', built: true, tab: 'security-soc', sub: 'soc-overview', badge: 'Live' },
-      { key: 'soc-soar', label: 'SOAR: Shuffle + Cortex + TheHive', Icon: Zap, tint: '#f97316', built: true, tab: 'security-soc', sub: 'soc-soar', badge: 'Go SOAR' },
-      { key: 'soc-incidents', label: 'SIEM Incidents & Detections', Icon: ShieldAlert, tint: '#ef4444', built: true, tab: 'security-soc', sub: 'soc-incidents' },
-      { key: 'soc-endpoints', label: 'Endpoint EDR / AV Posture', Icon: Cpu, tint: '#0ea5e9', built: true, tab: 'security-soc', sub: 'soc-endpoints' },
-      { key: 'soc-unifi', label: 'UniFi Network SOC', Icon: Wifi, tint: '#6366f1', built: true, tab: 'security-soc', sub: 'soc-unifi', badge: 'Gambinos' },
-      { key: 'soc-timeline', label: 'Temporal Device Timeline', Icon: Clock, tint: '#a855f7', built: true, tab: 'security-soc', sub: 'soc-timeline' },
-      { key: 'soc-approvals', label: 'Action Broker & Approvals', Icon: Lock, tint: '#f59e0b', built: true, tab: 'security-soc', sub: 'soc-approvals' }
+      { key: 'soc-overview', label: 'SOC Overview', Icon: Shield, tint: '#10b981', built: true, tab: 'security-soc', sub: 'soc-overview', badge: 'Live' },
+      { key: 'soc-incidents', label: 'Threats & Incidents', Icon: ShieldAlert, tint: '#ef4444', built: true, tab: 'security-soc', sub: 'soc-incidents' },
+      { key: 'soc-endpoints', label: 'Endpoints & Shark Fin', Icon: Cpu, tint: '#0ea5e9', built: true, tab: 'security-soc', sub: 'soc-endpoints' },
+      { key: 'soc-unifi', label: 'Network & UniFi', Icon: Wifi, tint: '#6366f1', built: true, tab: 'security-soc', sub: 'soc-unifi', badge: 'Gambinos' },
+      { key: 'soc-approvals', label: 'Playbooks & Approvals', Icon: Zap, tint: '#f59e0b', built: true, tab: 'security-soc', sub: 'soc-approvals' }
     ]
   },
   {
