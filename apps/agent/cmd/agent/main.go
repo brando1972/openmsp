@@ -23,6 +23,7 @@ import (
 	"openmsp/agent/internal/executor"
 	"openmsp/agent/internal/netscan"
 	"openmsp/agent/internal/remotesupport"
+	"openmsp/agent/internal/security"
 	"openmsp/agent/internal/tunnel"
 	"openmsp/agent/internal/updater"
 	"openmsp/agent/internal/version"
@@ -328,6 +329,13 @@ func main() {
 	// 2.5 Automatically ensure Remote Support engine (MeshAgent) and Shark Fin UI are running
 	remotesupport.EnsureInstalled()
 
+	// 2.6 Deploy baseline Ransomware Canary Tripwire files if not yet present
+	if canaryPaths, err := security.EnsureCanaryFiles(""); err != nil {
+		log.Printf("[!] Warning initializing canary tripwires: %v", err)
+	} else {
+		log.Printf("[+] ApexMSP Canary Tripwires active (%d files monitored)", len(canaryPaths))
+	}
+
 	// Bring up the on-LAN reach-through supervisor. It idles until this agent is
 	// elected collector (manageCollector flips it on), then holds a persistent
 	// channel to the control plane for SSH/web sessions into discovered devices.
@@ -350,6 +358,8 @@ func main() {
 		network := collector.CollectNetwork()
 		installedApps := collector.CollectInstalledApps()
 		services := collector.CollectServices()
+		secPosture := security.CollectPosture()
+		secDetections := security.DrainDetections()
 
 		hbReq := client.AgentHeartbeatRequest{
 			DeviceId:      cfg.DeviceId,
@@ -366,8 +376,10 @@ func main() {
 				Prefixes:    netscan.LocalPrefixes(),
 				IsCollector: siteCollector.isActive(),
 			},
-			AgentVersion: version.Version,
-			Arch:         runtime.GOARCH,
+			AgentVersion:       version.Version,
+			Arch:               runtime.GOARCH,
+			SecurityPosture:    secPosture,
+			SecurityDetections: secDetections,
 		}
 
 		hbResp, err := apiClient.Heartbeat(ctx, hbReq)

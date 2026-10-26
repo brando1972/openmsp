@@ -22,6 +22,7 @@ import { VaultView } from './components/vault/VaultView';
 import { AICopilotView } from './components/ai/AICopilotView';
 import { SettingsView } from './components/settings/SettingsView';
 import { MdmView } from './components/mdm/MdmView';
+import { SecuritySocView } from './components/security/SecuritySocView';
 
 const MainAppContent: React.FC = () => {
   const { isAuthenticated, activeTab, tabs, activeTabId, tabbedNavigationEnabled } = useApp();
@@ -30,8 +31,13 @@ const MainAppContent: React.FC = () => {
     return <LoginView />;
   }
 
+  const isDirectSocRoute =
+    typeof window !== 'undefined' &&
+    (window.location.pathname.startsWith('/soc') || window.location.pathname.startsWith('/sharkfin'));
   const currentTab = tabs.find(t => t.id === activeTabId);
-  const currentViewType = tabbedNavigationEnabled && currentTab ? currentTab.type : activeTab;
+  const currentViewType = isDirectSocRoute
+    ? 'security-soc'
+    : (tabbedNavigationEnabled && currentTab ? currentTab.type : activeTab);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f8] text-[#1a1a24] font-sans select-none antialiased">
@@ -50,6 +56,7 @@ const MainAppContent: React.FC = () => {
           {currentViewType === 'remote-support' && <RemoteSupportView />}
           {currentViewType === 'network-map' && <NetworkMapView />}
           {currentViewType === 'mdm' && <MdmView />}
+          {currentViewType === 'security-soc' && <SecuritySocView />}
           {currentViewType === 'psa-tickets' && <PSATicketsView />}
           {currentViewType === 'vault' && <VaultView />}
           {currentViewType === 'ai-copilot' && <AICopilotView />}

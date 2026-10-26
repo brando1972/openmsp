@@ -14,6 +14,7 @@ export type NavigationTab =
   | 'automations'
   | 'network-map'
   | 'mdm'
+  | 'security-soc'
   | 'settings';
 
 export type DeviceOS = 'windows' | 'macos' | 'linux' | 'network' | 'android' | 'ios';
@@ -307,7 +308,16 @@ export type DeviceCommandType =
   | 'restart_service'
   | 'collect_inventory'
   | 'install_approved_patches'
-  | 'remote_wipe';
+  | 'remote_wipe'
+  | 'security_scan'
+  | 'quarantine_file'
+  | 'restore_file'
+  | 'kill_process'
+  | 'isolate_host'
+  | 'unisolate_host'
+  | 'deploy_canary_files'
+  | 'execute_soar_playbook'
+  | 'update_security_policy';
 
 export type DeviceCommandStatus = 'pending' | 'dispatched' | 'running' | 'completed' | 'failed';
 
@@ -381,6 +391,8 @@ export interface AgentHeartbeatRequest {
   collector?: CollectorCandidacy;
   agentVersion?: string;
   arch?: string;
+  securityPosture?: SecurityPostureReport;
+  securityDetections?: SecurityDetectionInput[];
 }
 
 export interface AgentUpdate {
@@ -517,7 +529,11 @@ export type WSMessageType =
   | 'dispatch.job'
   | 'dispatch.message'
   | 'dispatch.location'
-  | 'dispatch.shift';
+  | 'dispatch.shift'
+  | 'security.detection'
+  | 'security.incident'
+  | 'security.action'
+  | 'unifi.synced';
 
 export interface WSEvent<T = any> {
   type: WSMessageType;
@@ -706,4 +722,314 @@ export interface DeviceStagedAppStatus {
   error?: string;
   commandId?: string;
 }
+
+// ---------------------------------------------------------------------------
+// SIEM, EDR, AV, UniFi SOC & Temporal Identity Contracts (v1)
+// ---------------------------------------------------------------------------
+
+export type SecuritySeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+export type SecurityCategory =
+  | 'malware'
+  | 'ransomware'
+  | 'recovery_inhibition'
+  | 'persistence'
+  | 'canary_tripwire'
+  | 'lateral_movement'
+  | 'network_ids'
+  | 'unifi_anomaly'
+  | 'wifi_diagnostic'
+  | 'av_tamper'
+  | 'policy_violation';
+
+export type SecurityCoverageState =
+  | 'unknown'
+  | 'installed'
+  | 'healthy'
+  | 'collecting'
+  | 'preventive_active'
+  | 'containment_requested'
+  | 'containment_verified'
+  | 'degraded';
+
+export interface SecuritySensorState {
+  provider: 'wazuh' | 'velociraptor' | 'clamav' | 'yara_x' | 'osquery' | 'windows_defender' | 'macos_xprotect' | 'whids' | 'kunai' | 'apex_edr_reflex';
+  installed: boolean;
+  running: boolean;
+  preventiveActive: boolean;
+  version?: string;
+  signatureVersion?: string;
+  lastUpdated?: string;
+  lastScanAt?: string;
+  healthMessage?: string;
+}
+
+export interface SecurityPostureReport {
+  coverageState: SecurityCoverageState;
+  preventiveAvName: string;
+  preventiveAvActive: boolean;
+  realtimeProtectionEnabled: boolean;
+  tamperProtectionEnabled: boolean;
+  canaryFilesDeployed: boolean;
+  canaryPaths?: string[];
+  recoveryInhibitionGuardActive: boolean;
+  isolated: boolean;
+  sensors: SecuritySensorState[];
+  scannerMemoryMb?: number;
+  supervisorCpuPct?: number;
+  telemetryCpuPct?: number;
+  reportedAt: string;
+}
+
+export interface SecurityProcessContext {
+  pid?: number;
+  ppid?: number;
+  name?: string;
+  exePath?: string;
+  cmdline?: string;
+  sha256?: string;
+  user?: string;
+  signed?: boolean;
+  signer?: string;
+}
+
+export interface SecurityNetworkContext {
+  srcIp?: string;
+  srcPort?: number;
+  dstIp?: string;
+  dstPort?: number;
+  proto?: string;
+  domain?: string;
+  asn?: string;
+  country?: string;
+  unifiSiteId?: string;
+  unifiClientId?: string;
+  vlanId?: number;
+  switchId?: string;
+  switchPort?: number;
+  apId?: string;
+  ssid?: string;
+  blocked?: boolean;
+}
+
+export interface SecurityDetectionInput {
+  eventId: string;
+  idempotencyKey: string;
+  eventTime: string;
+  sourceProvider: 'apex_agent' | 'wazuh' | 'velociraptor' | 'clamav' | 'yara_x' | 'osquery' | 'unifi_ids' | 'unifi_syslog' | 'unifi_flow';
+  ruleId: string;
+  ruleName: string;
+  severity: SecuritySeverity;
+  confidence: number; // 0.0 - 1.0
+  category: SecurityCategory;
+  summary: string;
+  process?: SecurityProcessContext;
+  file?: {
+    path: string;
+    sha256?: string;
+    action?: 'created' | 'modified' | 'renamed' | 'deleted' | 'quarantined';
+  };
+  network?: SecurityNetworkContext;
+  rawEvidence?: Record<string, any>;
+  isBenignSimulation?: boolean;
+}
+
+export interface SecurityDetection extends SecurityDetectionInput {
+  id: string;
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  siteId?: string;
+  deviceId?: string;
+  deviceName?: string;
+  ingestTime: string;
+  incidentId?: string;
+  evidencePointer?: string;
+}
+
+export type SecurityIncidentStatus = 'open' | 'investigating' | 'containment_pending' | 'contained' | 'resolved' | 'false_positive';
+
+export interface SecurityIncident {
+  id: string;
+  incidentNumber: string;
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  siteId?: string;
+  siteName?: string;
+  deviceId?: string;
+  deviceName?: string;
+  title: string;
+  summary: string;
+  severity: SecuritySeverity;
+  category: SecurityCategory;
+  status: SecurityIncidentStatus;
+  confidence: number;
+  detectionIds: string[];
+  ticketId?: string;
+  copilotCaseUrl?: string;
+  velociraptorHuntId?: string;
+  wazuhAlertIds?: string[];
+  assetCriticality: 'standard' | 'pos_payment' | 'pos_controller' | 'infrastructure' | 'municipal_critical' | 'protected_never_auto_isolate';
+  containmentState: 'none' | 'requested' | 'approved' | 'executing' | 'verified' | 'failed' | 'manual_required';
+  firstEventTime: string;
+  lastEventTime: string;
+  ingestLatencyMs?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SecurityActionType =
+  | 'kill_process'
+  | 'quarantine_file'
+  | 'restore_quarantined_file'
+  | 'isolate_host'
+  | 'unisolate_host'
+  | 'unifi_block_client'
+  | 'unifi_unblock_client'
+  | 'velociraptor_collect_artifact'
+  | 'run_yara_scan'
+  | 'run_clamav_scan';
+
+export type SecurityActionStatus =
+  | 'pending_approval'
+  | 'approved'
+  | 'rejected'
+  | 'executing'
+  | 'verified'
+  | 'failed'
+  | 'expired'
+  | 'blocked_protected_asset';
+
+export interface SecurityAction {
+  id: string;
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  siteId?: string;
+  incidentId?: string;
+  targetDeviceId?: string;
+  targetDeviceName?: string;
+  targetUnifiClientMac?: string;
+  actionType: SecurityActionType;
+  reason: string;
+  requestedBy: string;
+  requestedAt: string;
+  requiresHumanApproval: boolean;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  expiresAt: string;
+  policyVersion: string;
+  status: SecurityActionStatus;
+  payload: Record<string, any>;
+  actualResult?: string;
+  error?: string;
+  completedAt?: string;
+}
+
+export interface TemporalIdentityObservation {
+  id: string;
+  orgId: string;
+  clientId: string;
+  siteId: string;
+  provider: 'unifi_local_api' | 'unifi_cloud_sitemanager' | 'unifi_syslog' | 'apex_agent' | 'pos_sdk_verified';
+  providerClientId: string;
+  macAddress: string;
+  ipAddress?: string;
+  hostname?: string;
+  alias?: string;
+  deviceRole?: 'pos_terminal' | 'pos_payment_pax' | 'pos_tablet_sunmi' | 'pos_printer' | 'pos_controller_candidate' | 'workstation' | 'server' | 'ap' | 'switch' | 'gateway' | 'camera' | 'guest_client' | 'unknown';
+  serialNumber?: string;
+  isWired: boolean;
+  switchId?: string;
+  switchName?: string;
+  switchMac?: string;
+  switchPort?: number;
+  attachmentType: 'confirmed_direct' | 'shared_uplink_or_hub' | 'wireless_ap' | 'inferred';
+  portMacCount?: number;
+  apId?: string;
+  apName?: string;
+  ssid?: string;
+  vlanId?: number;
+  networkName?: string;
+  rssi?: number;
+  dhcpReserved?: boolean;
+  isProtectedAsset: boolean;
+  confidence: number; // 0.0 - 1.0
+  evidenceSource: string;
+  observedFrom: string;
+  observedTo: string;
+  managedDeviceId?: string;
+}
+
+export interface UnifiSiteCapability {
+  siteId: string;
+  clientId: string;
+  clientName: string;
+  siteName: string;
+  consoleName: string;
+  consoleModel: string;
+  firmwareVersion: string;
+  networkAppVersion: string;
+  connectionMethod: 'cloud_sitemanager_proxy' | 'local_pinned_tls' | 'vpn_pinned_tls';
+  endpointUrl: string;
+  online: boolean;
+  lastSyncedAt: string;
+  capabilities: {
+    localIntegrationApi: boolean;
+    legacyStatApi: boolean;
+    syslogCefConfigured: boolean;
+    ipfixTrafficFlowsSupported: boolean;
+    idsIpsEnabled: boolean;
+    zoneFirewallSupported: boolean;
+    clientBlockWriteSupported: boolean;
+    separateReadWriteCreds: boolean;
+  };
+  counts: {
+    adoptedDevices: number;
+    onlineDevices: number;
+    offlineDevices: number;
+    activeClients: number;
+    vlans: number;
+    protectedPosAssets: number;
+  };
+  vlans: Array<{
+    id: string;
+    name: string;
+    vlanId: number;
+    subnet: string;
+    enabled: boolean;
+    purpose?: string;
+  }>;
+  coverageGaps: string[];
+}
+
+export interface SecurityPolicy {
+  id: string;
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  siteId?: string;
+  policyVersion: string;
+  mode: 'learning' | 'active_detect' | 'auto_contain_safe';
+  edrReflexEnabled: boolean;
+  recoveryInhibitionAutoKill: boolean;
+  canaryTripwireEnabled: boolean;
+  canaryPaths: string[];
+  avRealtimeEnabled: boolean;
+  avScanCadenceHours: number;
+  unifiIdsCorrelationEnabled: boolean;
+  autoIsolateWorkstationsOnCritical: boolean;
+  protectedAssetExclusions: {
+    neverAutoIsolateRoles: string[];
+    neverBlockSharedSwitchPorts: boolean;
+    protectedMacAddresses: string[];
+    protectedIpAddresses: string[];
+    protectedSwitchPorts: string[];
+  };
+  updatedAt: string;
+}
+
+
 

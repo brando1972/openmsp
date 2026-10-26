@@ -431,7 +431,7 @@ server.listen(PORT, () => {
         if (!Array.isArray(remoteDevices)) return;
         const defaultOrgId = Array.from(store.orgs.values())[0]?.id || '00000000-0000-0000-0000-000000000001';
         for (const rDev of remoteDevices) {
-          if (!rDev || !rDev.id) continue;
+          if (!rDev || !rDev.id || rDev.id === 'test-device' || !rDev.name) continue;
           const localDev = store.devices.get(rDev.id);
           const remoteUpdated = new Date(rDev.updatedAt || rDev.createdAt || 0).getTime();
           const localUpdated = localDev ? new Date(localDev.updatedAt || localDev.createdAt || 0).getTime() : 0;

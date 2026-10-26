@@ -1,0 +1,33 @@
+# =============================================================================
+# ApexMSP Velociraptor DFIR Server Configuration Profile (v2.0)
+# Integrated with ApexMSP Action Broker (/api/v1/security/actions)
+# =============================================================================
+version:
+  name: velociraptor-apexmsp-dfir
+  version: 0.72.4
+Client:
+  server_urls:
+    - https://192.168.11.19:8000/
+  use_self_signed_ssl: true
+  writeback_darwin: /etc/velociraptor.writeback.yaml
+  writeback_linux: /etc/velociraptor.writeback.yaml
+  writeback_windows: $ProgramFiles\Velociraptor\velociraptor.writeback.yaml
+API:
+  hostname: 192.168.11.19
+  bind_address: 0.0.0.0
+  bind_port: 8893
+  bind_scheme: http
+GUI:
+  bind_address: 0.0.0.0
+  bind_port: 8889
+  public_url: https://192.168.11.19:8889/app/index.html
+Datastore:
+  implementation: FileBaseDataStore
+  location: /var/tmp/velociraptor
+  filestore_directory: /var/tmp/velociraptor
+DefaultArtifacts:
+  - Generic.Client.Info
+  - Windows.KapeFiles.Targets
+  - Windows.Detection.VSSAdmin
+  - Linux.Sys.Pslist
+  - MacOS.System.Packages

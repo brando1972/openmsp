@@ -1,0 +1,31 @@
+<!--
+  ApexMSP Custom Wazuh Decoders (v2.0)
+  Decodes UniFi OS CEF, ApexMSP Go Endpoint Security Supervisor JSON, and POS/VLAN telemetry
+-->
+<decoder name="apexmsp-unifi-cef">
+  <prematch>CEF:0\|Ubiquiti\|UniFi</prematch>
+</decoder>
+
+<decoder name="apexmsp-unifi-cef-fields">
+  <parent>apexmsp-unifi-cef</parent>
+  <regex>CEF:0\|Ubiquiti\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|(\d+)\|(.*)</regex>
+  <order>unifi.product, unifi.version, unifi.signature_id, unifi.event_name, unifi.cef_severity, unifi.extension</order>
+</decoder>
+
+<decoder name="apexmsp-unifi-cef-src">
+  <parent>apexmsp-unifi-cef</parent>
+  <regex>src=(\S+)</regex>
+  <order>srcip</order>
+</decoder>
+
+<decoder name="apexmsp-unifi-cef-mac">
+  <parent>apexmsp-unifi-cef</parent>
+  <regex>UNIFImac=(\S+)|smac=(\S+)</regex>
+  <order>srcmac</order>
+</decoder>
+
+<decoder name="apexmsp-unifi-cef-port">
+  <parent>apexmsp-unifi-cef</parent>
+  <regex>UNIFIswitchPort=(\d+)</regex>
+  <order>unifi.switch_port</order>
+</decoder>
