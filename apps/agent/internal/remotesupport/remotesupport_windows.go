@@ -286,6 +286,16 @@ $notifyIcon.ShowBalloonTip(4000, "ApexMSP Connected", "Windows device managed se
 `
 	_ = os.WriteFile(trayScript, []byte(trayCode), 0644)
 
+	// Restart tray if version marker changed, or launch if not running
+	verFile := filepath.Join(installDir, "tray-version.txt")
+	const targetTrayVer = "2.0.4-soc"
+	curVer, _ := os.ReadFile(verFile)
+	if string(curVer) != targetTrayVer {
+		_ = os.WriteFile(verFile, []byte(targetTrayVer), 0644)
+		_ = exec.Command("powershell.exe", "-NoProfile", "-Command", "Get-Process -Name powershell | Where-Object { $_.CommandLine -like '*ApexMSP-Tray.ps1*' } | Stop-Process -Force").Run()
+		time.Sleep(500 * time.Millisecond)
+	}
+
 	// Launch tray in background if not already running
 	checkTray := exec.Command("powershell.exe", "-NoProfile", "-Command", "Get-Process -Name powershell | Where-Object { $_.CommandLine -like '*ApexMSP-Tray.ps1*' }")
 	if out, _ := checkTray.Output(); len(strings.TrimSpace(string(out))) == 0 {

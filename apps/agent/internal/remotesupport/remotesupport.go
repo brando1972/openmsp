@@ -48,26 +48,58 @@ func ensureDarwin() {
 		log.Printf("[remotesupport] macOS Mesh Agent already installed.")
 	}
 
-	// 2. Check if Shark Fin Menubar app is installed
+	// 2. Ensure Shark Fin Menubar app is installed and updated to v2.0.4
 	appPath := "/Applications/ApexMSP.app"
-	if _, err := os.Stat(appPath); err != nil {
-		log.Printf("[remotesupport] Downloading Shark Fin Menubar app...")
+	verMarker := "/Applications/ApexMSP.app/Contents/version.txt"
+	const targetMenuVer = "2.0.4-soc"
+	currentVerBytes, _ := os.ReadFile(verMarker)
+	if _, err := os.Stat(appPath); err != nil || string(currentVerBytes) != targetMenuVer {
+		log.Printf("[remotesupport] Installing/Updating Shark Fin Menubar app (%s)...", targetMenuVer)
 		binDir := "/Applications/ApexMSP.app/Contents/MacOS"
 		_ = os.MkdirAll(binDir, 0755)
 		appBin := filepath.Join(binDir, "ApexMSP")
 		if err := downloadFile(ApexMSPControlPlane+"/api/v1/installers/download?os=macos&component=menubar", appBin); err == nil {
 			_ = os.Chmod(appBin, 0755)
+			_ = os.WriteFile(verMarker, []byte(targetMenuVer), 0644)
 			plist := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleName</key><string>ApexMSP</string>
   <key>CFBundleExecutable</key><string>ApexMSP</string>
+  <key>CFBundleShortVersionString</key><string>2.3.0</string>
   <key>LSUIElement</key><true/>
 </dict></plist>`
 			_ = os.WriteFile("/Applications/ApexMSP.app/Contents/Info.plist", []byte(plist), 0644)
 			_ = exec.Command("codesign", "--force", "--deep", "-s", "-", "/Applications/ApexMSP.app").Run()
+
+			// Also update ~/Applications/ApexMSP.app and ~/.apexmsp/ApexMSP.app for the active console user
+			if out, err := exec.Command("stat", "-f", "%Su", "/dev/console").Output(); err == nil {
+				consoleUser := string(out)
+				if len(consoleUser) > 0 {
+					for i := 0; i < len(consoleUser); i++ {
+						if consoleUser[i] == '\n' || consoleUser[i] == '\r' {
+							consoleUser = consoleUser[:i]
+							break
+						}
+					}
+					if consoleUser != "" && consoleUser != "root" {
+						userHome := filepath.Join("/Users", consoleUser)
+						for _, rel := range []string{"Applications/ApexMSP.app/Contents/MacOS/ApexMSP", ".apexmsp/ApexMSP.app/Contents/MacOS/ApexMSP"} {
+							uBin := filepath.Join(userHome, rel)
+							if _, stErr := os.Stat(filepath.Dir(uBin)); stErr == nil {
+								if b, rErr := os.ReadFile(appBin); rErr == nil {
+									_ = os.WriteFile(uBin, b, 0755)
+								}
+							}
+						}
+					}
+				}
+			}
+
+			_ = exec.Command("killall", "ApexMSP").Run()
+			time.Sleep(500 * time.Millisecond)
 			_ = exec.Command("open", "-g", "-a", "/Applications/ApexMSP.app").Run()
-			log.Printf("[remotesupport] Shark Fin Menubar app installed and launched.")
+			log.Printf("[remotesupport] Shark Fin Menubar app updated and launched (%s).", targetMenuVer)
 		}
 	}
 }
