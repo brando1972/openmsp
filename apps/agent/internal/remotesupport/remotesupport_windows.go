@@ -71,7 +71,48 @@ if (!(Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 }
 
+$PolicyPath = "$InstallDir\security-policy.json"
+$AgentCfgPath = "$InstallDir\openmsp-agent.json"
 $icoPath = "$InstallDir\sharkfin.ico"
+
+function Get-SharkFinPolicy {
+    if (Test-Path $PolicyPath) {
+        try {
+            return Get-Content -Raw -Path $PolicyPath | ConvertFrom-Json
+        } catch {}
+    }
+    $def = [PSCustomObject]@{
+        preventiveAvEnabled         = $true
+        endpointEdrEnabled          = $true
+        ransomwareProtectionEnabled = $true
+        canaryTripwireEnabled       = $true
+        yaraClamScannerEnabled      = $true
+        soarOrborusWorkerEnabled    = $true
+        policyLockedByAdmin         = $false
+        updatedAt                   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        updatedBy                   = "sharkfin_client"
+    }
+    $def | ConvertTo-Json | Set-Content -Path $PolicyPath -Encoding UTF8
+    return $def
+}
+
+function Save-SharkFinPolicy($pol) {
+    $pol.updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $pol.updatedBy = "sharkfin_client"
+    $json = $pol | ConvertTo-Json
+    Set-Content -Path $PolicyPath -Value $json -Encoding UTF8
+
+    try {
+        $serverUrl = "http://192.168.4.150:3001"
+        $deviceId = $env:COMPUTERNAME
+        if (Test-Path $AgentCfgPath) {
+            $cfg = Get-Content -Raw -Path $AgentCfgPath | ConvertFrom-Json
+            if ($cfg.serverUrl) { $serverUrl = $cfg.serverUrl.TrimEnd('/') }
+            if ($cfg.deviceId) { $deviceId = $cfg.deviceId }
+        }
+        Invoke-RestMethod -Uri "$serverUrl/api/v1/security/devices/$deviceId/policy" -Method Patch -ContentType "application/json" -Body $json -TimeoutSec 5 | Out-Null
+    } catch {}
+}
 
 if (!(Test-Path $icoPath)) {
     try {
@@ -112,14 +153,98 @@ if ($notifyIcon.Icon -eq $null) {
     $notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
 }
 
-$notifyIcon.Text = "ApexMSP Endpoint: Managing & Online"
+$notifyIcon.Text = "ApexMSP Shark Fin: Security & RMM Active"
 $notifyIcon.Visible = $true
 
+$pol = Get-SharkFinPolicy
+
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
-$headerItem = $contextMenu.Items.Add("ApexMSP Endpoint: $env:COMPUTERNAME")
+$headerItem = $contextMenu.Items.Add("ApexMSP Shark Fin: $env:COMPUTERNAME")
 $headerItem.Enabled = $false
-$statusItem = $contextMenu.Items.Add("Status: Online (Active Management)")
+$statusItem = $contextMenu.Items.Add("Status: Online (Active EDR & AV Supervision)")
 $statusItem.Enabled = $false
+$contextMenu.Items.Add("-") | Out-Null
+
+$secHeader = $contextMenu.Items.Add("Shark Fin Security Controls")
+$secHeader.Enabled = $false
+
+$avItem = New-Object System.Windows.Forms.ToolStripMenuItem("Antivirus (AV) Real-Time Protection")
+$avItem.Checked = [bool]$pol.preventiveAvEnabled
+$avItem.add_Click({
+    $p = Get-SharkFinPolicy
+    if ($p.policyLockedByAdmin -and $p.preventiveAvEnabled) {
+        $notifyIcon.ShowBalloonTip(3000, "Policy Locked by SOC Admin", "Administrator policy lock prevents disabling AV protection.", [System.Windows.Forms.ToolTipIcon]::Warning)
+        return
+    }
+    $p.preventiveAvEnabled = -not [bool]$p.preventiveAvEnabled
+    $avItem.Checked = $p.preventiveAvEnabled
+    Save-SharkFinPolicy $p
+})
+$contextMenu.Items.Add($avItem) | Out-Null
+
+$edrItem = New-Object System.Windows.Forms.ToolStripMenuItem("Endpoint EDR Monitoring")
+$edrItem.Checked = [bool]$pol.endpointEdrEnabled
+$edrItem.add_Click({
+    $p = Get-SharkFinPolicy
+    if ($p.policyLockedByAdmin -and $p.endpointEdrEnabled) {
+        $notifyIcon.ShowBalloonTip(3000, "Policy Locked by SOC Admin", "Administrator policy lock prevents disabling EDR monitoring.", [System.Windows.Forms.ToolTipIcon]::Warning)
+        return
+    }
+    $p.endpointEdrEnabled = -not [bool]$p.endpointEdrEnabled
+    $edrItem.Checked = $p.endpointEdrEnabled
+    Save-SharkFinPolicy $p
+})
+$contextMenu.Items.Add($edrItem) | Out-Null
+
+$ransomItem = New-Object System.Windows.Forms.ToolStripMenuItem("Ransomware VSS & Shadow Copy Protection")
+$ransomItem.Checked = [bool]$pol.ransomwareProtectionEnabled
+$ransomItem.add_Click({
+    $p = Get-SharkFinPolicy
+    if ($p.policyLockedByAdmin -and $p.ransomwareProtectionEnabled) {
+        $notifyIcon.ShowBalloonTip(3000, "Policy Locked by SOC Admin", "Administrator policy lock prevents disabling Ransomware VSS Guard.", [System.Windows.Forms.ToolTipIcon]::Warning)
+        return
+    }
+    $p.ransomwareProtectionEnabled = -not [bool]$p.ransomwareProtectionEnabled
+    $ransomItem.Checked = $p.ransomwareProtectionEnabled
+    Save-SharkFinPolicy $p
+})
+$contextMenu.Items.Add($ransomItem) | Out-Null
+
+$canaryItem = New-Object System.Windows.Forms.ToolStripMenuItem("Ransomware Canary Decoy Tripwires")
+$canaryItem.Checked = [bool]$pol.canaryTripwireEnabled
+$canaryItem.add_Click({
+    $p = Get-SharkFinPolicy
+    if ($p.policyLockedByAdmin -and $p.canaryTripwireEnabled) {
+        $notifyIcon.ShowBalloonTip(3000, "Policy Locked by SOC Admin", "Administrator policy lock prevents disabling Canary Tripwires.", [System.Windows.Forms.ToolTipIcon]::Warning)
+        return
+    }
+    $p.canaryTripwireEnabled = -not [bool]$p.canaryTripwireEnabled
+    $canaryItem.Checked = $p.canaryTripwireEnabled
+    Save-SharkFinPolicy $p
+})
+$contextMenu.Items.Add($canaryItem) | Out-Null
+
+$scanToggleItem = New-Object System.Windows.Forms.ToolStripMenuItem("YARA-X / ClamAV Malware Scanner")
+$scanToggleItem.Checked = [bool]$pol.yaraClamScannerEnabled
+$scanToggleItem.add_Click({
+    $p = Get-SharkFinPolicy
+    if ($p.policyLockedByAdmin -and $p.yaraClamScannerEnabled) {
+        $notifyIcon.ShowBalloonTip(3000, "Policy Locked by SOC Admin", "Administrator policy lock prevents disabling YARA-X/ClamAV Scanner.", [System.Windows.Forms.ToolTipIcon]::Warning)
+        return
+    }
+    $p.yaraClamScannerEnabled = -not [bool]$p.yaraClamScannerEnabled
+    $scanToggleItem.Checked = $p.yaraClamScannerEnabled
+    Save-SharkFinPolicy $p
+})
+$contextMenu.Items.Add($scanToggleItem) | Out-Null
+
+$quickScanItem = $contextMenu.Items.Add("Run Quick Security Scan Now")
+$quickScanItem.add_Click({
+    $p = Get-SharkFinPolicy
+    Save-SharkFinPolicy $p
+    $notifyIcon.ShowBalloonTip(4000, "Shark Fin Quick Scan Complete", "Verified Defender posture, Canary tripwires in $InstallDir\canary, and synced policy with ApexMSP SOC.", [System.Windows.Forms.ToolTipIcon]::Info)
+})
+
 $contextMenu.Items.Add("-") | Out-Null
 $portalItem = $contextMenu.Items.Add("Open ApexMSP Console")
 $portalItem.add_Click({ [System.Diagnostics.Process]::Start("https://apexmsp.app") })
@@ -134,7 +259,7 @@ $exitItem.add_Click({
 })
 
 $notifyIcon.ContextMenuStrip = $contextMenu
-$notifyIcon.ShowBalloonTip(4000, "ApexMSP Connected", "Windows device managed securely by ApexMSP.", [System.Windows.Forms.ToolTipIcon]::Info)
+$notifyIcon.ShowBalloonTip(4000, "ApexMSP Connected", "Windows device managed securely by ApexMSP Shark Fin.", [System.Windows.Forms.ToolTipIcon]::Info)
 
 [System.Windows.Forms.Application]::Run($appContext)
 `

@@ -56,6 +56,8 @@ func (e *Executor) Execute(ctx context.Context, cmd client.DeviceCommand) client
 		e.executeUnisolateHost(&result)
 	case "execute_soar_playbook", "shuffle_playbook_step", "cortex_analyze_file_hash", "cortex_analyze_process_cmdline", "shuffle_reseed_canaries", "shuffle_quarantine_and_verify", "shuffle_protected_asset_check":
 		e.executeSoarPlaybook(ctx, cmd.ID, cmd.CommandType, cmd.Payload, &result)
+	case "update_security_policy":
+		e.executeUpdateSecurityPolicy(cmd.Payload, &result)
 	case "install_approved_patches":
 		result.Status = "completed"
 		result.Output = "Patch manager executed: all approved system packages are up-to-date"
@@ -372,6 +374,22 @@ func (e *Executor) executeSoarPlaybook(ctx context.Context, cmdID string, cmdTyp
 	} else {
 		res.Status = "completed"
 	}
+}
+
+func (e *Executor) executeUpdateSecurityPolicy(payload map[string]interface{}, res *client.CommandResultRequest) {
+	source := extractString(payload, "updatedBy", "source")
+	if source == "" {
+		source = "soc_console"
+	}
+	updated, err := security.ApplyPolicyUpdate(payload, source)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+	raw, _ := json.Marshal(updated)
+	res.Status = "completed"
+	res.Output = string(raw)
 }
 
 func extractInt(m map[string]interface{}, keys ...string) int {

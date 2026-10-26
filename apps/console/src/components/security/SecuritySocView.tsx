@@ -17,7 +17,8 @@ import {
   type ShuffleExecutionTrace,
   type CortexAnalysisResult,
   type CortexTaxonomyBadge,
-  type GambinosUnpollerResponse
+  type GambinosUnpollerResponse,
+  type SharkFinPolicy
 } from '../../services/api';
 import {
   Shield,
@@ -117,6 +118,11 @@ export const SecuritySocView: React.FC = () => {
   // Gambinos UnPoller + Prometheus + Grafana (timothystewart6/unpoller-unifi) state
   const [gambinosUnpoller, setGambinosUnpoller] = useState<GambinosUnpollerResponse | null>(null);
   const [activeUnpollerDashboardId, setActiveUnpollerDashboardId] = useState<string>('unifi-sites');
+
+  // Shark Fin Client Live Toggles & Incident Seed Filter state
+  const [selectedSharkFinDeviceId, setSelectedSharkFinDeviceId] = useState<string>('dev-tbi-bench-02');
+  const [updatingPolicyKey, setUpdatingPolicyKey] = useState<string | null>(null);
+  const [hideSeededLabIncidents, setHideSeededLabIncidents] = useState<boolean>(false);
 
   const showToast = (type: 'success' | 'warn' | 'error', text: string) => {
     setToastMessage({ type, text });
@@ -269,6 +275,72 @@ export const SecuritySocView: React.FC = () => {
     await api.security.updateIncident(incidentId, { status });
     showToast('success', `Incident updated to ${status}`);
     await loadAllSocData();
+  };
+
+  const getDeviceSharkFinPolicy = (dev: SecurityDeviceRecord): SharkFinPolicy => {
+    const isUnmanaged = dev.posture.coverageState === 'unknown';
+    return (
+      dev.sharkFinPolicy || {
+        preventiveAvEnabled: Boolean(dev.posture.preventiveAvActive),
+        endpointEdrEnabled: !isUnmanaged,
+        ransomwareProtectionEnabled: Boolean(dev.posture.recoveryInhibitionGuardActive),
+        canaryTripwireEnabled: Boolean(dev.posture.canaryFilesDeployed),
+        yaraClamScannerEnabled: !isUnmanaged,
+        soarOrborusWorkerEnabled: !isUnmanaged,
+        policyLockedByAdmin: Boolean(dev.posture.tamperProtectionEnabled),
+        updatedAt: dev.posture.reportedAt || new Date().toISOString(),
+        updatedBy: 'ApexMSP SOC Policy Engine'
+      }
+    );
+  };
+
+  const handleToggleSharkFinModule = async (
+    dev: SecurityDeviceRecord,
+    moduleKey: keyof Omit<SharkFinPolicy, 'updatedAt' | 'updatedBy'>,
+    nextValue: boolean,
+    label: string,
+    isSimulatedTrayClick?: boolean
+  ) => {
+    const currentPol = getDeviceSharkFinPolicy(dev);
+    if (isSimulatedTrayClick && currentPol.policyLockedByAdmin && moduleKey !== 'policyLockedByAdmin') {
+      showToast(
+        'warn',
+        `🔐 Blocked by Admin Lock: Local user on ${dev.hostname} cannot toggle "${label}" in the Shark Fin tray while Admin Tamper Lock is enabled!`
+      );
+      return;
+    }
+
+    const opKey = `${dev.deviceId}:${moduleKey}`;
+    setUpdatingPolicyKey(opKey);
+    try {
+      await api.security.updateDevicePolicy(dev.deviceId, {
+        [moduleKey]: nextValue,
+        updatedBy: isSimulatedTrayClick
+          ? `Shark Fin Tray Client (${dev.hostname})`
+          : 'Brandon Ray (MSP SOC Console)'
+      });
+      showToast(
+        nextValue ? 'success' : 'warn',
+        `Shark Fin Client [${dev.hostname}]: ${label} -> ${nextValue ? 'ENABLED (ON)' : 'DISABLED (OFF)'}`
+      );
+      await loadAllSocData();
+    } catch (err: any) {
+      showToast('error', `Failed to update Shark Fin policy: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setUpdatingPolicyKey(null);
+    }
+  };
+
+  const isSeededLabIncident = (inc: SecurityIncident): boolean => {
+    if (
+      inc.category === 'unifi_anomaly' ||
+      inc.incidentNumber === 'SOC-2026-0901' ||
+      inc.incidentNumber === 'INC-2026-1002' ||
+      inc.title.toLowerCase().includes('port 43')
+    ) {
+      return false;
+    }
+    return true;
   };
 
   const handleExecuteSoarPlaybook = async (playbookId: string) => {
@@ -1752,7 +1824,7 @@ export const SecuritySocView: React.FC = () => {
         {currentSubTab === 'soc-incidents' && (
           <div className="space-y-6">
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div>
                   <h2 className="text-base font-black text-slate-900">
                     Correlated SIEM Incident Queue
@@ -1761,22 +1833,48 @@ export const SecuritySocView: React.FC = () => {
                     Deduplicated multi-sensor incidents correlating ApexMSP Go EDR Reflex, Wazuh rules (100500–100599), Velociraptor hunts, and UniFi network anomalies.
                   </p>
                 </div>
+
+                {/* Hide / Clear Seeded Lab Incidents Filter Toggle */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setHideSeededLabIncidents(prev => !prev)}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-black flex items-center gap-2 border transition cursor-pointer ${
+                      hideSeededLabIncidents
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+                    }`}
+                  >
+                    <span>{hideSeededLabIncidents ? '📡 Showing Only Live Production Findings' : '🧪 Hide / Clear Seeded Lab Incidents'}</span>
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-4">
                 {incidents
+                  .filter(inc => !hideSeededLabIncidents || !isSeededLabIncident(inc))
                   .filter(inc =>
                     !searchQuery ||
                     inc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     inc.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (inc.deviceName || '').toLowerCase().includes(searchQuery.toLowerCase())
                   )
-                  .map(inc => (
+                  .map(inc => {
+                    const isSeeded = isSeededLabIncident(inc);
+                    return (
                     <div key={inc.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:shadow-md transition">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
                           {renderSeverityBadge(inc.severity)}
                           <span className="text-xs font-black text-slate-900">{inc.incidentNumber}</span>
+                          {isSeeded ? (
+                            <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black uppercase">
+                              🧪 SEEDED LAB VERIFICATION
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black uppercase">
+                              📡 LIVE UNIFI TOPOLOGY FINDING
+                            </span>
+                          )}
                           <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-[11px] font-bold">
                             {inc.category.replace(/_/g, ' ').toUpperCase()}
                           </span>
@@ -1893,7 +1991,8 @@ export const SecuritySocView: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -1958,6 +2057,266 @@ export const SecuritySocView: React.FC = () => {
         {/* =================================================================== */}
         {currentSubTab === 'soc-endpoints' && (
           <div className="space-y-6">
+            {/* =============================================================== */}
+            {/* Shark Fin Endpoint Client — Live Protection Toggles & Simulator */}
+            {/* =============================================================== */}
+            {(() => {
+              const managedList = secDevices.filter(d => d.posture.coverageState !== 'unknown');
+              const activeDev =
+                managedList.find(d => d.deviceId === selectedSharkFinDeviceId) ||
+                managedList[0] ||
+                secDevices[0];
+              if (!activeDev) return null;
+              const pol = getDeviceSharkFinPolicy(activeDev);
+
+              const SHARK_FIN_MODULES: Array<{
+                key: keyof Omit<SharkFinPolicy, 'updatedAt' | 'updatedBy'>;
+                label: string;
+                shortDesc: string;
+              }> = [
+                {
+                  key: 'preventiveAvEnabled',
+                  label: '🛡️ Antivirus (AV) Real-Time Protection',
+                  shortDesc: 'OS Preventive AV (Defender / XProtect / ClamAV) real-time kernel guard'
+                },
+                {
+                  key: 'endpointEdrEnabled',
+                  label: '🔍 Endpoint Detection & Response (EDR)',
+                  shortDesc: 'ApexMSP Go EDR Reflex + Wazuh process/file/registry telemetry'
+                },
+                {
+                  key: 'ransomwareProtectionEnabled',
+                  label: '🔒 Ransomware Protection (VSS Shadow-Copy Guard)',
+                  shortDesc: 'Intercepts vssadmin/wmic/bcdedit recovery-inhibition (MITRE T1490)'
+                },
+                {
+                  key: 'canaryTripwireEnabled',
+                  label: '🐤 Ransomware Canary Decoy Tripwires',
+                  shortDesc: 'Watches SHA-256 decoy files (00_APEX_CANARY) for mass-encryption'
+                },
+                {
+                  key: 'yaraClamScannerEnabled',
+                  label: '🧬 YARA-X & ClamAV Malware Scanner',
+                  shortDesc: 'Bounded 30s / 50MB on-write & on-demand signature scanner'
+                },
+                {
+                  key: 'soarOrborusWorkerEnabled',
+                  label: '⚡ Shuffle Go SOAR Orborus Worker',
+                  shortDesc: 'Executes signed Shuffle Go SOAR playbooks & Velociraptor DFIR hunts'
+                }
+              ];
+
+              return (
+                <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-xl p-5 border border-emerald-500/40 shadow-lg space-y-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-700 pb-4">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase">
+                          Bi-Directional Live Policy Sync • PATCH /api/v1/security/devices/:id/policy
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 text-[10px] font-mono font-bold">
+                          Updated: {new Date(pol.updatedAt).toLocaleTimeString()} by {pol.updatedBy}
+                        </span>
+                      </div>
+                      <h2 className="text-base font-black text-white mt-1.5">
+                        Shark Fin Endpoint Client — Live Protection Toggles &amp; Interactive Tray Simulator
+                      </h2>
+                      <p className="text-xs text-slate-300 mt-0.5">
+                        Turn individual security functions ON or OFF in real time from the MSP Console—or test clicking inside the simulated macOS/Windows Shark Fin System Tray menu below to verify Admin Tamper Lock &amp; live <code className="font-mono text-emerald-300">coverageState</code> transitions.
+                      </p>
+                    </div>
+
+                    {/* Endpoint Selector Pills */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {managedList.map(d => {
+                        const isSel = d.deviceId === activeDev.deviceId;
+                        return (
+                          <button
+                            key={d.deviceId}
+                            onClick={() => setSelectedSharkFinDeviceId(d.deviceId)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                              isSel
+                                ? 'bg-emerald-500 text-slate-950 shadow'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                            }`}
+                          >
+                            🦈 {d.hostname}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Left Column: Simulated macOS / Windows Shark Fin Menu Bar / System Tray Widget */}
+                    <div className="lg:col-span-5 bg-slate-950 rounded-2xl border border-slate-700 p-4 shadow-2xl">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-lg shadow">
+                            🦈
+                          </div>
+                          <div>
+                            <div className="text-xs font-black text-white flex items-center gap-1.5">
+                              <span>ApexMSP Shark Fin Agent</span>
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-mono">
+                                v2.3.0
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              {activeDev.hostname} ({activeDev.ipAddress})
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                            pol.policyLockedByAdmin
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'bg-slate-800 text-slate-300 border border-slate-700'
+                          }`}
+                        >
+                          {pol.policyLockedByAdmin ? '🔐 Admin Locked' : '🔓 Tray Unlocked'}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 mb-3 flex items-center justify-between bg-slate-900 px-3 py-2 rounded-lg border border-slate-800">
+                        <span className="text-[11px] font-bold text-slate-300">Live Coverage State:</span>
+                        {renderCoverageBadge(activeDev.posture.coverageState)}
+                      </div>
+
+                      <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+                        Simulated Local User Shark Fin Tray Menu (Click to Test):
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {SHARK_FIN_MODULES.map(mod => {
+                          const enabled = Boolean(pol[mod.key]);
+                          const busy = updatingPolicyKey === `${activeDev.deviceId}:${mod.key}`;
+                          return (
+                            <div
+                              key={mod.key}
+                              className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition"
+                            >
+                              <div className="pr-2">
+                                <div className="text-xs font-bold text-white">{mod.label}</div>
+                                <div className="text-[10px] text-slate-400">{mod.shortDesc}</div>
+                              </div>
+                              <button
+                                disabled={busy}
+                                onClick={() =>
+                                  handleToggleSharkFinModule(
+                                    activeDev,
+                                    mod.key,
+                                    !enabled,
+                                    mod.label,
+                                    true
+                                  )
+                                }
+                                title={
+                                  pol.policyLockedByAdmin
+                                    ? 'Locked by MSP Admin — clicking tests Tamper Lock enforcement'
+                                    : 'Toggle module from local Shark Fin Tray'
+                                }
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase transition cursor-pointer shrink-0 ${
+                                  enabled
+                                    ? 'bg-emerald-500 text-slate-950'
+                                    : 'bg-rose-600 text-white'
+                                }`}
+                              >
+                                {enabled ? 'ON' : 'OFF'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+                        <span>Supervisor CPU: {activeDev.posture.supervisorCpuPct ?? 0.4}%</span>
+                        <span>Tray Port: 127.0.0.1:9711</span>
+                      </div>
+                    </div>
+
+                    {/* Right Column: MSP Admin Console Master Policy Controls */}
+                    <div className="lg:col-span-7 bg-slate-800/80 rounded-2xl border border-slate-700 p-5 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                            MSP Admin Master Policy Override
+                          </span>
+                          <h3 className="text-sm font-black text-white">
+                            Remote Shark Fin Feature Switches for {activeDev.hostname}
+                          </h3>
+                        </div>
+
+                        {/* Lock Shark Fin Tray Toggle */}
+                        <button
+                          onClick={() =>
+                            handleToggleSharkFinModule(
+                              activeDev,
+                              'policyLockedByAdmin',
+                              !pol.policyLockedByAdmin,
+                              '🔐 Lock Shark Fin Tray (Prevent Local User Disabling AV/Ransomware)',
+                              false
+                            )
+                          }
+                          className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-2 border transition cursor-pointer ${
+                            pol.policyLockedByAdmin
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
+                              : 'bg-slate-900 text-slate-200 border-slate-600 hover:bg-slate-700'
+                          }`}
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          {pol.policyLockedByAdmin
+                            ? '🔐 Shark Fin Tray LOCKED (Local User Cannot Disable)'
+                            : '🔓 Lock Shark Fin Tray (Prevent Local User Disable)'}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {SHARK_FIN_MODULES.map(mod => {
+                          const enabled = Boolean(pol[mod.key]);
+                          const busy = updatingPolicyKey === `${activeDev.deviceId}:${mod.key}`;
+                          return (
+                            <div
+                              key={mod.key}
+                              className={`p-3.5 rounded-xl border transition flex items-center justify-between gap-3 ${
+                                enabled
+                                  ? 'bg-slate-900/90 border-emerald-500/40'
+                                  : 'bg-rose-950/40 border-rose-500/40'
+                              }`}
+                            >
+                              <div>
+                                <div className="text-xs font-black text-white">{mod.label}</div>
+                                <div className="text-[10px] text-slate-300 mt-0.5">{mod.shortDesc}</div>
+                              </div>
+                              <button
+                                disabled={busy}
+                                onClick={() =>
+                                  handleToggleSharkFinModule(
+                                    activeDev,
+                                    mod.key,
+                                    !enabled,
+                                    mod.label,
+                                    false
+                                  )
+                                }
+                                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition cursor-pointer shrink-0 ${
+                                  enabled
+                                    ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow'
+                                    : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                                }`}
+                              >
+                                {enabled ? 'ENABLED' : 'DISABLED'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
               <div className="text-xs text-amber-900">
@@ -1975,6 +2334,7 @@ export const SecuritySocView: React.FC = () => {
                 )
                 .map(dev => {
                   const p = dev.posture;
+                  const pol = getDeviceSharkFinPolicy(dev);
                   return (
                     <div
                       key={dev.deviceId}
@@ -2088,6 +2448,72 @@ export const SecuritySocView: React.FC = () => {
                           <div className="text-[10px] text-slate-500">Bounded 30s / 50MB cap</div>
                         </div>
                       </div>
+
+                      {/* Per-Device Live Shark Fin Protection Toggles Bar */}
+                      {p.coverageState !== 'unknown' && (
+                        <div className="mt-3 pt-3 border-t border-slate-100">
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                            <span className="text-[11px] font-black uppercase text-slate-600 flex items-center gap-1.5">
+                              <span>🦈 Shark Fin Client Live Function Toggles:</span>
+                            </span>
+                            <button
+                              onClick={() =>
+                                handleToggleSharkFinModule(
+                                  dev,
+                                  'policyLockedByAdmin',
+                                  !pol.policyLockedByAdmin,
+                                  '🔐 Lock Shark Fin Tray',
+                                  false
+                                )
+                              }
+                              className={`px-2.5 py-1 rounded-md text-[11px] font-black border transition cursor-pointer ${
+                                pol.policyLockedByAdmin
+                                  ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                  : 'bg-slate-100 text-slate-700 border-slate-300'
+                              }`}
+                            >
+                              {pol.policyLockedByAdmin
+                                ? '🔐 Tray Locked Against Local User Disable'
+                                : '🔓 Tray Unlocked (Click to Lock)'}
+                            </button>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { key: 'preventiveAvEnabled' as const, label: '🛡️ Real-Time AV' },
+                              { key: 'endpointEdrEnabled' as const, label: '🔍 Endpoint EDR' },
+                              { key: 'ransomwareProtectionEnabled' as const, label: '🔒 Ransomware VSS Guard' },
+                              { key: 'canaryTripwireEnabled' as const, label: '🐤 Canary Tripwires' },
+                              { key: 'yaraClamScannerEnabled' as const, label: '🧬 YARA-X / ClamAV' },
+                              { key: 'soarOrborusWorkerEnabled' as const, label: '⚡ SOAR Orborus Worker' }
+                            ].map(sw => {
+                              const isOn = Boolean(pol[sw.key]);
+                              return (
+                                <button
+                                  key={sw.key}
+                                  onClick={() =>
+                                    handleToggleSharkFinModule(dev, sw.key, !isOn, sw.label, false)
+                                  }
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-2 transition cursor-pointer ${
+                                    isOn
+                                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900 hover:bg-emerald-100'
+                                      : 'bg-rose-50 border-rose-300 text-rose-900 hover:bg-rose-100'
+                                  }`}
+                                >
+                                  <span>{sw.label}</span>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase ${
+                                      isOn ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                                    }`}
+                                  >
+                                    {isOn ? 'ON' : 'OFF'}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Sensor Version Strip */}
                       <div className="mt-3 flex flex-wrap items-center gap-2">

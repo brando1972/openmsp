@@ -534,4 +534,77 @@ func TestShuffleOrborusAndCortexAnalyzers(t *testing.T) {
 	}
 }
 
+// TestSharkFinSecurityPolicyTogglesAndAdminLock verifies LoadSecurityPolicy, SaveSecurityPolicy,
+// live toggling of AV/EDR/Ransomware/Canary/Scanner/SOAR modules, and admin lock enforcement.
+func TestSharkFinSecurityPolicyTogglesAndAdminLock(t *testing.T) {
+	tmpDir := t.TempDir()
+	polPath := filepath.Join(tmpDir, "security-policy.json")
+	SetPolicyPathForTesting(polPath)
+	defer SetPolicyPathForTesting("")
+
+	// 1. Default policy should initialize all protection modules to true
+	pol := LoadSecurityPolicy()
+	if !pol.PreventiveAvEnabled || !pol.EndpointEdrEnabled || !pol.RansomwareProtectionEnabled ||
+		!pol.CanaryTripwireEnabled || !pol.YaraClamScannerEnabled || !pol.SoarOrborusWorkerEnabled {
+		t.Fatalf("expected all default SharkFinSecurityPolicy modules to be enabled, got %+v", pol)
+	}
+
+	// 2. Toggle off RansomwareProtectionEnabled & PreventiveAvEnabled from Shark Fin client
+	updated, err := ApplyPolicyUpdate(map[string]interface{}{
+		"preventiveAvEnabled":         false,
+		"ransomwareProtectionEnabled": false,
+	}, "sharkfin_client")
+	if err != nil {
+		t.Fatalf("ApplyPolicyUpdate failed: %v", err)
+	}
+	if updated.PreventiveAvEnabled || updated.RansomwareProtectionEnabled {
+		t.Errorf("expected PreventiveAvEnabled=false and RansomwareProtectionEnabled=false, got %+v", updated)
+	}
+
+	// Verify edr_reflex immediately respects RansomwareProtectionEnabled=false for recovery_inhibition rules
+	vssProc := ProcessInfo{
+		PID:     7701,
+		Name:    "vssadmin.exe",
+		Cmdline: "vssadmin delete shadows /all /quiet",
+	}
+	if det := AnalyzeCommandLine(vssProc); det != nil {
+		t.Errorf("expected AnalyzeCommandLine to skip recovery_inhibition when RansomwareProtectionEnabled=false, got %+v", det)
+	}
+
+	// Verify CollectPosture immediately reflects PreventiveAvActive=false and RecoveryInhibitionGuardActive=false
+	posture := CollectPosture()
+	if posture.PreventiveAvActive {
+		t.Errorf("expected CollectPosture().PreventiveAvActive=false when toggled off in Shark Fin")
+	}
+	if posture.RecoveryInhibitionGuardActive {
+		t.Errorf("expected CollectPosture().RecoveryInhibitionGuardActive=false when toggled off in Shark Fin")
+	}
+
+	// 3. Re-enable protections and lock policy from SOC Console ("soc_console")
+	lockedPol, err := ApplyPolicyUpdate(map[string]interface{}{
+		"preventiveAvEnabled":         true,
+		"ransomwareProtectionEnabled": true,
+		"policyLockedByAdmin":         true,
+	}, "soc_console")
+	if err != nil {
+		t.Fatalf("ApplyPolicyUpdate (soc_console) failed: %v", err)
+	}
+	if !lockedPol.PolicyLockedByAdmin || !lockedPol.RansomwareProtectionEnabled {
+		t.Fatalf("expected PolicyLockedByAdmin=true and RansomwareProtectionEnabled=true, got %+v", lockedPol)
+	}
+
+	// 4. Local Shark Fin client ("sharkfin_client") must be blocked from disabling locked protections
+	if _, err := ApplyPolicyUpdate(map[string]interface{}{
+		"preventiveAvEnabled": false,
+	}, "sharkfin_client"); err == nil {
+		t.Fatalf("expected error when sharkfin_client attempts to disable protection while policyLockedByAdmin=true")
+	}
+
+	// 5. Verify vssadmin detection is active again now that RansomwareProtectionEnabled=true
+	if det := AnalyzeCommandLine(vssProc); det == nil {
+		t.Errorf("expected AnalyzeCommandLine to detect vssadmin delete shadows after re-enabling RansomwareProtectionEnabled")
+	}
+}
+
+
 

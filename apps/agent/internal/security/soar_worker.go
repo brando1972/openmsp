@@ -116,6 +116,13 @@ func ExecuteShufflePlaybookStep(ctx context.Context, step ShuffleWorkflowStep) S
 		CompletedAt: nowStr,
 	}
 
+	if !LoadSecurityPolicy().SoarOrborusWorkerEnabled {
+		res.Status = "SKIPPED"
+		res.Success = false
+		res.Message = "SOAR Orborus worker disabled by Shark Fin security policy"
+		return res
+	}
+
 	switch strings.ToLower(strings.TrimSpace(step.Action)) {
 	case "cortex_analyze_file_hash":
 		runCortexAnalyzeFileHash(ctx, step.Parameters, &res)

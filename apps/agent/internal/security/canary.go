@@ -119,6 +119,9 @@ func RestoreCanaryFiles(dir string) ([]string, error) {
 // CheckCanaryFiles verifies all baseline canary files in dir against their SHA-256 baselines
 // and checks for ransomware rename/encryption extensions.
 func CheckCanaryFiles(dir string) (detections []client.SecurityDetectionInput, allIntact bool, deployedPaths []string) {
+	if !LoadSecurityPolicy().CanaryTripwireEnabled {
+		return nil, false, nil
+	}
 	if dir == "" {
 		dir = DefaultCanaryDir()
 	}

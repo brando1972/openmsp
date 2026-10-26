@@ -877,6 +877,51 @@ router.patch('/incidents/:id', (req: AuthenticatedRequest, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Shark Fin Endpoint Client Module Toggle State & Policy Helper
+// ---------------------------------------------------------------------------
+export interface SharkFinDevicePolicy {
+  deviceId: string;
+  preventiveAvEnabled: boolean;
+  endpointEdrEnabled: boolean;
+  ransomwareProtectionEnabled: boolean;
+  canaryTripwireEnabled: boolean;
+  yaraClamScannerEnabled: boolean;
+  soarOrborusWorkerEnabled: boolean;
+  policyLockedByAdmin: boolean;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+const sharkFinPolicies = new Map<string, SharkFinDevicePolicy>();
+
+export function getOrInitSharkFinPolicy(deviceId: string): SharkFinDevicePolicy {
+  const existing = sharkFinPolicies.get(deviceId);
+  if (existing) return existing;
+
+  const posture = store.securityPostures.get(deviceId);
+  const device = store.devices.get(deviceId);
+  const isProtectedOrMuni =
+    device?.clientId === 'c-municipality' ||
+    Boolean(device?.tags?.includes('protected-asset')) ||
+    Boolean(device?.tags?.includes('pos-controller'));
+
+  const initial: SharkFinDevicePolicy = {
+    deviceId,
+    preventiveAvEnabled: posture ? posture.preventiveAvActive : true,
+    endpointEdrEnabled: true,
+    ransomwareProtectionEnabled: posture ? posture.recoveryInhibitionGuardActive : true,
+    canaryTripwireEnabled: posture ? posture.canaryFilesDeployed : true,
+    yaraClamScannerEnabled: true,
+    soarOrborusWorkerEnabled: true,
+    policyLockedByAdmin: isProtectedOrMuni,
+    updatedAt: posture?.reportedAt || new Date().toISOString(),
+    updatedBy: 'soc_policy_default'
+  };
+  sharkFinPolicies.set(deviceId, initial);
+  return initial;
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/v1/security/devices & GET /api/v1/security/devices/:id/timeline
 // ---------------------------------------------------------------------------
 router.get('/devices', (req: AuthenticatedRequest, res) => {
@@ -887,6 +932,7 @@ router.get('/devices', (req: AuthenticatedRequest, res) => {
 
   const enriched = devices.map((d) => {
     const posture = store.securityPostures.get(d.id);
+    const sharkFinPolicy = getOrInitSharkFinPolicy(d.id);
     const observations = Array.from(store.identityObservations.values()).filter(
       (obs) => obs.clientId === d.clientId && (obs.managedDeviceId === d.id || normalizeMac(obs.macAddress) === normalizeMac(d.macAddress))
     );
@@ -904,6 +950,7 @@ router.get('/devices', (req: AuthenticatedRequest, res) => {
     return {
       ...d,
       securityPosture: posture || null,
+      sharkFinPolicy,
       identityObservations: observations,
       activeIncidentsCount: activeIncidents.length,
       isProtectedAsset: lockEval.blocked,
@@ -912,6 +959,210 @@ router.get('/devices', (req: AuthenticatedRequest, res) => {
   });
 
   res.json(enriched);
+});
+
+// GET /api/v1/security/devices/:id/policy
+router.get('/devices/:id/policy', (req: AuthenticatedRequest, res) => {
+  const deviceId = req.params.id as string;
+  const device = store.devices.get(deviceId);
+  if (!device && !store.securityPostures.has(deviceId)) {
+    res.status(404).json({ error: `Device '${deviceId}' not found` });
+    return;
+  }
+
+  const sharkFinPolicy = getOrInitSharkFinPolicy(deviceId);
+  const securityPosture = store.securityPostures.get(deviceId) || null;
+  res.json({
+    ok: true,
+    deviceId,
+    sharkFinPolicy,
+    securityPosture
+  });
+});
+
+// PATCH /api/v1/security/devices/:id/policy
+router.patch('/devices/:id/policy', (req: AuthenticatedRequest, res) => {
+  const deviceId = req.params.id as string;
+  const device = store.devices.get(deviceId);
+  if (!device && !store.securityPostures.has(deviceId)) {
+    res.status(404).json({ error: `Device '${deviceId}' not found` });
+    return;
+  }
+
+  const currentPolicy = getOrInitSharkFinPolicy(deviceId);
+  const body = req.body || {};
+  const updatedBy = String(body.updatedBy || req.user?.email || 'soc_admin');
+
+  // Determine effective lock state before evaluating module disable attempts
+  const effectiveLock =
+    typeof body.policyLockedByAdmin === 'boolean' && updatedBy !== 'sharkfin_client'
+      ? body.policyLockedByAdmin
+      : currentPolicy.policyLockedByAdmin;
+
+  // Enforce SOC Admin Policy Lock when a local Shark Fin user tries to turn off any protection module
+  const isAttemptingDisable =
+    body.preventiveAvEnabled === false ||
+    body.endpointEdrEnabled === false ||
+    body.ransomwareProtectionEnabled === false ||
+    body.canaryTripwireEnabled === false ||
+    body.yaraClamScannerEnabled === false ||
+    body.soarOrborusWorkerEnabled === false;
+
+  if (effectiveLock && updatedBy === 'sharkfin_client' && isAttemptingDisable) {
+    store.recordAudit({
+      orgId: req.user!.orgId,
+      actorName: 'Shark Fin Endpoint Client',
+      action: 'security.sharkfin_toggle_rejected',
+      targetType: 'device',
+      targetId: deviceId,
+      details: {
+        reason: 'POLICY_LOCKED_BY_SOC_ADMIN',
+        requestedChanges: body
+      },
+      ipAddress: req.ip
+    });
+
+    res.status(403).json({
+      ok: false,
+      code: 'POLICY_LOCKED_BY_SOC_ADMIN',
+      error: 'Protection modules are locked by ApexMSP SOC Administrator policy. Local Shark Fin user cannot disable AV, EDR, or Ransomware protection.',
+      sharkFinPolicy: currentPolicy
+    });
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const nextPolicy: SharkFinDevicePolicy = {
+    deviceId,
+    preventiveAvEnabled:
+      typeof body.preventiveAvEnabled === 'boolean' ? body.preventiveAvEnabled : currentPolicy.preventiveAvEnabled,
+    endpointEdrEnabled:
+      typeof body.endpointEdrEnabled === 'boolean' ? body.endpointEdrEnabled : currentPolicy.endpointEdrEnabled,
+    ransomwareProtectionEnabled:
+      typeof body.ransomwareProtectionEnabled === 'boolean'
+        ? body.ransomwareProtectionEnabled
+        : currentPolicy.ransomwareProtectionEnabled,
+    canaryTripwireEnabled:
+      typeof body.canaryTripwireEnabled === 'boolean' ? body.canaryTripwireEnabled : currentPolicy.canaryTripwireEnabled,
+    yaraClamScannerEnabled:
+      typeof body.yaraClamScannerEnabled === 'boolean'
+        ? body.yaraClamScannerEnabled
+        : currentPolicy.yaraClamScannerEnabled,
+    soarOrborusWorkerEnabled:
+      typeof body.soarOrborusWorkerEnabled === 'boolean'
+        ? body.soarOrborusWorkerEnabled
+        : currentPolicy.soarOrborusWorkerEnabled,
+    policyLockedByAdmin: effectiveLock,
+    updatedAt: nowIso,
+    updatedBy
+  };
+
+  sharkFinPolicies.set(deviceId, nextPolicy);
+
+  // Synchronize device SecurityPostureReport and recalculate coverageState
+  const existingPosture = store.securityPostures.get(deviceId) || {
+    coverageState: 'preventive_active',
+    preventiveAvName: device?.os === 'macos' ? 'macOS XProtect + YARA-X/ClamAV' : 'Microsoft Defender + ClamAV/YARA-X',
+    preventiveAvActive: true,
+    realtimeProtectionEnabled: true,
+    tamperProtectionEnabled: true,
+    canaryFilesDeployed: true,
+    canaryPaths: ['/Users/Shared/.apex_canary_ledger.xlsx'],
+    recoveryInhibitionGuardActive: true,
+    isolated: false,
+    sensors: [],
+    reportedAt: nowIso
+  };
+
+  existingPosture.preventiveAvActive = nextPolicy.preventiveAvEnabled;
+  existingPosture.realtimeProtectionEnabled = nextPolicy.preventiveAvEnabled;
+  existingPosture.tamperProtectionEnabled = nextPolicy.policyLockedByAdmin;
+  existingPosture.recoveryInhibitionGuardActive = nextPolicy.ransomwareProtectionEnabled;
+  existingPosture.canaryFilesDeployed = nextPolicy.canaryTripwireEnabled;
+  existingPosture.reportedAt = nowIso;
+
+  // Update individual sensor states
+  existingPosture.sensors = (existingPosture.sensors || []).map((s) => {
+    if (s.provider === 'windows_defender' || s.provider === 'macos_xprotect') {
+      return { ...s, running: nextPolicy.preventiveAvEnabled, preventiveActive: nextPolicy.preventiveAvEnabled, lastUpdated: nowIso };
+    }
+    if (s.provider === 'apex_edr_reflex') {
+      const active = nextPolicy.endpointEdrEnabled || nextPolicy.ransomwareProtectionEnabled;
+      return { ...s, running: active, preventiveActive: nextPolicy.ransomwareProtectionEnabled, lastUpdated: nowIso };
+    }
+    if (s.provider === 'yara_x' || s.provider === 'clamav') {
+      return { ...s, running: nextPolicy.yaraClamScannerEnabled, preventiveActive: nextPolicy.yaraClamScannerEnabled, lastUpdated: nowIso };
+    }
+    if (s.provider === 'wazuh' || s.provider === 'velociraptor') {
+      return { ...s, running: nextPolicy.endpointEdrEnabled, lastUpdated: nowIso };
+    }
+    return s;
+  });
+
+  const anyTelemetryOrProtectionActive =
+    nextPolicy.preventiveAvEnabled ||
+    nextPolicy.endpointEdrEnabled ||
+    nextPolicy.ransomwareProtectionEnabled ||
+    nextPolicy.canaryTripwireEnabled ||
+    nextPolicy.yaraClamScannerEnabled ||
+    nextPolicy.soarOrborusWorkerEnabled;
+
+  if (existingPosture.isolated) {
+    existingPosture.coverageState = 'containment_verified';
+  } else if (nextPolicy.preventiveAvEnabled) {
+    existingPosture.coverageState = 'preventive_active';
+  } else if (anyTelemetryOrProtectionActive) {
+    existingPosture.coverageState = 'collecting';
+  } else {
+    existingPosture.coverageState = 'installed';
+  }
+
+  store.securityPostures.set(deviceId, existingPosture);
+
+  // Queue an update_security_policy command for the Go Endpoint Agent
+  const cmdId = `cmd-pol-${uuidv4().substring(0, 8)}`;
+  const policyCommand: DeviceCommand = {
+    id: cmdId,
+    deviceId,
+    orgId: req.user!.orgId,
+    commandType: 'update_security_policy' as any,
+    payload: {
+      sharkFinPolicy: nextPolicy
+    },
+    status: 'pending',
+    createdAt: nowIso
+  };
+  store.deviceCommands.set(cmdId, policyCommand);
+
+  store.recordAudit({
+    orgId: req.user!.orgId,
+    userId: req.user!.id,
+    actorName: updatedBy,
+    action: 'security.sharkfin_policy_updated',
+    targetType: 'device',
+    targetId: deviceId,
+    details: {
+      sharkFinPolicy: nextPolicy,
+      coverageState: existingPosture.coverageState,
+      queuedCommandId: cmdId
+    },
+    ipAddress: req.ip
+  });
+
+  wsManager.broadcastToOrg(req.user!.orgId, 'security.posture_updated' as any, {
+    deviceId,
+    sharkFinPolicy: nextPolicy,
+    securityPosture: existingPosture,
+    commandId: cmdId
+  });
+
+  res.json({
+    ok: true,
+    deviceId,
+    sharkFinPolicy: nextPolicy,
+    securityPosture: existingPosture,
+    queuedCommand: policyCommand
+  });
 });
 
 router.get('/devices/:id/timeline', (req: AuthenticatedRequest, res) => {

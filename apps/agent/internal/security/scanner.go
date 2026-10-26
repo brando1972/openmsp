@@ -191,6 +191,11 @@ func ScanPath(parentCtx context.Context, opts ScanOptions) (*ScanResult, error) 
 }
 
 func inspectRegularFile(ctx context.Context, filePath string, maxSize int64, opts ScanOptions) []client.SecurityDetectionInput {
+	pol := LoadSecurityPolicy()
+	if !pol.PreventiveAvEnabled && !pol.YaraClamScannerEnabled {
+		return nil
+	}
+
 	f, err := os.Open(filePath)
 	if err != nil {
 		return nil

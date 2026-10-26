@@ -69,9 +69,11 @@ func SetIsolated(isolated bool) {
 }
 
 func runPeriodicChecks() {
+	pol := LoadSecurityPolicy()
+
 	stateMu.Lock()
-	needCanary := time.Since(lastCanaryCheck) >= 15*time.Second
-	needReflex := time.Since(lastReflexCheck) >= 15*time.Second
+	needCanary := pol.CanaryTripwireEnabled && time.Since(lastCanaryCheck) >= 15*time.Second
+	needReflex := (pol.EndpointEdrEnabled || pol.RansomwareProtectionEnabled) && time.Since(lastReflexCheck) >= 15*time.Second
 	if needCanary {
 		lastCanaryCheck = time.Now()
 	}
@@ -101,15 +103,22 @@ func runPeriodicChecks() {
 }
 
 // CollectPosture inspects the OS-native preventive antivirus and installed security sensors
-// without ever disabling or interfering with existing AV products.
+// without ever disabling or interfering with existing AV products, while honoring live Shark Fin toggles.
 func CollectPosture() *client.SecurityPostureReport {
-	canaryDir := DefaultCanaryDir()
-	if _, err := os.Stat(canaryDir); os.IsNotExist(err) {
-		_, _ = EnsureCanaryFiles(canaryDir)
-	}
-	canaryDets, canariesIntact, canaryPaths := CheckCanaryFiles(canaryDir)
-	for _, d := range canaryDets {
-		EnqueueDetection(d)
+	pol := LoadSecurityPolicy()
+
+	var canariesIntact bool
+	var canaryPaths []string
+	if pol.CanaryTripwireEnabled {
+		canaryDir := DefaultCanaryDir()
+		if _, err := os.Stat(canaryDir); os.IsNotExist(err) {
+			_, _ = EnsureCanaryFiles(canaryDir)
+		}
+		var canaryDets []client.SecurityDetectionInput
+		canaryDets, canariesIntact, canaryPaths = CheckCanaryFiles(canaryDir)
+		for _, d := range canaryDets {
+			EnqueueDetection(d)
+		}
 	}
 
 	report := &client.SecurityPostureReport{
@@ -118,9 +127,9 @@ func CollectPosture() *client.SecurityPostureReport {
 		PreventiveAvActive:            false,
 		RealtimeProtectionEnabled:     false,
 		TamperProtectionEnabled:       false,
-		CanaryFilesDeployed:           canariesIntact && len(canaryPaths) > 0,
+		CanaryFilesDeployed:           pol.CanaryTripwireEnabled && canariesIntact && len(canaryPaths) > 0,
 		CanaryPaths:                   canaryPaths,
-		RecoveryInhibitionGuardActive: true,
+		RecoveryInhibitionGuardActive: pol.EndpointEdrEnabled && pol.RansomwareProtectionEnabled,
 		Isolated:                      IsIsolated(),
 		Sensors:                       make([]client.SecuritySensorState, 0, 8),
 		ReportedAt:                    time.Now().UTC().Format(time.RFC3339),
@@ -135,14 +144,22 @@ func CollectPosture() *client.SecurityPostureReport {
 		collectLinuxPosture(report)
 	}
 
-	// Always include the built-in ApexMSP EDR Reflex & Canary sensor
+	// Honor Shark Fin live AV toggle override in reported posture
+	if !pol.PreventiveAvEnabled {
+		report.PreventiveAvActive = false
+		report.RealtimeProtectionEnabled = false
+	}
+
+	// Always include the built-in ApexMSP EDR Reflex & Canary sensor reflecting live Shark Fin policy state
 	report.Sensors = append(report.Sensors, client.SecuritySensorState{
 		Provider:         "apex_edr_reflex",
 		Installed:        true,
-		Running:          true,
-		PreventiveActive: true,
+		Running:          pol.EndpointEdrEnabled,
+		PreventiveActive: pol.EndpointEdrEnabled && pol.RansomwareProtectionEnabled,
 		Version:          "1.0.0",
-		HealthMessage:    "Canary tripwire & recovery-inhibition reflex active",
+		HealthMessage: fmt.Sprintf("AV=%v EDR=%v RansomwareGuard=%v Canary=%v Scanner=%v (by %s)",
+			pol.PreventiveAvEnabled, pol.EndpointEdrEnabled, pol.RansomwareProtectionEnabled,
+			pol.CanaryTripwireEnabled, pol.YaraClamScannerEnabled, pol.UpdatedBy),
 	})
 
 	// Populate bounded resource usage stats

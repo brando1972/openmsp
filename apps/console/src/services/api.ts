@@ -1192,6 +1192,18 @@ export const stagedApps = {
 // 13. Security SOC (SIEM / EDR / AV / Action Broker) & UniFi Network SOC API
 // ---------------------------------------------------------------------------
 
+export interface SharkFinPolicy {
+  preventiveAvEnabled: boolean;
+  endpointEdrEnabled: boolean;
+  ransomwareProtectionEnabled: boolean;
+  canaryTripwireEnabled: boolean;
+  yaraClamScannerEnabled: boolean;
+  soarOrborusWorkerEnabled: boolean;
+  policyLockedByAdmin: boolean;
+  updatedAt: string;
+  updatedBy: string;
+}
+
 export interface SecurityDeviceRecord {
   deviceId: string;
   hostname: string;
@@ -1205,6 +1217,7 @@ export interface SecurityDeviceRecord {
   macAddress: string;
   assetCriticality: 'standard' | 'pos_payment' | 'pos_controller' | 'infrastructure' | 'municipal_critical' | 'protected_never_auto_isolate';
   posture: SecurityPostureReport;
+  sharkFinPolicy?: SharkFinPolicy;
 }
 
 export interface SecurityOverviewResponse {
@@ -2502,6 +2515,55 @@ function buildFallbackOverview(clientId?: string): SecurityOverviewResponse {
   };
 }
 
+const localSharkFinPolicyOverrides: Record<string, SharkFinPolicy> = {};
+
+function deriveSharkFinPolicy(posture: SecurityPostureReport, rawPolicy?: any): SharkFinPolicy {
+  const isUnmanaged = posture.coverageState === 'unknown';
+  return {
+    preventiveAvEnabled: rawPolicy?.preventiveAvEnabled ?? Boolean(posture.preventiveAvActive),
+    endpointEdrEnabled: rawPolicy?.endpointEdrEnabled ?? !isUnmanaged,
+    ransomwareProtectionEnabled: rawPolicy?.ransomwareProtectionEnabled ?? Boolean(posture.recoveryInhibitionGuardActive),
+    canaryTripwireEnabled: rawPolicy?.canaryTripwireEnabled ?? Boolean(posture.canaryFilesDeployed),
+    yaraClamScannerEnabled: rawPolicy?.yaraClamScannerEnabled ?? !isUnmanaged,
+    soarOrborusWorkerEnabled: rawPolicy?.soarOrborusWorkerEnabled ?? !isUnmanaged,
+    policyLockedByAdmin: rawPolicy?.policyLockedByAdmin ?? Boolean(posture.tamperProtectionEnabled),
+    updatedAt: rawPolicy?.updatedAt || posture.reportedAt || new Date().toISOString(),
+    updatedBy: rawPolicy?.updatedBy || 'ApexMSP SOC Policy Engine'
+  };
+}
+
+function applySharkFinPolicyToDevice(dev: SecurityDeviceRecord, policy: SharkFinPolicy): SecurityDeviceRecord {
+  const p = dev.posture || ({} as SecurityPostureReport);
+  const wasContained = p.coverageState === 'containment_verified' || p.coverageState === 'containment_requested';
+  const wasUnknown = p.coverageState === 'unknown';
+
+  let nextCoverage: SecurityCoverageState = p.coverageState;
+  if (!wasContained && !wasUnknown) {
+    if (policy.preventiveAvEnabled && policy.endpointEdrEnabled) {
+      nextCoverage = 'preventive_active';
+    } else if (policy.endpointEdrEnabled || policy.yaraClamScannerEnabled || policy.soarOrborusWorkerEnabled) {
+      nextCoverage = 'collecting';
+    } else {
+      nextCoverage = 'installed';
+    }
+  }
+
+  return {
+    ...dev,
+    sharkFinPolicy: policy,
+    posture: {
+      ...p,
+      coverageState: nextCoverage,
+      preventiveAvActive: policy.preventiveAvEnabled,
+      realtimeProtectionEnabled: policy.preventiveAvEnabled,
+      tamperProtectionEnabled: policy.policyLockedByAdmin,
+      canaryFilesDeployed: policy.canaryTripwireEnabled,
+      recoveryInhibitionGuardActive: policy.ransomwareProtectionEnabled,
+      reportedAt: policy.updatedAt
+    }
+  };
+}
+
 export const security = {
   getOverview: async (clientId?: string): Promise<SecurityOverviewResponse> => {
     const query = clientId && clientId !== 'all' ? `?clientId=${encodeURIComponent(clientId)}` : '';
@@ -2591,9 +2653,26 @@ export const security = {
       if (rawList.length > 0) {
         const normalized: SecurityDeviceRecord[] = rawList.map((d: any) => {
           const p = d.posture || d.securityPosture || {};
-          return {
-            deviceId: d.deviceId || d.id || 'dev-unknown',
-            hostname: d.hostname || d.name || d.deviceId || 'Unknown Host',
+          const devId = d.deviceId || d.id || 'dev-unknown';
+          const basePosture: SecurityPostureReport = {
+            coverageState: p.coverageState || 'unknown',
+            preventiveAvName: p.preventiveAvName || 'OS Native Preventive Engine',
+            preventiveAvActive: Boolean(p.preventiveAvActive),
+            realtimeProtectionEnabled: Boolean(p.realtimeProtectionEnabled),
+            tamperProtectionEnabled: Boolean(p.tamperProtectionEnabled),
+            canaryFilesDeployed: Boolean(p.canaryFilesDeployed),
+            canaryPaths: Array.isArray(p.canaryPaths) ? p.canaryPaths : [],
+            recoveryInhibitionGuardActive: Boolean(p.recoveryInhibitionGuardActive),
+            isolated: Boolean(p.isolated),
+            supervisorCpuPct: p.supervisorCpuPct ?? 0.4,
+            telemetryCpuPct: p.telemetryCpuPct ?? 1.4,
+            scannerMemoryMb: p.scannerMemoryMb ?? 96,
+            reportedAt: p.reportedAt || d.metrics?.lastSeen || new Date().toISOString(),
+            sensors: Array.isArray(p.sensors) ? p.sensors : []
+          };
+          const baseDev: SecurityDeviceRecord = {
+            deviceId: devId,
+            hostname: d.hostname || d.name || devId || 'Unknown Host',
             clientId: d.clientId || 'c-gambinos',
             clientName: d.clientName || "Gambino's Pizza",
             siteId: d.siteId || '88f7af54-98f8-306a-a1c7-c9349722b1f6',
@@ -2603,30 +2682,86 @@ export const security = {
             ipAddress: d.ipAddress || '0.0.0.0',
             macAddress: d.macAddress || '00:00:00:00:00:00',
             assetCriticality: d.assetCriticality || (d.isProtectedAsset ? 'pos_controller' : 'standard'),
-            posture: {
-              coverageState: p.coverageState || 'unknown',
-              preventiveAvName: p.preventiveAvName || 'OS Native Preventive Engine',
-              preventiveAvActive: Boolean(p.preventiveAvActive),
-              realtimeProtectionEnabled: Boolean(p.realtimeProtectionEnabled),
-              tamperProtectionEnabled: Boolean(p.tamperProtectionEnabled),
-              canaryFilesDeployed: Boolean(p.canaryFilesDeployed),
-              canaryPaths: Array.isArray(p.canaryPaths) ? p.canaryPaths : [],
-              recoveryInhibitionGuardActive: Boolean(p.recoveryInhibitionGuardActive),
-              isolated: Boolean(p.isolated),
-              supervisorCpuPct: p.supervisorCpuPct ?? 0.4,
-              telemetryCpuPct: p.telemetryCpuPct ?? 1.4,
-              scannerMemoryMb: p.scannerMemoryMb ?? 96,
-              reportedAt: p.reportedAt || d.metrics?.lastSeen || new Date().toISOString(),
-              sensors: Array.isArray(p.sensors) ? p.sensors : []
-            }
+            posture: basePosture,
+            sharkFinPolicy: deriveSharkFinPolicy(basePosture, d.sharkFinPolicy || d.policy)
           };
+          return localSharkFinPolicyOverrides[devId]
+            ? applySharkFinPolicyToDevice(baseDev, localSharkFinPolicyOverrides[devId])
+            : baseDev;
         });
         return { dataSource: 'live_api', devices: normalized };
       }
-      return { dataSource: 'live_api', devices: fallbackDevicesState };
+      return {
+        dataSource: 'live_api',
+        devices: fallbackDevicesState.map(d => ({
+          ...d,
+          sharkFinPolicy: d.sharkFinPolicy || deriveSharkFinPolicy(d.posture)
+        }))
+      };
     } catch {
-      const filtered = fallbackDevicesState.filter(d => !clientId || clientId === 'all' || d.clientId === clientId);
+      const filtered = fallbackDevicesState
+        .filter(d => !clientId || clientId === 'all' || d.clientId === clientId)
+        .map(d => ({
+          ...d,
+          sharkFinPolicy: d.sharkFinPolicy || deriveSharkFinPolicy(d.posture)
+        }));
       return { dataSource: 'fallback_preview', devices: filtered };
+    }
+  },
+
+  updateDevicePolicy: async (
+    deviceId: string,
+    patch: Partial<SharkFinPolicy>
+  ): Promise<{ ok: boolean; dataSource: 'live_api' | 'fallback_preview'; device?: SecurityDeviceRecord; policy: SharkFinPolicy }> => {
+    // Update local override & fallback device posture immediately so UI is 100% responsive
+    const existingFb = fallbackDevicesState.find(d => d.deviceId === deviceId);
+    const currentPolicy =
+      localSharkFinPolicyOverrides[deviceId] ||
+      existingFb?.sharkFinPolicy ||
+      (existingFb ? deriveSharkFinPolicy(existingFb.posture) : deriveSharkFinPolicy({
+        coverageState: 'preventive_active',
+        preventiveAvName: 'Microsoft Defender Antivirus',
+        preventiveAvActive: true,
+        realtimeProtectionEnabled: true,
+        tamperProtectionEnabled: true,
+        canaryFilesDeployed: true,
+        recoveryInhibitionGuardActive: true,
+        isolated: false,
+        reportedAt: new Date().toISOString(),
+        sensors: []
+      }));
+
+    const nextPolicy: SharkFinPolicy = {
+      ...currentPolicy,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+      updatedBy: patch.updatedBy || 'Brandon Ray (SOC Console -> Shark Fin Client)'
+    };
+    localSharkFinPolicyOverrides[deviceId] = nextPolicy;
+
+    fallbackDevicesState = fallbackDevicesState.map(d =>
+      d.deviceId === deviceId ? applySharkFinPolicyToDevice(d, nextPolicy) : d
+    );
+    const updatedFallbackDevice = fallbackDevicesState.find(d => d.deviceId === deviceId);
+
+    try {
+      const raw = await request<any>(`/security/devices/${encodeURIComponent(deviceId)}/policy`, {
+        method: 'PATCH',
+        body: JSON.stringify(nextPolicy)
+      });
+      return {
+        ok: true,
+        dataSource: 'live_api',
+        device: raw.device ? applySharkFinPolicyToDevice(raw.device, raw.policy || nextPolicy) : updatedFallbackDevice,
+        policy: raw.policy || nextPolicy
+      };
+    } catch {
+      return {
+        ok: true,
+        dataSource: 'fallback_preview',
+        device: updatedFallbackDevice,
+        policy: nextPolicy
+      };
     }
   },
 

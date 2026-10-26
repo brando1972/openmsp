@@ -236,8 +236,14 @@ func IsExcludedBackupTool(proc ProcessInfo) (bool, string) {
 }
 
 // AnalyzeCommandLine evaluates a single process execution against the ApexMSP EDR reflex ruleset.
-// Returns nil if the command is benign or belongs to an excluded legitimate backup tool.
+// Returns nil if the command is benign, belongs to an excluded legitimate backup tool, or if the
+// relevant EDR / Ransomware Protection module is toggled off in SharkFinSecurityPolicy.
 func AnalyzeCommandLine(proc ProcessInfo) *client.SecurityDetectionInput {
+	pol := LoadSecurityPolicy()
+	if !pol.EndpointEdrEnabled && !pol.RansomwareProtectionEnabled {
+		return nil
+	}
+
 	if excluded, _ := IsExcludedBackupTool(proc); excluded {
 		return nil
 	}
@@ -254,6 +260,12 @@ func AnalyzeCommandLine(proc ProcessInfo) *client.SecurityDetectionInput {
 	}
 
 	for _, rule := range edrReflexRules {
+		if rule.Category == "recovery_inhibition" && !pol.RansomwareProtectionEnabled {
+			continue
+		}
+		if rule.Category != "recovery_inhibition" && !pol.EndpointEdrEnabled {
+			continue
+		}
 		if rule.Match(lowerCmd, lowerName) {
 			nowStr := time.Now().UTC().Format(time.RFC3339)
 			isSim := strings.Contains(lowerCmd, "apexmsp-sim") ||
