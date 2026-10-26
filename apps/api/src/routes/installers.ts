@@ -115,23 +115,100 @@ router.get('/download', (req, res) => {
   res.sendFile(path.resolve(foundPath));
 });
 
+function resolveClientBySlug(slugOrId: string): { clientId: string; clientName: string } {
+  const clean = slugOrId.trim().toLowerCase().replace(/^(client=|c-)/, '');
+  for (const c of store.clients.values()) {
+    if (
+      c.id.toLowerCase() === slugOrId.trim().toLowerCase() ||
+      c.id.toLowerCase() === `c-${clean}` ||
+      c.name.toLowerCase().includes(clean)
+    ) {
+      return { clientId: c.id, clientName: c.name };
+    }
+  }
+
+  const knownPresets: Record<string, { id: string; name: string; domain: string }> = {
+    gambinos: { id: 'c-gambinos', name: 'Gambinos', domain: 'gambinos.local' },
+    brandon: { id: 'c-brandon-ray', name: 'Brandon Ray', domain: 'apexmsp.app' },
+    raytreat: { id: 'c-raytreat', name: 'Raytreat', domain: 'raytreat.local' },
+    tbi: { id: 'c-tbi', name: 'TBI', domain: 'tbi.local' },
+    sos: { id: 'c-sos', name: 'SOS Volleyball', domain: 'sosvolleyball.local' },
+    municipal: { id: 'c-municipality', name: 'Municipal Client', domain: 'municipal.local' }
+  };
+
+  for (const [key, preset] of Object.entries(knownPresets)) {
+    if (clean.includes(key)) {
+      if (!store.clients.has(preset.id)) {
+        const defaultOrg = Array.from(store.orgs.values())[0];
+        store.clients.set(preset.id, {
+          id: preset.id,
+          orgId: defaultOrg ? defaultOrg.id : '00000000-0000-0000-0000-000000000001',
+          name: preset.name,
+          domain: preset.domain,
+          contactName: 'IT Operations',
+          contactEmail: `it@${preset.domain}`,
+          slaTier: 'platinum',
+          healthScore: 98,
+          totalDevices: 0,
+          openTickets: 0,
+          createdAt: new Date().toISOString()
+        } as any);
+      }
+      return { clientId: preset.id, clientName: preset.name };
+    }
+  }
+
+  const defaultClient = Array.from(store.clients.values())[0];
+  return {
+    clientId: defaultClient ? defaultClient.id : 'c-brandon-ray',
+    clientName: defaultClient ? defaultClient.name : 'Brandon Ray'
+  };
+}
+
 function renderScript(os: string, token: string | undefined, req: any, res: any) {
   const proto = req.get('x-forwarded-proto') || req.protocol;
   const serverUrl = `${proto}://${req.get('host')}`;
   const relayHost = store.rustDeskConfig.relayServer.split(':')[0] || 'relay.openmsp.local';
-  const effectiveToken = (token || 'apex-brandon-ray').trim();
 
-  // Auto-register any token passed to the installer script so subsequent POST /api/v1/agents/enroll never returns 401
+  let raw = (token || (req.query?.client as string) || '').trim();
+  if (raw.toLowerCase().startsWith('token=')) {
+    raw = raw.slice(6).trim();
+  } else if (raw.toLowerCase().startsWith('client=')) {
+    raw = raw.slice(7).trim();
+  }
+
+  const defaultOrg = Array.from(store.orgs.values())[0];
+  const defaultClient = Array.from(store.clients.values())[0];
+  const siteParam = (req.params?.site as string) || (req.query?.siteId as string) || (req.query?.site as string) || 'HQ Site';
+
+  let effectiveToken = raw;
+  let targetClientId = (req.query?.clientId as string) || (defaultClient ? defaultClient.id : 'c-brandon-ray');
+
+  const isAutoKeyword = !raw || raw.toLowerCase() === 'new' || raw.toLowerCase() === 'auto';
+  const isExistingToken = raw && (store.enrollmentTokens.has(raw) || raw.startsWith('tok-') || raw.startsWith('ok-') || raw.startsWith('apex-'));
+
+  if (isAutoKeyword) {
+    if (req.query?.client) {
+      targetClientId = resolveClientBySlug(String(req.query.client)).clientId;
+    }
+    effectiveToken = `tok-auto-${uuidv4().substring(0, 10)}`;
+  } else if (!isExistingToken) {
+    // Treat path segment as a client name/slug (e.g. /windows/gambinos or /windows/raytreat)
+    const resolved = resolveClientBySlug(raw);
+    targetClientId = resolved.clientId;
+    const cleanSlug = raw.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10) || 'client';
+    effectiveToken = `tok-${cleanSlug}-${uuidv4().substring(0, 8)}`;
+  }
+
+  // Auto-register token in store.enrollmentTokens so subsequent POST /api/v1/agents/enroll never returns 401
   if (!store.enrollmentTokens.has(effectiveToken)) {
     const existingWithT = store.enrollmentTokens.get(`t${effectiveToken}`);
-    const defaultOrg = Array.from(store.orgs.values())[0];
-    const defaultClient = Array.from(store.clients.values())[0];
     store.enrollmentTokens.set(effectiveToken, {
       id: uuidv4(),
       token: effectiveToken,
       orgId: existingWithT?.orgId || (defaultOrg ? defaultOrg.id : '00000000-0000-0000-0000-000000000001'),
-      clientId: (req.query?.clientId as string) || existingWithT?.clientId || (defaultClient ? defaultClient.id : 'c-brandon-ray'),
-      siteId: (req.query?.siteId as string) || existingWithT?.siteId || 'HQ Site',
+      clientId: existingWithT?.clientId || targetClientId,
+      siteId: existingWithT?.siteId || siteParam,
       expiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
       used: false,
       createdAt: new Date().toISOString()
@@ -143,7 +220,7 @@ function renderScript(os: string, token: string | undefined, req: any, res: any)
 set -e
 echo "[+] OpenMSP macOS Agent & Shark Fin Setup..."
 SERVER_URL="${serverUrl}"
-ENROLL_TOKEN="${token || 'apex-brandon-ray'}"
+ENROLL_TOKEN="${effectiveToken}"
 INSTALL_DIR="/Library/Application Support/ApexMSP"
 mkdir -p "$INSTALL_DIR"
 
@@ -279,7 +356,7 @@ pause
   const script = `# OpenMSP Windows Agent Enrollment & Shark Fin Tray Script
 $ErrorActionPreference = 'SilentlyContinue'
 $ServerUrl = "${serverUrl}"
-$EnrollToken = "${token || 'apex-brandon-ray'}"
+$EnrollToken = "${effectiveToken}"
 $InstallDir = "$env:ProgramData\\ApexMSP"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -545,14 +622,14 @@ router.get('/script', (req, res) => {
   renderScript(os, token, req, res);
 });
 
-// GET /api/v1/installers/windows/:token (ampersand-free PowerShell installer URL)
-router.get(['/windows/:token', '/windows'], (req, res) => {
+// GET /api/v1/installers/windows/:token (ampersand-free PowerShell installer URL: supports /windows, /windows/new, /windows/token=new, /windows/gambinos, /windows/gambinos/pos)
+router.get(['/windows/:token/:site', '/windows/:token', '/windows'], (req, res) => {
   const token = (req.params.token as string) || (req.query.token as string | undefined);
   renderScript('windows', token, req, res);
 });
 
-// GET /api/v1/installers/macos/:token (ampersand-free macOS installer URL)
-router.get(['/macos/:token', '/macos'], (req, res) => {
+// GET /api/v1/installers/macos/:token (ampersand-free macOS installer URL: supports /macos, /macos/new, /macos/token=new, /macos/gambinos, /macos/gambinos/pos)
+router.get(['/macos/:token/:site', '/macos/:token', '/macos'], (req, res) => {
   const token = (req.params.token as string) || (req.query.token as string | undefined);
   renderScript('macos', token, req, res);
 });
