@@ -16,7 +16,8 @@ import {
   type SoarOverviewResponse,
   type ShuffleExecutionTrace,
   type CortexAnalysisResult,
-  type CortexTaxonomyBadge
+  type CortexTaxonomyBadge,
+  type GambinosUnpollerResponse
 } from '../../services/api';
 import {
   Shield,
@@ -113,6 +114,10 @@ export const SecuritySocView: React.FC = () => {
   const [runningCortex, setRunningCortex] = useState<boolean>(false);
   const [cortexResult, setCortexResult] = useState<CortexAnalysisResult | null>(null);
 
+  // Gambinos UnPoller + Prometheus + Grafana (timothystewart6/unpoller-unifi) state
+  const [gambinosUnpoller, setGambinosUnpoller] = useState<GambinosUnpollerResponse | null>(null);
+  const [activeUnpollerDashboardId, setActiveUnpollerDashboardId] = useState<string>('unifi-sites');
+
   const showToast = (type: 'success' | 'warn' | 'error', text: string) => {
     setToastMessage({ type, text });
     setTimeout(() => {
@@ -124,14 +129,15 @@ export const SecuritySocView: React.FC = () => {
     setLoading(true);
     try {
       const clientFilter = selectedClientId === 'all' ? undefined : selectedClientId;
-      const [ovRes, incRes, evtRes, devRes, actRes, sitesRes, soarRes] = await Promise.all([
+      const [ovRes, incRes, evtRes, devRes, actRes, sitesRes, soarRes, unpollerRes] = await Promise.all([
         api.security.getOverview(clientFilter),
         api.security.getIncidents(clientFilter),
         api.security.getEvents(clientFilter),
         api.security.getDevices(clientFilter),
         api.security.getActions(clientFilter),
         api.unifi.getSites(clientFilter),
-        api.security.getSoarOverview(clientFilter)
+        api.security.getSoarOverview(clientFilter),
+        api.unifi.getGambinosUnpoller()
       ]);
 
       setOverview(ovRes);
@@ -144,6 +150,7 @@ export const SecuritySocView: React.FC = () => {
       setSoarOverview(soarRes);
       setActivePlaybookTrace(prev => prev || soarRes.recentExecutions[0] || null);
       setCortexResult(prev => prev || soarRes.lastCortexAnalysis || null);
+      setGambinosUnpoller(unpollerRes);
 
       const activeSite = sitesRes.sites.find(s => s.siteId === selectedSiteId)?.siteId ||
         sitesRes.sites[0]?.siteId ||
@@ -734,6 +741,20 @@ export const SecuritySocView: React.FC = () => {
                 >
                   TheHive/Cortex :8895 <ExternalLink className="w-3 h-3" />
                 </a>
+                <a
+                  href="http://192.168.11.19:3030/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold text-emerald-300 flex items-center gap-1.5 transition"
+                >
+                  Gambinos UnPoller Grafana :3030 <ExternalLink className="w-3 h-3" />
+                </a>
+                <button
+                  onClick={() => setSubTab('soc-unifi')}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Wifi className="w-3.5 h-3.5" /> UnPoller 7-Dashboards
+                </button>
                 <button
                   onClick={() => setSubTab('soc-soar')}
                   className="px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 text-white text-xs font-black flex items-center gap-1.5 shadow-md cursor-pointer transition"
@@ -2103,6 +2124,297 @@ export const SecuritySocView: React.FC = () => {
         {/* =================================================================== */}
         {currentSubTab === 'soc-unifi' && (
           <div className="space-y-6">
+            {/* =============================================================== */}
+            {/* UnPoller + Prometheus + Grafana Telemetry Suite (Gambinos Test) */}
+            {/* =============================================================== */}
+            {gambinosUnpoller && (
+              <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-xl p-5 border border-indigo-500/40 shadow-lg space-y-5">
+                {/* 1. UnPoller Stack Status & Direct Launch Bar */}
+                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase">
+                        Gambinos Test Case Live • timothystewart6/unpoller-unifi
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-[10px] font-mono font-bold">
+                        Scrape Interval: {gambinosUnpoller.scrapeIntervalSec}s • Read-Only API
+                      </span>
+                    </div>
+                    <h2 className="text-base font-black text-white mt-1.5">
+                      UnPoller + Prometheus + Grafana Telemetry Suite (Gambino&apos;s Pizza UDM Pro — timothystewart6/unpoller-unifi)
+                    </h2>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      Continuous 30s Prometheus metrics collection from Gambinos UDM Pro (`192.168.2.1`) via UnPoller Bridge (`:9131`), rendered across 7 pre-provisioned Grafana dashboards (`:3030`) with Dozzle container log streaming (`:8896`).
+                    </p>
+                  </div>
+
+                  {/* 4 Direct 1-Click External Launch Buttons */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a
+                      href={gambinosUnpoller.services.grafana.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1.5 shadow transition"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                      Grafana UniFi Dashboards (:3030) <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    <a
+                      href={gambinosUnpoller.services.unpollerBridge.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black flex items-center gap-1.5 shadow transition"
+                    >
+                      Gambinos UnPoller Bridge (:9131) <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    <a
+                      href={gambinosUnpoller.services.prometheus.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-black flex items-center gap-1.5 shadow transition"
+                    >
+                      Prometheus TSDB (:9090) <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    <a
+                      href={gambinosUnpoller.services.dozzle.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition"
+                    >
+                      Dozzle Live Logs (:8896) <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+
+                {/* 4 Service Health Badges */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/30 flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase text-emerald-400">
+                        Grafana Dashboards (:3030)
+                      </div>
+                      <div className="text-xs font-bold text-white mt-0.5">
+                        {gambinosUnpoller.services.grafana.authMode}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {gambinosUnpoller.services.grafana.url}
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      {gambinosUnpoller.services.grafana.status}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-indigo-500/30 flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase text-indigo-400">
+                        Gambinos UnPoller Bridge (:9131)
+                      </div>
+                      <div className="text-xs font-bold text-white mt-0.5">
+                        {gambinosUnpoller.services.unpollerBridge.targetConsole}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {gambinosUnpoller.services.unpollerBridge.url}
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      {gambinosUnpoller.services.unpollerBridge.status}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-orange-500/30 flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase text-orange-400">
+                        Prometheus TSDB (:9090)
+                      </div>
+                      <div className="text-xs font-bold text-white mt-0.5">
+                        {gambinosUnpoller.services.prometheus.retention}
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {gambinosUnpoller.services.prometheus.url}
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      {gambinosUnpoller.services.prometheus.status}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-900/90 border border-sky-500/30 flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-black uppercase text-sky-400">
+                        Dozzle Container Logs (:8896)
+                      </div>
+                      <div className="text-xs font-bold text-white mt-0.5">
+                        {gambinosUnpoller.services.dozzle.containersMonitored} UnPoller Containers
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {gambinosUnpoller.services.dozzle.url}
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      {gambinosUnpoller.services.dozzle.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Gambinos Real-Time UnPoller Prometheus Metrics Strip */}
+                <div>
+                  <div className="text-[11px] font-black uppercase tracking-wider text-indigo-300 mb-2">
+                    Gambinos Real-Time UnPoller Prometheus Metrics Strip (Scraped from UDM Pro &amp; US 48 PoE 500W)
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">WAN Throughput</div>
+                      <div className="text-sm font-black text-emerald-400 mt-1">
+                        ↓ {gambinosUnpoller.metrics.wanRxMbps} Mbps / ↑ {gambinosUnpoller.metrics.wanTxMbps} Mbps
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        WAN Latency: <strong>{gambinosUnpoller.metrics.wanLatencyMs} ms</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">UDM Pro System</div>
+                      <div className="text-sm font-black text-white mt-1">
+                        CPU {gambinosUnpoller.metrics.udmProCpuPct}% · RAM {gambinosUnpoller.metrics.udmProRamPct}%
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Chassis Temp: <strong>{gambinosUnpoller.metrics.udmProTempC}°C</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">US 48 PoE 500W Budget</div>
+                      <div className="text-sm font-black text-amber-400 mt-1">
+                        {gambinosUnpoller.metrics.us48PoeTotalWatts}W / {gambinosUnpoller.metrics.us48PoeBudgetWatts}W
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        1 Online · 2 Secondary Switches Offline
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-900/80 border border-fuchsia-500/40">
+                      <div className="text-[10px] font-bold text-fuchsia-300 uppercase">
+                        Port 43 Shared Hub ({gambinosUnpoller.metrics.port43SharedHub.macCount} MACs)
+                      </div>
+                      <div className="text-sm font-black text-fuchsia-400 mt-1">
+                        {gambinosUnpoller.metrics.port43SharedHub.poeWatts}W PoE · ↓{gambinosUnpoller.metrics.port43SharedHub.rxMbps}M
+                      </div>
+                      <div
+                        className="text-[10px] text-slate-300 truncate mt-0.5"
+                        title={gambinosUnpoller.metrics.port43SharedHub.coResidentSummary}
+                      >
+                        c1 (.2.179) + PAX A35 (.2.190) + 3 more
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">Active Gambinos Clients</div>
+                      <div className="text-sm font-black text-sky-400 mt-1">
+                        {gambinosUnpoller.metrics.wirelessClientsCount} Wireless / {gambinosUnpoller.metrics.wiredClientsCount} Wired
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Total: <strong>{gambinosUnpoller.metrics.totalClientsCount} Clients</strong> across 6 VLANs
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-700">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase">Top DPI Categories</div>
+                      <div className="text-xs font-black text-indigo-300 mt-1 truncate">
+                        1. {gambinosUnpoller.metrics.topDpiCategories[0]?.category || 'POS TLS'}
+                      </div>
+                      <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                        2. {gambinosUnpoller.metrics.topDpiCategories[1]?.category || 'CameraNet VLAN 200'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Interactive 7-Dashboard Grafana Switcher & Embedded Live Viewer */}
+                <div className="bg-slate-950/90 rounded-xl border border-slate-800 p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                        7 Pre-Provisioned UnPoller Grafana Dashboards (No-Login Auto-Auth)
+                      </span>
+                      <h3 className="text-sm font-black text-white">
+                        Interactive 7-Dashboard Switcher &amp; Embedded Live Grafana Viewer
+                      </h3>
+                    </div>
+
+                    {(() => {
+                      const activeDash =
+                        gambinosUnpoller.dashboards.find(d => d.id === activeUnpollerDashboardId) ||
+                        gambinosUnpoller.dashboards[0];
+                      return (
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-[11px] font-mono text-emerald-300">
+                            {activeDash.highlightMetric}
+                          </span>
+                          <a
+                            href={activeDash.fullUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1.5 shadow transition"
+                          >
+                            Open Full-Screen in Grafana (:3030) <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* 7 Dashboard Tabs */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {gambinosUnpoller.dashboards.map(dash => {
+                      const isActive = dash.id === activeUnpollerDashboardId;
+                      return (
+                        <button
+                          key={dash.id}
+                          onClick={() => setActiveUnpollerDashboardId(dash.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                            isActive
+                              ? 'bg-emerald-600 text-white shadow'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                          }`}
+                        >
+                          {dash.shortLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected Dashboard Description + Live Embedded Iframe */}
+                  {(() => {
+                    const activeDash =
+                      gambinosUnpoller.dashboards.find(d => d.id === activeUnpollerDashboardId) ||
+                      gambinosUnpoller.dashboards[0];
+                    return (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300 bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800">
+                          <div>
+                            <strong className="text-white">{activeDash.title}:</strong> {activeDash.description}
+                          </div>
+                          <span className="font-mono text-[11px] text-slate-400">
+                            {activeDash.embedUrl}
+                          </span>
+                        </div>
+                        <div className="w-full h-[500px] rounded-xl overflow-hidden border border-slate-700 bg-slate-900">
+                          <iframe
+                            key={activeDash.id}
+                            src={activeDash.embedUrl}
+                            title={activeDash.title}
+                            className="w-full h-full border-0"
+                            loading="lazy"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
             {/* Connected UniFi Consoles Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {unifiSites.map(site => {

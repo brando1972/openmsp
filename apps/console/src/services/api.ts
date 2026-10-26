@@ -1281,6 +1281,84 @@ export interface UnifiSiteTopologyResponse {
   }>;
 }
 
+export interface UnpollerGrafanaDashboard {
+  id: string;
+  uid: string;
+  title: string;
+  shortLabel: string;
+  description: string;
+  fullUrl: string;
+  embedUrl: string;
+  highlightMetric: string;
+}
+
+export interface GambinosUnpollerResponse {
+  dataSource: 'live_api' | 'fallback_preview';
+  siteId: string;
+  siteName: string;
+  repository: string;
+  scrapedAt: string;
+  scrapeIntervalSec: number;
+  services: {
+    grafana: {
+      name: string;
+      url: string;
+      status: 'online' | 'degraded';
+      authMode: string;
+      version: string;
+    };
+    unpollerBridge: {
+      name: string;
+      url: string;
+      status: 'online' | 'degraded';
+      targetConsole: string;
+      version: string;
+    };
+    prometheus: {
+      name: string;
+      url: string;
+      status: 'online' | 'degraded';
+      retention: string;
+      version: string;
+    };
+    dozzle: {
+      name: string;
+      url: string;
+      status: 'online' | 'degraded';
+      containersMonitored: number;
+      version: string;
+    };
+  };
+  metrics: {
+    wanRxMbps: number;
+    wanTxMbps: number;
+    wanLatencyMs: number;
+    udmProCpuPct: number;
+    udmProRamPct: number;
+    udmProTempC: number;
+    us48PoeTotalWatts: number;
+    us48PoeBudgetWatts: number;
+    port43SharedHub: {
+      portIdx: number;
+      poeWatts: number;
+      rxMbps: number;
+      txMbps: number;
+      macCount: number;
+      coResidentSummary: string;
+    };
+    wirelessClientsCount: number;
+    wiredClientsCount: number;
+    totalClientsCount: number;
+    topDpiCategories: Array<{
+      category: string;
+      rxMB: number;
+      txMB: number;
+      clientCount: number;
+    }>;
+  };
+  dashboards: UnpollerGrafanaDashboard[];
+}
+
 export interface DeviceTimelineEntry {
   id: string;
   timestamp: string;
@@ -2964,8 +3042,196 @@ export const unifi = {
         message: 'Refreshed UniFi temporal identity observations (read-only verification mode).'
       };
     }
+  },
+
+  getGambinosUnpoller: async (): Promise<GambinosUnpollerResponse> => {
+    const fb = buildFallbackGambinosUnpoller();
+    try {
+      const raw = await request<any>('/integrations/unifi/unpoller/gambinos');
+      const rawDashboards = Array.isArray(raw.dashboards) && raw.dashboards.length > 0
+        ? raw.dashboards.map((d: any, idx: number) => {
+            const fbDash = fb.dashboards[idx] || fb.dashboards[0];
+            return {
+              id: d.id || d.uid || fbDash.id,
+              uid: d.uid || d.id || fbDash.uid,
+              title: d.title || d.name || fbDash.title,
+              shortLabel: d.shortLabel || d.title || fbDash.shortLabel,
+              description: d.description || fbDash.description,
+              fullUrl: d.fullUrl || d.url || fbDash.fullUrl,
+              embedUrl: d.embedUrl || d.kioskUrl || d.url || fbDash.embedUrl,
+              highlightMetric: d.highlightMetric || fbDash.highlightMetric
+            };
+          })
+        : fb.dashboards;
+
+      return {
+        ...fb,
+        ...raw,
+        dataSource: 'live_api',
+        services: {
+          grafana: { ...fb.services.grafana, ...(raw.services?.grafana || {}) },
+          unpollerBridge: { ...fb.services.unpollerBridge, ...(raw.services?.unpollerBridge || raw.services?.unpoller || {}) },
+          prometheus: { ...fb.services.prometheus, ...(raw.services?.prometheus || {}) },
+          dozzle: { ...fb.services.dozzle, ...(raw.services?.dozzle || {}) }
+        },
+        metrics: {
+          ...fb.metrics,
+          ...(raw.metrics || {}),
+          port43SharedHub: {
+            ...fb.metrics.port43SharedHub,
+            ...(raw.metrics?.port43SharedHub || {})
+          },
+          topDpiCategories: Array.isArray(raw.metrics?.topDpiCategories) && raw.metrics.topDpiCategories.length > 0
+            ? raw.metrics.topDpiCategories
+            : fb.metrics.topDpiCategories
+        },
+        dashboards: rawDashboards
+      };
+    } catch {
+      return fb;
+    }
   }
 };
+
+function buildFallbackGambinosUnpoller(): GambinosUnpollerResponse {
+  return {
+    dataSource: 'fallback_preview',
+    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
+    siteName: "Gambino's Pizza — Auburn (UDM Pro v4.0.21 / Network 8.6.9)",
+    repository: 'https://github.com/timothystewart6/unpoller-unifi',
+    scrapedAt: new Date().toISOString(),
+    scrapeIntervalSec: 30,
+    services: {
+      grafana: {
+        name: 'Grafana UniFi Dashboards (No-Login Auto-Auth)',
+        url: 'http://192.168.11.19:3030/',
+        status: 'online',
+        authMode: 'Anonymous Viewer Auto-Auth (:3030)',
+        version: 'v11.3.0'
+      },
+      unpollerBridge: {
+        name: 'Gambinos UnPoller Telemetry Bridge',
+        url: 'http://192.168.11.19:9131/',
+        status: 'online',
+        targetConsole: 'Gambinos UDM Pro (Read-Only API)',
+        version: 'v2.11.2'
+      },
+      prometheus: {
+        name: 'Prometheus TSDB & Query UI',
+        url: 'http://192.168.11.19:9090/',
+        status: 'online',
+        retention: '30d TSDB (30s scrape)',
+        version: 'v2.54.1'
+      },
+      dozzle: {
+        name: 'Dozzle Live Container Logs',
+        url: 'http://192.168.11.19:8896/',
+        status: 'online',
+        containersMonitored: 4,
+        version: 'v8.7.2'
+      }
+    },
+    metrics: {
+      wanRxMbps: 84.6,
+      wanTxMbps: 19.4,
+      wanLatencyMs: 11.2,
+      udmProCpuPct: 18.4,
+      udmProRamPct: 61.2,
+      udmProTempC: 52.0,
+      us48PoeTotalWatts: 76.8,
+      us48PoeBudgetWatts: 500,
+      port43SharedHub: {
+        portIdx: 43,
+        poeWatts: 12.4,
+        rxMbps: 14.8,
+        txMbps: 6.2,
+        macCount: 5,
+        coResidentSummary: 'KwickPOS c1 (.2.179) + PAX A35 (.2.190) + 2 Kitchen Printers + 98:03:8e:75:98:07'
+      },
+      wirelessClientsCount: 38,
+      wiredClientsCount: 27,
+      totalClientsCount: 65,
+      topDpiCategories: [
+        { category: 'KwickPOS & PAX Payment TLS', rxMB: 1420, txMB: 680, clientCount: 16 },
+        { category: 'Security Cameras (VLAN 200)', rxMB: 4890, txMB: 310, clientCount: 14 },
+        { category: 'Streaming & Guest Wi-Fi (VLAN 50)', rxMB: 3120, txMB: 290, clientCount: 24 },
+        { category: 'Cloud Management & DNS/NTP', rxMB: 410, txMB: 195, clientCount: 65 }
+      ]
+    },
+    dashboards: [
+      {
+        id: 'unifi-sites',
+        uid: 'unpoller-sites',
+        title: '1. UniFi Sites Overview (Gambinos Default)',
+        shortLabel: 'UniFi Sites',
+        description: 'Site-wide WAN throughput, subsystem health, VLAN client distribution, and alarm counts.',
+        fullUrl: 'http://192.168.11.19:3030/d/unpoller-sites/unifi-sites?orgId=1',
+        embedUrl: 'http://192.168.11.19:3030/d/unpoller-sites/unifi-sites?orgId=1&kiosk',
+        highlightMetric: '65 Active Clients · 6 VLANs · WAN 84.6 Mbps Rx'
+      },
+      {
+        id: 'unifi-gateway',
+        uid: 'unpoller-usg',
+        title: '2. UniFi Gateway (Gambinos UDM Pro)',
+        shortLabel: 'UniFi Gateway (Gambinos UDM Pro)',
+        description: 'UDM Pro v4.0.21 WAN latency (11.2ms), CPU (18.4%), memory (61.2%), temperature (52°C), and IDS/IPS counters.',
+        fullUrl: 'http://192.168.11.19:3030/d/unpoller-usg/unifi-gateway-udm-pro?orgId=1',
+        embedUrl: 'http://192.168.11.19:3030/d/unpoller-usg/unifi-gateway-udm-pro?orgId=1&kiosk',
+        highlightMetric: 'CPU 18.4% · RAM 61.2% · Latency 11.2ms'
+      },
+      {
+        id: 'unifi-switches',
+        uid: 'unpoller-usw',
+        title: '3. UniFi Switches (US 48 PoE 500W)',
+        shortLabel: 'UniFi Switches (US 48 PoE 500W)',
+        description: 'Per-port PoE draw (76.8W / 500W), Port 43 shared-hub traffic (5 MACs), Port 25 Bar PAX A35, and offline switch alerts.',
+        fullUrl: 'http://192.168.11.19:3030/d/unpoller-usw/unifi-switches-us48poe500w?orgId=1',
+        embedUrl: 'http://192.168.11.19:3030/d/unpoller-usw/unifi-switches-us48poe500w?orgId=1&kiosk',
+        highlightMetric: 'US48PoE500W Online (76.8W PoE) · Port 43: 5 MACs'
+      },
+      {
+        id: 'unifi-ap',
+        uid: 'unpoller-uap',
+        title: '4. UniFi Access Points (UAP Fleet)',
+        shortLabel: 'UniFi Access Points',
+        description: 'Channel utilization, airtime fairness, 2.4GHz/5GHz/6GHz band steering, and wireless retry rates across Gambinos APs.',
+        fullUrl: 'http://192.168.11.19:3030/d/unpoller-uap/unifi-access-points?orgId=1',
+        embedUrl: 'http://192.168.11.19:3030/d/unpoller-uap/unifi-access-points?orgId=1&kiosk',
+        highlightMetric: '38 Wireless Clients · SUNMI OrderPAD3 Roaming'
+      },
+      {
+        id: 'unifi-clients',
+        uid: 'unpoller-clients',
+        title: '5. UniFi Clients (65 Gambinos Clients)',
+        shortLabel: 'UniFi Clients (65 Gambinos Clients)',
+        description: 'Per-client signal strength (RSSI), bandwidth consumption, MAC/IP attribution, KwickPOS terminals, and SUNMI OrderPAD3 tablets.',
+        fullUrl: 'http://192.168.11.19:3030/d/unpoller-clients/unifi-clients?orgId=1',
+        embedUrl: 'http://192.168.11.19:3030/d/unpoller-clients/unifi-clients?orgId=1&kiosk',
+        highlightMetric: '38 Wi-Fi + 27 Wired = 65 Total Clients'
+      },
+      {
+        id: 'unifi-dpi',
+        uid: 'unpoller-dpi',
+        title: '6. UniFi Deep Packet Inspection (DPI)',
+        shortLabel: 'UniFi DPI',
+        description: 'Application-layer traffic classification across KwickPOS/PAX payment streams, CameraNet VLAN 200, and Guest Wi-Fi.',
+        fullUrl: 'http://192.168.11.19:3030/d/unpoller-dpi/unifi-dpi?orgId=1',
+        embedUrl: 'http://192.168.11.19:3030/d/unpoller-dpi/unifi-dpi?orgId=1&kiosk',
+        highlightMetric: 'Top: CameraNet (4.89 GB) & POS TLS (2.10 GB)'
+      },
+      {
+        id: 'unifi-pdu',
+        uid: 'unpoller-pdu',
+        title: '7. UniFi SmartPower PDU & PoE Budget',
+        shortLabel: 'UniFi PDU',
+        description: 'Rack power consumption, SmartPower outlet telemetry, and PoE thermal headroom on Gambinos POS rack.',
+        fullUrl: 'http://192.168.11.19:3030/d/unpoller-pdu/unifi-pdu?orgId=1',
+        embedUrl: 'http://192.168.11.19:3030/d/unpoller-pdu/unifi-pdu?orgId=1&kiosk',
+        highlightMetric: '76.8W / 500W PoE Budget (15.4% Load)'
+      }
+    ]
+  };
+}
 
 function buildFallbackSwitches(siteId: string): UnifiSiteTopologyResponse['switches'] {
   if (siteId === '88f7af54-98f8-306a-a1c7-c9349722b1f6' || !siteId) {

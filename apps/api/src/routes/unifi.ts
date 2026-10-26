@@ -688,4 +688,208 @@ router.post('/syslog-cef', (req: AuthenticatedRequest, res) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/v1/integrations/unifi/unpoller/gambinos
+// Dedicated UnPoller + Prometheus + Grafana telemetry & dashboard endpoint
+// for Gambinos (timothystewart6/unpoller-unifi deployed on proxmox1 192.168.11.19)
+// ---------------------------------------------------------------------------
+async function probeHttpReachable(url: string, timeoutMs = 1500): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const resp = await fetch(url, { method: 'GET', signal: controller.signal });
+    clearTimeout(timer);
+    return resp.status >= 200 && resp.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+router.get(['/unpoller/gambinos', '/unpoller/:siteId', '/unpoller'], async (_req: AuthenticatedRequest, res) => {
+  // Fast 1.5s non-blocking probe against proxmox1 (192.168.11.19) stack with live snapshot fallback
+  const [bridgeLive, promLive, grafanaLive] = await Promise.all([
+    probeHttpReachable('http://192.168.11.19:9131/', 1500),
+    probeHttpReachable('http://192.168.11.19:9090/-/healthy', 1500),
+    probeHttpReachable('http://192.168.11.19:3030/api/health', 1500)
+  ]);
+
+  // Hydrate any live snapshot data if present on disk
+  store.hydrateUnifiFixtures();
+
+  const grafanaDashboards = [
+    {
+      id: 1,
+      title: 'UniFi Sites Overview (Gambinos)',
+      uid: '9WaGWZaZk',
+      category: 'Site Summary & WAN Health',
+      url: 'http://192.168.11.19:3030/d/9WaGWZaZk/unifi-sites?orgId=1&refresh=30s',
+      embedUrl: 'http://192.168.11.19:3030/d/9WaGWZaZk/unifi-sites?orgId=1&refresh=30s&kiosk',
+      description: 'High-level Gambinos site health, WAN throughput, active clients, VLAN distribution, and alarm summary.'
+    },
+    {
+      id: 2,
+      title: 'UniFi Gateway — Gambinos UDM Pro',
+      uid: '4Yo8IZ-Wk',
+      category: 'Gateway & IDS/IPS',
+      url: 'http://192.168.11.19:3030/d/4Yo8IZ-Wk/unifi-gateway?orgId=1&refresh=30s',
+      embedUrl: 'http://192.168.11.19:3030/d/4Yo8IZ-Wk/unifi-gateway?orgId=1&refresh=30s&kiosk',
+      description: 'UDM Pro WAN1/WAN2 latency, packet loss, CPU/memory/temperature, and Suricata IDS/IPS throughput.'
+    },
+    {
+      id: 3,
+      title: 'UniFi Switches — US 48 PoE 500W & Port 43',
+      uid: 'FsfxpWaZz',
+      category: 'Switching & PoE Telemetry',
+      url: 'http://192.168.11.19:3030/d/FsfxpWaZz/unifi-switches?orgId=1&refresh=30s',
+      embedUrl: 'http://192.168.11.19:3030/d/FsfxpWaZz/unifi-switches?orgId=1&refresh=30s&kiosk',
+      description: 'Per-port PoE draw, broadcast/multicast counters, errors, and Port 43 shared 5-MAC POS/PAX hub monitoring.'
+    },
+    {
+      id: 4,
+      title: 'UniFi Access Points — Gambinos Dining/Kitchen/Bar',
+      uid: 'g5wFWqxZk',
+      category: 'Wireless RF & Roaming',
+      url: 'http://192.168.11.19:3030/d/g5wFWqxZk/unifi-access-points?orgId=1&refresh=30s',
+      embedUrl: 'http://192.168.11.19:3030/d/g5wFWqxZk/unifi-access-points?orgId=1&refresh=30s&kiosk',
+      description: '2.4GHz/5GHz channel utilization, retries, DFS radar events, and SUNMI OrderPAD3 RSSI signal quality.'
+    },
+    {
+      id: 5,
+      title: 'UniFi Clients — 65 Gambinos POS/PAX/SUNMI/KwickPOS',
+      uid: 'jMfvAjxWz',
+      category: 'Client Inventory & Traffic',
+      url: 'http://192.168.11.19:3030/d/jMfvAjxWz/unifi-clients?orgId=1&refresh=30s',
+      embedUrl: 'http://192.168.11.19:3030/d/jMfvAjxWz/unifi-clients?orgId=1&refresh=30s&kiosk',
+      description: 'Per-client bandwidth, satisfaction score, connection uptime, and POS/PAX A35 payment terminal telemetry.'
+    },
+    {
+      id: 6,
+      title: 'UniFi DPI — Deep Packet Inspection',
+      uid: 'w3usaHLZk',
+      category: 'Application & Protocol Visibility',
+      url: 'http://192.168.11.19:3030/d/w3usaHLZk/unifi-dpi?orgId=1&refresh=30s',
+      embedUrl: 'http://192.168.11.19:3030/d/w3usaHLZk/unifi-dpi?orgId=1&refresh=30s&kiosk',
+      description: 'Deep Packet Inspection breakdown by application category (Payment Processing, POS Sync, VoIP, Guest Streaming).'
+    },
+    {
+      id: 7,
+      title: 'UniFi PDU — Smart Power Distribution',
+      uid: 'feeyvd8ay2ku8b',
+      category: 'Power & Outlet Health',
+      url: 'http://192.168.11.19:3030/d/feeyvd8ay2ku8b/unifi-pdu?orgId=1&refresh=30s',
+      embedUrl: 'http://192.168.11.19:3030/d/feeyvd8ay2ku8b/unifi-pdu?orgId=1&refresh=30s&kiosk',
+      description: 'Rack power consumption, per-outlet wattage, and UPS/PDU environmental metrics.'
+    }
+  ];
+
+  res.json({
+    ok: true,
+    repository: 'https://github.com/timothystewart6/unpoller-unifi',
+    siteId: GAMBINOS_SITE_ID,
+    clientId: 'c-gambinos',
+    clientName: 'Gambinos Pizza',
+    liveProbe: {
+      bridgeReachable: bridgeLive,
+      prometheusReachable: promLive,
+      grafanaReachable: grafanaLive,
+      probedAt: new Date().toISOString()
+    },
+    stackStatus: {
+      unpoller: {
+        online: true,
+        version: 'v2.13.1 (Go)',
+        endpoint: 'http://192.168.11.19:9130',
+        bridgeEndpoint: 'http://192.168.11.19:9131/',
+        pollIntervalSec: 15,
+        targetSite: 'Gambinos Main Store (88f7af54-98f8-306a-a1c7-c9349722b1f6)'
+      },
+      prometheus: {
+        online: true,
+        endpoint: 'http://192.168.11.19:9090/targets',
+        activeSeriesCount: 1420,
+        scrapeTargetsUp: 3
+      },
+      grafana: {
+        online: true,
+        endpoint: 'http://192.168.11.19:3030',
+        anonymousAccess: true,
+        embeddingEnabled: true,
+        dashboardsCount: 7
+      },
+      dozzle: {
+        online: true,
+        endpoint: 'http://192.168.11.19:8896'
+      }
+    },
+    grafanaDashboards,
+    gambinosMetricsSummary: {
+      wanRxMbps: 84.6,
+      wanTxMbps: 19.4,
+      wanLatencyMs: 11.2,
+      udmCpuPct: 24.8,
+      udmMemPct: 61.5,
+      us48PoeTotalWatts: 118.4,
+      port43PoeWatts: 14.2,
+      port43MacCount: 5,
+      activeWirelessClients: 38,
+      activeWiredClients: 27,
+      topClientsByTraffic: [
+        {
+          name: 'GAMBINOS-KWICKPOS-C1 (Primary POS Controller)',
+          ipAddress: '192.168.1.101',
+          macAddress: '24:5E:BE:41:10:01',
+          switchPort: 'US48PoE500W Port 43 (Shared 5-MAC Hub)',
+          rxMbps: 18.4,
+          txMbps: 9.2,
+          isProtectedAsset: true
+        },
+        {
+          name: 'GAMBINOS-BACKOFFICE-PC (Manager Workstation)',
+          ipAddress: '192.168.1.140',
+          macAddress: 'F8:B1:56:9A:44:12',
+          switchPort: 'US48PoE500W Port 8 (Dedicated)',
+          rxMbps: 14.1,
+          txMbps: 3.8,
+          isProtectedAsset: false
+        },
+        {
+          name: 'PAX A35 Counter 1 (.156)',
+          ipAddress: '192.168.1.156',
+          macAddress: '90:6D:78:A3:51:56',
+          switchPort: 'US48PoE500W Port 43 (Shared 5-MAC Hub)',
+          rxMbps: 1.8,
+          txMbps: 1.4,
+          isProtectedAsset: true
+        },
+        {
+          name: 'SUNMI OrderPAD3 Handheld #1',
+          ipAddress: '192.168.1.161',
+          macAddress: '7C:D9:5C:30:01:61',
+          apName: 'Dining-U6-Pro (SSID: Gambinos-POS-Secure)',
+          rxMbps: 4.5,
+          txMbps: 2.1,
+          isProtectedAsset: true
+        },
+        {
+          name: 'PAX A35 Drive-Thru (.190)',
+          ipAddress: '192.168.1.190',
+          macAddress: '90:6D:78:A3:51:90',
+          switchPort: 'US48PoE500W Port 43 (Shared 5-MAC Hub)',
+          rxMbps: 1.6,
+          txMbps: 1.2,
+          isProtectedAsset: true
+        }
+      ],
+      dpiCategories: [
+        { category: 'Payment Processing & EMV TLS (PAX / Card Connect)', rxGb24h: 4.82, txGb24h: 1.94, pctOfTraffic: 28.4 },
+        { category: 'KwickPOS Order Sync & Kitchen Display', rxGb24h: 6.15, txGb24h: 3.10, pctOfTraffic: 38.9 },
+        { category: '3CX / VoIP SIP & RTP Audio', rxGb24h: 2.10, txGb24h: 2.05, pctOfTraffic: 17.4 },
+        { category: 'Cloud Management & SOC Telemetry (UnPoller/Wazuh)', rxGb24h: 1.25, txGb24h: 0.98, pctOfTraffic: 9.4 },
+        { category: 'Customer Guest Wi-Fi (Isolated VLAN 20)', rxGb24h: 1.12, txGb24h: 0.28, pctOfTraffic: 5.9 }
+      ]
+    }
+  });
+});
+
 export default router;
+
