@@ -18,7 +18,8 @@ import {
   type CortexAnalysisResult,
   type CortexTaxonomyBadge,
   type GambinosUnpollerResponse,
-  type SharkFinPolicy
+  type SharkFinPolicy,
+  type SharkFinScanReport
 } from '../../services/api';
 import {
   Shield,
@@ -123,6 +124,11 @@ export const SecuritySocView: React.FC = () => {
   const [selectedSharkFinDeviceId, setSelectedSharkFinDeviceId] = useState<string>('dev-tbi-bench-02');
   const [updatingPolicyKey, setUpdatingPolicyKey] = useState<string | null>(null);
   const [hideSeededLabIncidents, setHideSeededLabIncidents] = useState<boolean>(false);
+  const [endUserPortalMode, setEndUserPortalMode] = useState<boolean>(
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/sharkfin')
+  );
+  const [runningScanKey, setRunningScanKey] = useState<string | null>(null);
+  const [latestScanReports, setLatestScanReports] = useState<Record<string, SharkFinScanReport>>({});
 
   const showToast = (type: 'success' | 'warn' | 'error', text: string) => {
     setToastMessage({ type, text });
@@ -287,16 +293,18 @@ export const SecuritySocView: React.FC = () => {
         canaryTripwireEnabled: Boolean(dev.posture.canaryFilesDeployed),
         yaraClamScannerEnabled: !isUnmanaged,
         soarOrborusWorkerEnabled: !isUnmanaged,
-        policyLockedByAdmin: Boolean(dev.posture.tamperProtectionEnabled),
+        scheduledScanEnabled: !isUnmanaged,
+        scanFrequency: 'daily',
+        policyLockedByAdmin: false,
         updatedAt: dev.posture.reportedAt || new Date().toISOString(),
-        updatedBy: 'ApexMSP SOC Policy Engine'
+        updatedBy: 'ApexMSP Shark Fin Self-Service + SOC Policy'
       }
     );
   };
 
   const handleToggleSharkFinModule = async (
     dev: SecurityDeviceRecord,
-    moduleKey: keyof Omit<SharkFinPolicy, 'updatedAt' | 'updatedBy'>,
+    moduleKey: keyof Omit<SharkFinPolicy, 'updatedAt' | 'updatedBy' | 'lastScanReport' | 'scanFrequency'>,
     nextValue: boolean,
     label: string,
     isSimulatedTrayClick?: boolean
@@ -316,7 +324,7 @@ export const SecuritySocView: React.FC = () => {
       await api.security.updateDevicePolicy(dev.deviceId, {
         [moduleKey]: nextValue,
         updatedBy: isSimulatedTrayClick
-          ? `Shark Fin Tray Client (${dev.hostname})`
+          ? `End-User Shark Fin Client (${dev.hostname})`
           : 'Brandon Ray (MSP SOC Console)'
       });
       showToast(
@@ -328,6 +336,50 @@ export const SecuritySocView: React.FC = () => {
       showToast('error', `Failed to update Shark Fin policy: ${err?.message || 'Unknown error'}`);
     } finally {
       setUpdatingPolicyKey(null);
+    }
+  };
+
+  const handleChangeScanFrequency = async (
+    dev: SecurityDeviceRecord,
+    freq: 'hourly' | 'daily' | 'weekly',
+    initiatedByEndUser?: boolean
+  ) => {
+    await api.security.updateDevicePolicy(dev.deviceId, {
+      scheduledScanEnabled: true,
+      scanFrequency: freq,
+      updatedBy: initiatedByEndUser
+        ? `End-User Shark Fin Client (${dev.hostname})`
+        : 'Brandon Ray (MSP SOC Console)'
+    });
+    showToast('success', `Scheduled Scan Frequency on ${dev.hostname} set to ${freq.toUpperCase()}`);
+    await loadAllSocData();
+  };
+
+  const handleRunDeviceScan = async (
+    dev: SecurityDeviceRecord,
+    scanType: 'quick_av_yara' | 'full_clamav_yara' | 'canary_verify_reseed' | 'velociraptor_dfir_audit',
+    initiatedBy: 'end_user_sharkfin' | 'soc_admin'
+  ) => {
+    const key = `${dev.deviceId}:${scanType}`;
+    setRunningScanKey(key);
+    try {
+      const res = await api.security.runDeviceScan(dev.deviceId, {
+        scanType,
+        initiatedBy
+      });
+      setLatestScanReports(prev => ({
+        ...prev,
+        [dev.deviceId]: res.report
+      }));
+      showToast(
+        'success',
+        `✓ ${res.report.scanTitle} on ${dev.hostname}: ${res.report.status} (${res.report.filesScannedCount.toLocaleString()} items in ${res.report.durationMs}ms)`
+      );
+      await loadAllSocData();
+    } catch (err: any) {
+      showToast('error', `Scan failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setRunningScanKey(null);
     }
   };
 
@@ -599,6 +651,20 @@ export const SecuritySocView: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEndUserPortalMode(prev => !prev)}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 shadow transition cursor-pointer ${
+                endUserPortalMode
+                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                  : 'bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white'
+              }`}
+            >
+              <span>
+                {endUserPortalMode
+                  ? '🛡️ Return to MSP SOC Command Console'
+                  : '👤 Open End-User Shark Fin Self-Service View'}
+              </span>
+            </button>
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
               <input
@@ -678,6 +744,240 @@ export const SecuritySocView: React.FC = () => {
       {/* Main Scrollable Content Area                                          */}
       {/* ===================================================================== */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* =================================================================== */}
+        {/* END-USER SHARK FIN SECURITY & SCAN CENTER (/sharkfin OR TOGGLED)    */}
+        {/* =================================================================== */}
+        {endUserPortalMode && (() => {
+          const managedList = secDevices.filter(d => d.posture.coverageState !== 'unknown');
+          const activeDev =
+            managedList.find(d => d.deviceId === selectedSharkFinDeviceId) ||
+            managedList[0] ||
+            secDevices[0];
+          if (!activeDev) return null;
+          const pol = getDeviceSharkFinPolicy(activeDev);
+          const scanReport = latestScanReports[activeDev.deviceId] || pol.lastScanReport;
+
+          return (
+            <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white rounded-2xl p-6 border-2 border-emerald-500/60 shadow-2xl space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-2xl shadow-lg">
+                    🦈
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase">
+                        End-User Shark Fin Security &amp; Scan Center (`/sharkfin`)
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 text-[10px] font-bold">
+                        🔓 End-User Self-Service Mode Enabled (`policyLockedByAdmin: false`)
+                      </span>
+                    </div>
+                    <h2 className="text-lg font-black text-white mt-1">
+                      My Computer Protection Shield &amp; On-Demand Malware Scanner — {activeDev.hostname}
+                    </h2>
+                    <p className="text-xs text-slate-300">
+                      Enable or disable protection features on your computer, configure scheduled scans, or run an immediate AV, YARA-X, ClamAV, or Canary Tripwire scan below.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Computer Selector for Demo / Multi-Endpoint Testing */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {managedList.map(d => {
+                    const isSel = d.deviceId === activeDev.deviceId;
+                    return (
+                      <button
+                        key={d.deviceId}
+                        onClick={() => setSelectedSharkFinDeviceId(d.deviceId)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                          isSel
+                            ? 'bg-emerald-500 text-slate-950 shadow'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                        }`}
+                      >
+                        💻 {d.hostname}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 1-Click "Scan My Computer Now" Bar */}
+              <div className="bg-slate-900/90 rounded-xl p-4 border border-slate-700 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                      On-Demand Endpoint Verification &amp; Scan Actions
+                    </span>
+                    <h3 className="text-sm font-black text-white">
+                      Scan My Computer Now ({activeDev.hostname} • {activeDev.ipAddress})
+                    </h3>
+                  </div>
+                  {renderCoverageBadge(activeDev.posture.coverageState)}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {[
+                    {
+                      scanType: 'quick_av_yara' as const,
+                      label: '⚡ Run Quick AV + YARA-X Scan Now',
+                      sub: 'Scans active memory, startup binaries & processes (~0.4s)',
+                      color: 'from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600'
+                    },
+                    {
+                      scanType: 'full_clamav_yara' as const,
+                      label: '🛡️ Run Full ClamAV + YARA-X Deep Scan',
+                      sub: 'Deep filesystem signature & heuristic scan (<5% CPU)',
+                      color: 'from-indigo-600 to-blue-700 hover:from-indigo-500 hover:to-blue-600'
+                    },
+                    {
+                      scanType: 'canary_verify_reseed' as const,
+                      label: '🐤 Deploy / Re-Verify Canary Tripwire Files',
+                      sub: 'Verifies SHA-256 00_APEX_CANARY decoys & VSS guard',
+                      color: 'from-amber-600 to-orange-700 hover:from-amber-500 hover:to-orange-600'
+                    },
+                    {
+                      scanType: 'velociraptor_dfir_audit' as const,
+                      label: '🔍 Run Velociraptor Process & Persistence Check',
+                      sub: 'Audits running processes, services & startup tasks',
+                      color: 'from-purple-600 to-fuchsia-700 hover:from-purple-500 hover:to-fuchsia-600'
+                    }
+                  ].map(btn => {
+                    const isScanning = runningScanKey === `${activeDev.deviceId}:${btn.scanType}`;
+                    return (
+                      <button
+                        key={btn.scanType}
+                        disabled={runningScanKey !== null}
+                        onClick={() => handleRunDeviceScan(activeDev, btn.scanType, 'end_user_sharkfin')}
+                        className={`p-3.5 rounded-xl bg-gradient-to-br ${btn.color} text-left text-white shadow-md transition cursor-pointer disabled:opacity-50`}
+                      >
+                        <div className="flex items-center justify-between font-black text-xs">
+                          <span>{btn.label}</span>
+                          {isScanning && <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />}
+                        </div>
+                        <div className="text-[10px] text-white/85 mt-1">{btn.sub}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Live Scan Execution Report Card */}
+                {scanReport && (
+                  <div className="mt-3 p-4 rounded-xl bg-emerald-950/80 border border-emerald-500/50 text-xs space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span className="font-black text-white">
+                          Scan Execution Report: {scanReport.scanTitle} ({scanReport.scanId})
+                        </span>
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black uppercase">
+                        status: {scanReport.status}
+                      </span>
+                    </div>
+                    <p className="text-emerald-100 text-xs">{scanReport.summary}</p>
+                    <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono text-emerald-300 pt-1">
+                      <span>filesScannedCount: <strong>{scanReport.filesScannedCount.toLocaleString()}</strong></span>
+                      <span>enginesUsed: <strong>{scanReport.enginesUsed.join(', ')}</strong></span>
+                      <span>canaryFilesVerified: <strong>{scanReport.canaryFilesVerified}</strong></span>
+                      <span>durationMs: <strong>{scanReport.durationMs}ms</strong></span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 6 Self-Service Feature Toggles + Scheduled Scan Frequency Selector */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {[
+                  {
+                    key: 'preventiveAvEnabled' as const,
+                    label: '🛡️ Antivirus (AV) Real-Time Protection',
+                    desc: 'Real-time malware blocking via OS Preventive AV & Shark Fin supervisor'
+                  },
+                  {
+                    key: 'endpointEdrEnabled' as const,
+                    label: '🔍 Endpoint Detection & Response (EDR)',
+                    desc: 'Continuous process, command-line, and network threat monitoring'
+                  },
+                  {
+                    key: 'ransomwareProtectionEnabled' as const,
+                    label: '🔒 Ransomware Protection (VSS Shadow-Copy Guard)',
+                    desc: 'Blocks unauthorized shadow-copy deletion & system recovery tampering'
+                  },
+                  {
+                    key: 'canaryTripwireEnabled' as const,
+                    label: '🐤 Ransomware Canary Decoy Tripwires',
+                    desc: 'Monitors SHA-256 decoy files to halt mass-encryption immediately'
+                  },
+                  {
+                    key: 'yaraClamScannerEnabled' as const,
+                    label: '🧬 YARA-X & ClamAV Malware Scanner',
+                    desc: 'High-speed YARA-X & ClamAV signature scanning on new & modified files'
+                  },
+                  {
+                    key: 'scheduledScanEnabled' as const,
+                    label: '⏰ Scheduled Automated Malware & Canary Scans',
+                    desc: `Runs automatic background scans (${(pol.scanFrequency || 'daily').toUpperCase()})`
+                  }
+                ].map(mod => {
+                  const isOn = Boolean(pol[mod.key] ?? true);
+                  return (
+                    <div
+                      key={mod.key}
+                      className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
+                        isOn
+                          ? 'bg-slate-900/90 border-emerald-500/40'
+                          : 'bg-rose-950/40 border-rose-500/40'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-black text-white">{mod.label}</div>
+                          <div className="text-[11px] text-slate-300 mt-1">{mod.desc}</div>
+                        </div>
+                        <button
+                          onClick={() =>
+                            handleToggleSharkFinModule(activeDev, mod.key, !isOn, mod.label, true)
+                          }
+                          className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition cursor-pointer shrink-0 ${
+                            isOn
+                              ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow'
+                              : 'bg-rose-600 hover:bg-rose-500 text-white'
+                          }`}
+                        >
+                          {isOn ? 'ON' : 'OFF'}
+                        </button>
+                      </div>
+
+                      {mod.key === 'scheduledScanEnabled' && (
+                        <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2 text-[11px]">
+                          <span className="text-slate-400 font-bold">Scan Schedule:</span>
+                          <div className="flex items-center gap-1">
+                            {(['hourly', 'daily', 'weekly'] as const).map(freq => (
+                              <button
+                                key={freq}
+                                onClick={() => handleChangeScanFrequency(activeDev, freq, true)}
+                                className={`px-2 py-0.5 rounded text-[10px] font-black uppercase cursor-pointer ${
+                                  (pol.scanFrequency || 'daily') === freq
+                                    ? 'bg-emerald-500 text-slate-950'
+                                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                }`}
+                              >
+                                {freq}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* =================================================================== */}
         {/* TAB 1: SOC COMMAND CENTER (soc-overview)                            */}
         {/* =================================================================== */}
@@ -2070,7 +2370,7 @@ export const SecuritySocView: React.FC = () => {
               const pol = getDeviceSharkFinPolicy(activeDev);
 
               const SHARK_FIN_MODULES: Array<{
-                key: keyof Omit<SharkFinPolicy, 'updatedAt' | 'updatedBy'>;
+                key: keyof Omit<SharkFinPolicy, 'updatedAt' | 'updatedBy' | 'lastScanReport' | 'scanFrequency'>;
                 label: string;
                 shortDesc: string;
               }> = [
@@ -2100,9 +2400,9 @@ export const SecuritySocView: React.FC = () => {
                   shortDesc: 'Bounded 30s / 50MB on-write & on-demand signature scanner'
                 },
                 {
-                  key: 'soarOrborusWorkerEnabled',
-                  label: '⚡ Shuffle Go SOAR Orborus Worker',
-                  shortDesc: 'Executes signed Shuffle Go SOAR playbooks & Velociraptor DFIR hunts'
+                  key: 'scheduledScanEnabled',
+                  label: '⏰ Scheduled Automated Malware & Canary Scans',
+                  shortDesc: `Automated background YARA-X/ClamAV/Canary scans (${(pol.scanFrequency || 'daily').toUpperCase()})`
                 }
               ];
 
@@ -2273,43 +2573,134 @@ export const SecuritySocView: React.FC = () => {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {SHARK_FIN_MODULES.map(mod => {
-                          const enabled = Boolean(pol[mod.key]);
+                          const enabled = Boolean(pol[mod.key] ?? true);
                           const busy = updatingPolicyKey === `${activeDev.deviceId}:${mod.key}`;
                           return (
                             <div
                               key={mod.key}
-                              className={`p-3.5 rounded-xl border transition flex items-center justify-between gap-3 ${
+                              className={`p-3.5 rounded-xl border transition flex flex-col justify-between gap-2 ${
                                 enabled
                                   ? 'bg-slate-900/90 border-emerald-500/40'
                                   : 'bg-rose-950/40 border-rose-500/40'
                               }`}
                             >
-                              <div>
-                                <div className="text-xs font-black text-white">{mod.label}</div>
-                                <div className="text-[10px] text-slate-300 mt-0.5">{mod.shortDesc}</div>
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="text-xs font-black text-white">{mod.label}</div>
+                                  <div className="text-[10px] text-slate-300 mt-0.5">{mod.shortDesc}</div>
+                                </div>
+                                <button
+                                  disabled={busy}
+                                  onClick={() =>
+                                    handleToggleSharkFinModule(
+                                      activeDev,
+                                      mod.key,
+                                      !enabled,
+                                      mod.label,
+                                      false
+                                    )
+                                  }
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition cursor-pointer shrink-0 ${
+                                    enabled
+                                      ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow'
+                                      : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                                  }`}
+                                >
+                                  {enabled ? 'ENABLED' : 'DISABLED'}
+                                </button>
                               </div>
-                              <button
-                                disabled={busy}
-                                onClick={() =>
-                                  handleToggleSharkFinModule(
-                                    activeDev,
-                                    mod.key,
-                                    !enabled,
-                                    mod.label,
-                                    false
-                                  )
-                                }
-                                className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase transition cursor-pointer shrink-0 ${
-                                  enabled
-                                    ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow'
-                                    : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-                                }`}
-                              >
-                                {enabled ? 'ENABLED' : 'DISABLED'}
-                              </button>
+
+                              {mod.key === 'scheduledScanEnabled' && (
+                                <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2 text-[10px]">
+                                  <span className="text-slate-400 font-bold">Frequency:</span>
+                                  <div className="flex items-center gap-1">
+                                    {(['hourly', 'daily', 'weekly'] as const).map(freq => (
+                                      <button
+                                        key={freq}
+                                        onClick={() => handleChangeScanFrequency(activeDev, freq, false)}
+                                        className={`px-2 py-0.5 rounded font-black uppercase cursor-pointer ${
+                                          (pol.scanFrequency || 'daily') === freq
+                                            ? 'bg-emerald-500 text-slate-950'
+                                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                        }`}
+                                      >
+                                        {freq}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
+                      </div>
+
+                      {/* 1-Click Scan & Feature Execution Buttons inside Shark Fin Simulator */}
+                      <div className="pt-3 border-t border-slate-700 space-y-2.5">
+                        <div className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                          1-Click Scan &amp; Feature Execution Buttons ({activeDev.hostname}):
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {[
+                            {
+                              scanType: 'quick_av_yara' as const,
+                              label: '⚡ Run Quick AV + YARA-X Scan Now',
+                              cls: 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                            },
+                            {
+                              scanType: 'full_clamav_yara' as const,
+                              label: '🛡️ Run Full ClamAV + YARA-X Deep Scan',
+                              cls: 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                            },
+                            {
+                              scanType: 'canary_verify_reseed' as const,
+                              label: '🐤 Deploy / Re-Verify Canary Tripwire Files',
+                              cls: 'bg-amber-600 hover:bg-amber-500 text-white'
+                            },
+                            {
+                              scanType: 'velociraptor_dfir_audit' as const,
+                              label: '🔍 Run Velociraptor Process & Persistence Check',
+                              cls: 'bg-purple-600 hover:bg-purple-500 text-white'
+                            }
+                          ].map(btn => {
+                            const isScanning = runningScanKey === `${activeDev.deviceId}:${btn.scanType}`;
+                            return (
+                              <button
+                                key={btn.scanType}
+                                disabled={runningScanKey !== null}
+                                onClick={() => handleRunDeviceScan(activeDev, btn.scanType, 'soc_admin')}
+                                className={`px-3 py-2 rounded-lg text-xs font-black flex items-center justify-between shadow transition cursor-pointer disabled:opacity-50 ${btn.cls}`}
+                              >
+                                <span>{btn.label}</span>
+                                {isScanning && <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {(() => {
+                          const rep = latestScanReports[activeDev.deviceId] || pol.lastScanReport;
+                          if (!rep) return null;
+                          return (
+                            <div className="p-3 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-xs space-y-1">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-black text-white">
+                                  Scan Execution Report: {rep.scanTitle} ({rep.scanId})
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 text-[10px] font-black uppercase">
+                                  {rep.status}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-emerald-100">{rep.summary}</p>
+                              <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono text-emerald-300">
+                                <span>filesScannedCount: <strong>{rep.filesScannedCount.toLocaleString()}</strong></span>
+                                <span>enginesUsed: <strong>{rep.enginesUsed.join(', ')}</strong></span>
+                                <span>canaryFilesVerified: <strong>{rep.canaryFilesVerified}</strong></span>
+                                <span>durationMs: <strong>{rep.durationMs}ms</strong></span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -2485,9 +2876,9 @@ export const SecuritySocView: React.FC = () => {
                               { key: 'ransomwareProtectionEnabled' as const, label: '🔒 Ransomware VSS Guard' },
                               { key: 'canaryTripwireEnabled' as const, label: '🐤 Canary Tripwires' },
                               { key: 'yaraClamScannerEnabled' as const, label: '🧬 YARA-X / ClamAV' },
-                              { key: 'soarOrborusWorkerEnabled' as const, label: '⚡ SOAR Orborus Worker' }
+                              { key: 'scheduledScanEnabled' as const, label: `⏰ Scheduled Scans (${(pol.scanFrequency || 'daily').toUpperCase()})` }
                             ].map(sw => {
-                              const isOn = Boolean(pol[sw.key]);
+                              const isOn = Boolean(pol[sw.key] ?? true);
                               return (
                                 <button
                                   key={sw.key}
@@ -2512,6 +2903,74 @@ export const SecuritySocView: React.FC = () => {
                               );
                             })}
                           </div>
+
+                          {/* Per-Device 1-Click Scan & Feature Execution Buttons */}
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] font-black uppercase text-slate-500">
+                              Run Scan Now:
+                            </span>
+                            {[
+                              {
+                                scanType: 'quick_av_yara' as const,
+                                label: '⚡ Run Quick AV + YARA-X Scan Now',
+                                cls: 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              },
+                              {
+                                scanType: 'full_clamav_yara' as const,
+                                label: '🛡️ Run Full ClamAV + YARA-X Deep Scan',
+                                cls: 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                              },
+                              {
+                                scanType: 'canary_verify_reseed' as const,
+                                label: '🐤 Deploy / Re-Verify Canary Tripwire Files',
+                                cls: 'bg-amber-600 hover:bg-amber-700 text-white'
+                              },
+                              {
+                                scanType: 'velociraptor_dfir_audit' as const,
+                                label: '🔍 Run Velociraptor Process & Persistence Check',
+                                cls: 'bg-purple-600 hover:bg-purple-700 text-white'
+                              }
+                            ].map(btn => {
+                              const isScanning = runningScanKey === `${dev.deviceId}:${btn.scanType}`;
+                              return (
+                                <button
+                                  key={btn.scanType}
+                                  disabled={runningScanKey !== null}
+                                  onClick={() => handleRunDeviceScan(dev, btn.scanType, 'soc_admin')}
+                                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50 ${btn.cls}`}
+                                >
+                                  <span>{btn.label}</span>
+                                  {isScanning && <RefreshCw className="w-3 h-3 animate-spin" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Per-Device Scan Execution Report Banner */}
+                          {(() => {
+                            const rep = latestScanReports[dev.deviceId] || pol.lastScanReport;
+                            if (!rep) return null;
+                            return (
+                              <div className="mt-2.5 p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-xs space-y-1">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-black text-emerald-950 flex items-center gap-1.5">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    Scan Execution Report: {rep.scanTitle} ({rep.scanId})
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-black uppercase">
+                                    {rep.status}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-emerald-900">{rep.summary}</p>
+                                <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono text-emerald-800">
+                                  <span>filesScannedCount: <strong>{rep.filesScannedCount.toLocaleString()}</strong></span>
+                                  <span>enginesUsed: <strong>{rep.enginesUsed.join(', ')}</strong></span>
+                                  <span>canaryFilesVerified: <strong>{rep.canaryFilesVerified}</strong></span>
+                                  <span>durationMs: <strong>{rep.durationMs}ms</strong></span>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
 

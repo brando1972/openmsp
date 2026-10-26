@@ -31,7 +31,9 @@ const MainAppContent: React.FC = () => {
     return <LoginView />;
   }
 
-  const isDirectSocRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/soc');
+  const isDirectSocRoute =
+    typeof window !== 'undefined' &&
+    (window.location.pathname.startsWith('/soc') || window.location.pathname.startsWith('/sharkfin'));
   const currentTab = tabs.find(t => t.id === activeTabId);
   const currentViewType = isDirectSocRoute
     ? 'security-soc'
