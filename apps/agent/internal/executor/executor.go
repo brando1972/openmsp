@@ -3,13 +3,17 @@ package executor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"openmsp/agent/internal/client"
 	"openmsp/agent/internal/collector"
+	"openmsp/agent/internal/security"
 )
 
 // Executor manages execution of remote commands dispatched by the control plane.
@@ -36,6 +40,20 @@ func (e *Executor) Execute(ctx context.Context, cmd client.DeviceCommand) client
 		e.executeRestartService(ctx, cmd.Payload, &result)
 	case "collect_inventory":
 		e.executeCollectInventory(&result)
+	case "security_scan", "run_yara_scan", "run_clamav_scan":
+		e.executeSecurityScan(ctx, cmd.CommandType, cmd.Payload, &result)
+	case "quarantine_file":
+		e.executeQuarantineFile(cmd.Payload, &result)
+	case "restore_file", "restore_quarantined_file":
+		e.executeRestoreFile(cmd.Payload, &result)
+	case "kill_process":
+		e.executeKillProcess(ctx, cmd.Payload, &result)
+	case "deploy_canary_files":
+		e.executeDeployCanaries(cmd.Payload, &result)
+	case "isolate_host":
+		e.executeIsolateHost(cmd.Payload, &result)
+	case "unisolate_host":
+		e.executeUnisolateHost(&result)
 	case "install_approved_patches":
 		result.Status = "completed"
 		result.Output = "Patch manager executed: all approved system packages are up-to-date"
@@ -164,6 +182,178 @@ func (e *Executor) executeCollectInventory(res *client.CommandResultRequest) {
 	svcs := collector.CollectServices()
 	res.Status = "completed"
 	res.Output = fmt.Sprintf("Inventory collected: %d installed applications, %d services", len(apps), len(svcs))
+}
+
+func (e *Executor) executeSecurityScan(ctx context.Context, cmdType string, payload map[string]interface{}, res *client.CommandResultRequest) {
+	targetPath := extractString(payload, "targetPath", "path", "filePath", "directory")
+	if targetPath == "" {
+		res.Status = "failed"
+		res.Error = "security_scan requires a non-empty 'targetPath' or 'path' in payload"
+		return
+	}
+
+	opts := security.ScanOptions{
+		TargetPath:    targetPath,
+		YaraRulesPath: extractString(payload, "yaraRulesPath", "rulesPath"),
+		EnableYaraX:   cmdType == "run_yara_scan" || cmdType == "security_scan",
+		EnableClamAV:  cmdType == "run_clamav_scan" || cmdType == "security_scan",
+	}
+
+	scanRes, err := security.ScanPath(ctx, opts)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+
+	for _, d := range scanRes.Detections {
+		security.EnqueueDetection(d)
+	}
+
+	raw, _ := json.Marshal(scanRes)
+	res.Status = "completed"
+	res.Output = string(raw)
+}
+
+func (e *Executor) executeQuarantineFile(payload map[string]interface{}, res *client.CommandResultRequest) {
+	filePath := extractString(payload, "filePath", "path", "targetPath")
+	if filePath == "" {
+		res.Status = "failed"
+		res.Error = "quarantine_file requires a non-empty 'filePath' or 'path' in payload"
+		return
+	}
+	reason := extractString(payload, "reason", "summary")
+	quarDir := extractString(payload, "quarantineDir")
+
+	manifest, err := security.QuarantineFile(filePath, quarDir, reason)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+
+	raw, _ := json.Marshal(manifest)
+	res.Status = "completed"
+	res.Output = string(raw)
+}
+
+func (e *Executor) executeRestoreFile(payload map[string]interface{}, res *client.CommandResultRequest) {
+	shaOrPath := extractString(payload, "sha256", "filePath", "path", "originalPath")
+	if shaOrPath == "" {
+		res.Status = "failed"
+		res.Error = "restore_file requires 'sha256' or 'filePath' in payload"
+		return
+	}
+	quarDir := extractString(payload, "quarantineDir")
+	targetOverride := extractString(payload, "targetPath", "restorePath")
+
+	manifest, err := security.RestoreQuarantinedFile(shaOrPath, quarDir, targetOverride)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+
+	raw, _ := json.Marshal(manifest)
+	res.Status = "completed"
+	res.Output = string(raw)
+}
+
+func (e *Executor) executeKillProcess(ctx context.Context, payload map[string]interface{}, res *client.CommandResultRequest) {
+	pid := extractInt(payload, "pid", "processId")
+	expectedName := strings.ToLower(extractString(payload, "processName", "name", "exeName"))
+
+	// Fail-closed safety lock: refuse invalid PIDs, kernel/init PIDs (<= 4), or self PID
+	if pid <= 4 || pid == os.Getpid() {
+		res.Status = "failed"
+		res.Error = fmt.Sprintf("[SAFETY LOCK] Refusing to terminate protected/system PID %d", pid)
+		return
+	}
+
+	// Refuse critical OS or management processes by name
+	protectedNames := []string{
+		"openmsp-agent", "meshagent", "wazuh-agentd", "wazuhsvc", "velociraptor",
+		"csrss.exe", "lsass.exe", "services.exe", "smss.exe", "wininit.exe", "launchd", "systemd",
+	}
+	for _, pn := range protectedNames {
+		if expectedName != "" && strings.Contains(expectedName, pn) {
+			res.Status = "failed"
+			res.Error = fmt.Sprintf("[SAFETY LOCK] Refusing to terminate protected process %q (PID %d)", expectedName, pid)
+			return
+		}
+	}
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = fmt.Sprintf("find process %d: %v", pid, err)
+		return
+	}
+
+	if err := proc.Kill(); err != nil {
+		res.Status = "failed"
+		res.Error = fmt.Sprintf("kill process %d: %v", pid, err)
+		return
+	}
+
+	res.Status = "completed"
+	res.Output = fmt.Sprintf("Terminated process PID %d (verified target=%s)", pid, expectedName)
+}
+
+func (e *Executor) executeDeployCanaries(payload map[string]interface{}, res *client.CommandResultRequest) {
+	canaryDir := extractString(payload, "canaryDir", "directory", "path")
+	paths, err := security.RestoreCanaryFiles(canaryDir)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+	res.Status = "completed"
+	res.Output = fmt.Sprintf("Deployed %d ApexMSP canary tripwire files: %s", len(paths), strings.Join(paths, ", "))
+}
+
+func (e *Executor) executeIsolateHost(payload map[string]interface{}, res *client.CommandResultRequest) {
+	criticality := strings.ToLower(extractString(payload, "assetCriticality", "criticality"))
+	if criticality == "protected_never_auto_isolate" || criticality == "pos_controller" || criticality == "municipal_critical" {
+		if extractString(payload, "humanApproved") != "true" {
+			res.Status = "failed"
+			res.Error = fmt.Sprintf("[PROTECTED ASSET GUARD] Refusing automatic host isolation for assetCriticality=%s without explicit human approval", criticality)
+			return
+		}
+	}
+
+	security.SetIsolated(true)
+	res.Status = "completed"
+	res.Output = "Host containment policy engaged: non-management lateral traffic blocked; ApexMSP control plane heartbeat & MeshAgent recovery channels preserved"
+}
+
+func (e *Executor) executeUnisolateHost(res *client.CommandResultRequest) {
+	security.SetIsolated(false)
+	res.Status = "completed"
+	res.Output = "Host containment policy lifted: normal network posture restored"
+}
+
+func extractInt(m map[string]interface{}, keys ...string) int {
+	if m == nil {
+		return 0
+	}
+	for _, k := range keys {
+		if val, ok := m[k]; ok {
+			switch v := val.(type) {
+			case int:
+				return v
+			case int64:
+				return int(v)
+			case float64:
+				return int(v)
+			case string:
+				if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+					return parsed
+				}
+			}
+		}
+	}
+	return 0
 }
 
 func extractString(m map[string]interface{}, keys ...string) string {

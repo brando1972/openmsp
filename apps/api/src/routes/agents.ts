@@ -5,6 +5,7 @@ import { wsManager } from '../ws/manager.js';
 import { electCollector, scanConfigFor, ingestScan } from '../net/discovery.js';
 import { updateDirectiveFor, artifactPath } from '../releases/manifest.js';
 import { meshClient } from '../mesh/meshClient.js';
+import { upsertDeviceSecurityPosture, ingestSecurityDetection } from './security.js';
 import { createReadStream } from 'fs';
 import type {
   AgentEnrollRequest,
@@ -150,8 +151,21 @@ router.post('/enroll', (req, res) => {
 
 // POST /api/v1/agents/heartbeat
 router.post('/heartbeat', (req, res) => {
-  const { deviceId, deviceSecret, metrics, network, installedApps, services, eventLogs, rustDeskId, collector, agentVersion, arch } =
-    req.body as AgentHeartbeatRequest;
+  const {
+    deviceId,
+    deviceSecret,
+    metrics,
+    network,
+    installedApps,
+    services,
+    eventLogs,
+    rustDeskId,
+    collector,
+    agentVersion,
+    arch,
+    securityPosture,
+    securityDetections
+  } = req.body as AgentHeartbeatRequest;
 
   if (!deviceId || !deviceSecret) {
     res.status(401).json({ error: 'Device ID and secret are required' });
@@ -245,6 +259,24 @@ router.post('/heartbeat', (req, res) => {
   // Broadcast heartbeat over WebSocket
   const org = Array.from(store.orgs.values())[0];
   const orgId = org ? org.id : '00000000-0000-0000-0000-000000000001';
+
+  // Ingest endpoint securityPosture and securityDetections from Go agent if present
+  if (securityPosture && typeof securityPosture === 'object') {
+    upsertDeviceSecurityPosture(device.id, securityPosture, orgId);
+  }
+
+  if (Array.isArray(securityDetections) && securityDetections.length > 0) {
+    for (const detInput of securityDetections) {
+      if (!detInput || typeof detInput !== 'object') continue;
+      ingestSecurityDetection({
+        orgId,
+        clientId: device.clientId,
+        siteId: device.siteId,
+        deviceId: device.id,
+        input: detInput
+      });
+    }
+  }
 
   wsManager.broadcastToOrg(orgId, 'device.heartbeat', {
     deviceId: device.id,

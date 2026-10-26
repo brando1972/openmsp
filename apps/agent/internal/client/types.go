@@ -83,8 +83,100 @@ type AgentHeartbeatRequest struct {
 	Collector *CollectorCandidacy `json:"collector,omitempty"`
 	// Self-update: the agent reports its build so the control plane can direct an
 	// update when a newer release exists for this os/arch.
-	AgentVersion string `json:"agentVersion,omitempty"`
-	Arch         string `json:"arch,omitempty"`
+	AgentVersion       string                   `json:"agentVersion,omitempty"`
+	Arch               string                   `json:"arch,omitempty"`
+	SecurityPosture    *SecurityPostureReport   `json:"securityPosture,omitempty"`
+	SecurityDetections []SecurityDetectionInput `json:"securityDetections,omitempty"`
+}
+
+// SecuritySensorState represents the operational state of a local security sensor or AV engine.
+type SecuritySensorState struct {
+	Provider         string `json:"provider"` // "wazuh" | "velociraptor" | "clamav" | "yara_x" | "osquery" | "windows_defender" | "macos_xprotect" | "whids" | "kunai" | "apex_edr_reflex"
+	Installed        bool   `json:"installed"`
+	Running          bool   `json:"running"`
+	PreventiveActive bool   `json:"preventiveActive"`
+	Version          string `json:"version,omitempty"`
+	SignatureVersion string `json:"signatureVersion,omitempty"`
+	LastUpdated      string `json:"lastUpdated,omitempty"`
+	LastScanAt       string `json:"lastScanAt,omitempty"`
+	HealthMessage    string `json:"healthMessage,omitempty"`
+}
+
+// SecurityPostureReport summarizes host preventive AV, EDR sensor health, and canary status.
+type SecurityPostureReport struct {
+	CoverageState                 string                `json:"coverageState"` // "unknown" | "installed" | "healthy" | "collecting" | "preventive_active" | "containment_requested" | "containment_verified" | "degraded"
+	PreventiveAvName              string                `json:"preventiveAvName"`
+	PreventiveAvActive            bool                  `json:"preventiveAvActive"`
+	RealtimeProtectionEnabled     bool                  `json:"realtimeProtectionEnabled"`
+	TamperProtectionEnabled       bool                  `json:"tamperProtectionEnabled"`
+	CanaryFilesDeployed           bool                  `json:"canaryFilesDeployed"`
+	CanaryPaths                   []string              `json:"canaryPaths,omitempty"`
+	RecoveryInhibitionGuardActive bool                  `json:"recoveryInhibitionGuardActive"`
+	Isolated                      bool                  `json:"isolated"`
+	Sensors                       []SecuritySensorState `json:"sensors"`
+	ScannerMemoryMb               float64               `json:"scannerMemoryMb,omitempty"`
+	SupervisorCpuPct              float64               `json:"supervisorCpuPct,omitempty"`
+	TelemetryCpuPct               float64               `json:"telemetryCpuPct,omitempty"`
+	ReportedAt                    string                `json:"reportedAt"`
+}
+
+// SecurityProcessContext describes a process involved in a security detection.
+type SecurityProcessContext struct {
+	PID     int    `json:"pid,omitempty"`
+	PPID    int    `json:"ppid,omitempty"`
+	Name    string `json:"name,omitempty"`
+	ExePath string `json:"exePath,omitempty"`
+	Cmdline string `json:"cmdline,omitempty"`
+	SHA256  string `json:"sha256,omitempty"`
+	User    string `json:"user,omitempty"`
+	Signed  *bool  `json:"signed,omitempty"`
+	Signer  string `json:"signer,omitempty"`
+}
+
+// SecurityFileContext describes a file artifact involved in a security detection.
+type SecurityFileContext struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256,omitempty"`
+	Action string `json:"action,omitempty"` // "created" | "modified" | "renamed" | "deleted" | "quarantined"
+}
+
+// SecurityNetworkContext describes network telemetry associated with a security detection.
+type SecurityNetworkContext struct {
+	SrcIP         string `json:"srcIp,omitempty"`
+	SrcPort       int    `json:"srcPort,omitempty"`
+	DstIP         string `json:"dstIp,omitempty"`
+	DstPort       int    `json:"dstPort,omitempty"`
+	Proto         string `json:"proto,omitempty"`
+	Domain        string `json:"domain,omitempty"`
+	ASN           string `json:"asn,omitempty"`
+	Country       string `json:"country,omitempty"`
+	UniFiSiteID   string `json:"unifiSiteId,omitempty"`
+	UniFiClientID string `json:"unifiClientId,omitempty"`
+	VLANID        int    `json:"vlanId,omitempty"`
+	SwitchID      string `json:"switchId,omitempty"`
+	SwitchPort    int    `json:"switchPort,omitempty"`
+	APID          string `json:"apId,omitempty"`
+	SSID          string `json:"ssid,omitempty"`
+	Blocked       *bool  `json:"blocked,omitempty"`
+}
+
+// SecurityDetectionInput represents an endpoint detection event reported to the control plane.
+type SecurityDetectionInput struct {
+	EventID            string                  `json:"eventId"`
+	IdempotencyKey     string                  `json:"idempotencyKey"`
+	EventTime          string                  `json:"eventTime"`
+	SourceProvider     string                  `json:"sourceProvider"` // "apex_agent" | "wazuh" | "velociraptor" | "clamav" | "yara_x" | "osquery" | "unifi_ids" | "unifi_syslog" | "unifi_flow"
+	RuleID             string                  `json:"ruleId"`
+	RuleName           string                  `json:"ruleName"`
+	Severity           string                  `json:"severity"`   // "info" | "low" | "medium" | "high" | "critical"
+	Confidence         float64                 `json:"confidence"` // 0.0 - 1.0
+	Category           string                  `json:"category"`   // "malware" | "ransomware" | "recovery_inhibition" | "persistence" | "canary_tripwire" | "lateral_movement" | "network_ids" | "unifi_anomaly" | "wifi_diagnostic" | "av_tamper" | "policy_violation"
+	Summary            string                  `json:"summary"`
+	Process            *SecurityProcessContext `json:"process,omitempty"`
+	File               *SecurityFileContext    `json:"file,omitempty"`
+	Network            *SecurityNetworkContext `json:"network,omitempty"`
+	RawEvidence        map[string]interface{}  `json:"rawEvidence,omitempty"`
+	IsBenignSimulation bool                    `json:"isBenignSimulation,omitempty"`
 }
 
 // AgentUpdate is the control plane's self-update directive (newer build available).

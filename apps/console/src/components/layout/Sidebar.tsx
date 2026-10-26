@@ -81,6 +81,9 @@ export const Sidebar: React.FC = () => {
     if (tabId === 'mdm') {
       setActiveSubRailView('mdm-configurations');
     }
+    if (tabId === 'security-soc') {
+      setActiveSubRailView('soc-overview');
+    }
   };
 
   return (
@@ -189,6 +192,20 @@ export const Sidebar: React.FC = () => {
               title="ApexConnect Remote Support"
             >
               <Headphones className="w-5 h-5" />
+            </button>
+
+            {/* Security & UniFi SOC */}
+            <button
+              onClick={() => handleNavClick('security-soc')}
+              className={`w-10 h-10 rounded-lg flex items-center justify-center transition cursor-pointer relative ${
+                activeTab === 'security-soc'
+                  ? 'bg-emerald-600 text-white font-bold shadow-lg shadow-emerald-600/30'
+                  : 'text-emerald-400/90 hover:text-white hover:bg-emerald-950/50'
+              }`}
+              title="Security & UniFi SOC — SIEM, EDR/AV, Temporal Identity & Action Broker"
+            >
+              <Shield className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </button>
 
             {/* ApexMDM — Android Fleet & Config Deploy */}
