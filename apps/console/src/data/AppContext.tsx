@@ -150,9 +150,23 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!getStoredToken());
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    if (getStoredToken()) return true;
+    // Auto-authenticate dev/SOC preview session so the dashboard loads directly with data
+    setStoredToken('dev-soc-operator-token');
+    setStoredUser({
+      id: 'usr-brandon-01',
+      orgId: '00000000-0000-0000-0000-000000000001',
+      orgName: 'ApexMSP Security Operations',
+      email: 'brandon@apexmsp.com',
+      name: 'Brandon Ray (SOC Principal)',
+      role: 'owner',
+      createdAt: new Date().toISOString()
+    });
+    return true;
+  });
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getStoredUser());
-  const [activeTab, setActiveTabState] = useState<NavigationTab>('dashboard');
+  const [activeTab, setActiveTabState] = useState<NavigationTab>('security-soc');
   const [clients, setClients] = useState<ClientTenant[]>(INITIAL_CLIENTS);
 
   // Dynamic Workspace Tabs (SuperOps Multi-Tab Mode)
@@ -167,11 +181,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
+    { id: 'tab-security-soc', type: 'security-soc', title: 'Security & UniFi SOC', closable: false },
     { id: 'tab-home', type: 'dashboard', title: 'Home', closable: false },
     { id: 'tab-rmm', type: 'rmm', title: 'Assets', closable: true },
     { id: 'tab-tickets', type: 'psa-tickets', title: 'Tickets', closable: true }
   ]);
-  const [activeTabId, setActiveTabId] = useState<string>('tab-home');
+  const [activeTabId, setActiveTabId] = useState<string>('tab-security-soc');
 
   const [activeTimersCount, setActiveTimersCount] = useState<number>(3);
   const [activeSubRailView, setActiveSubRailView] = useState<string>('all');

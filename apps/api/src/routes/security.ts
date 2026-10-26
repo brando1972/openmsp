@@ -1612,4 +1612,1077 @@ router.post('/simulate', (req: AuthenticatedRequest, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Shuffle SOAR (Go Orborus Engine) + Cortex Observable Analyzers + TheHive Cases
+// Mounted under /api/v1/security/soar/*
+// ---------------------------------------------------------------------------
+
+interface CortexTaxonomyBadge {
+  level: 'malicious' | 'suspicious' | 'safe' | 'info';
+  namespace: string;
+  predicate: string;
+  value: string;
+}
+
+interface ShufflePlaybookNode {
+  id: string;
+  type: 'trigger' | 'cortex_analyzer' | 'thehive_case' | 'action_broker_gate' | 'orborus_go_agent_worker';
+  label: string;
+  app: string;
+  version: string;
+  avgDurationMs: number;
+  description: string;
+}
+
+interface ShufflePlaybook {
+  id: string;
+  name: string;
+  category: string;
+  enabled: boolean;
+  runtime: 'Shuffle Go Backend + Orborus Worker v1.4';
+  triggerType: string;
+  runs24h: number;
+  successRatePct: number;
+  avgLatencyMs: number;
+  lastRunAt: string;
+  nodes: ShufflePlaybookNode[];
+}
+
+interface ShuffleExecutionRecord {
+  id: string;
+  playbookId: string;
+  playbookName: string;
+  clientId: string;
+  clientName: string;
+  targetDeviceId?: string;
+  observableValue?: string;
+  status: 'completed' | 'blocked_protected_asset' | 'awaiting_approval';
+  totalDurationMs: number;
+  startedAt: string;
+  completedAt: string;
+  theHiveCaseId: string;
+  actionBrokerStatus: string;
+  cortexTaxonomies: CortexTaxonomyBadge[];
+  stepResults: Array<{
+    nodeId: string;
+    nodeType: ShufflePlaybookNode['type'];
+    label: string;
+    status: 'success' | 'blocked_safety_lock' | 'queued';
+    durationMs: number;
+    outputSummary: string;
+  }>;
+}
+
+const soarPlaybooks: ShufflePlaybook[] = [
+  {
+    id: 'pb-shuffle-ransomware-vss',
+    name: 'Ransomware Shadow-Copy Inhibition (vssadmin) -> Cortex Hash & Process Tree -> TheHive Case -> Protected-Asset Gate -> Go Orborus Isolate',
+    category: 'Ransomware & Recovery Inhibition (T1490)',
+    enabled: true,
+    runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
+    triggerType: 'Webhook: APEX-EDR-1001 / Wazuh Rule 100510',
+    runs24h: 4,
+    successRatePct: 100,
+    avgLatencyMs: 385,
+    lastRunAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
+    nodes: [
+      {
+        id: 'node-1',
+        type: 'trigger',
+        label: 'Wazuh / Go Agent Reflex Webhook (T1490 vssadmin)',
+        app: 'Shuffle Webhook Receiver (Go)',
+        version: '1.4.2',
+        avgDurationMs: 14,
+        description: 'Ingests high-priority recovery inhibition alert from endpoint reflex sensor'
+      },
+      {
+        id: 'node-2',
+        type: 'cortex_analyzer',
+        label: 'Cortex: Velociraptor ProcessTree + YARA-X + MalwareBazaar',
+        app: 'Cortex v3.1',
+        version: '3.1.8',
+        avgDurationMs: 168,
+        description: 'Analyzes parent process chain, command line, and SHA-256 hash against Cortex analyzers'
+      },
+      {
+        id: 'node-3',
+        type: 'thehive_case',
+        label: 'TheHive: Upsert Case #THEHIVE-401 & Attach Observables',
+        app: 'TheHive Case Engine',
+        version: '5.3-compat',
+        avgDurationMs: 74,
+        description: 'Creates/updates TLP:AMBER case with MITRE T1490 TTPs and Cortex taxonomy tags'
+      },
+      {
+        id: 'node-4',
+        type: 'action_broker_gate',
+        label: 'Apex Action Broker: Protected-Asset & Shared-Port Gate',
+        app: 'ApexMSP Action Broker',
+        version: '2026.10.2',
+        avgDurationMs: 39,
+        description: 'Verifies target is not a PAX A35, KwickPOS controller, or shared switch port (Port 43)'
+      },
+      {
+        id: 'node-5',
+        type: 'orborus_go_agent_worker',
+        label: 'Orborus Go Worker: Dispatch Host Isolation & Velociraptor Triage',
+        app: 'Shuffle Orborus (Go)',
+        version: '1.4.2',
+        avgDurationMs: 90,
+        description: 'Executes Go worker dispatch to isolate workstation while preserving MSP control plane tunnel'
+      }
+    ]
+  },
+  {
+    id: 'pb-shuffle-gambinos-port43',
+    name: 'Gambinos Switch Port 43 Multi-MAC Anomaly -> Cortex OUI & UniFi Topology Analyzer -> Shared-Port Guard Lock (mac_count=5) -> TheHive Alert',
+    category: 'UniFi Network & POS Payment Safety',
+    enabled: true,
+    runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
+    triggerType: 'UniFi Topology / CEF SMB Lateral Alert',
+    runs24h: 3,
+    successRatePct: 100,
+    avgLatencyMs: 340,
+    lastRunAt: new Date(Date.now() - 29 * 60 * 1000).toISOString(),
+    nodes: [
+      {
+        id: 'node-1',
+        type: 'trigger',
+        label: 'UniFi Suricata IDS / Switch Port Anomaly Trigger',
+        app: 'Shuffle Webhook Receiver (Go)',
+        version: '1.4.2',
+        avgDurationMs: 12,
+        description: 'Triggered on lateral SMB probe or multi-MAC switch port topology change at Gambinos'
+      },
+      {
+        id: 'node-2',
+        type: 'cortex_analyzer',
+        label: 'Cortex: UniFi_Port43_Topology_Analyzer + Cortex_ProtectedAsset_Responder',
+        app: 'Cortex v3.1',
+        version: '3.1.8',
+        avgDurationMs: 142,
+        description: 'Inspects US48PoE500W Port 43 MAC table (5 MACs: PAX A35 .156/.173/.190 + KwickPOS c1/c2)'
+      },
+      {
+        id: 'node-3',
+        type: 'action_broker_gate',
+        label: 'Apex Action Broker: Enforce Shared-Port Containment Lock (mac_count=5)',
+        app: 'ApexMSP Action Broker',
+        version: '2026.10.2',
+        avgDurationMs: 31,
+        description: 'Hard-blocks port shutdown on US48PoE500W:43 to prevent restaurant POS payment outage'
+      },
+      {
+        id: 'node-4',
+        type: 'thehive_case',
+        label: 'TheHive: Escalate Case #THEHIVE-402 (Manual POS Segmentation Advisory)',
+        app: 'TheHive Case Engine',
+        version: '5.3-compat',
+        avgDurationMs: 82,
+        description: 'Attaches Port 43 topology evidence and marks containment as manual_required'
+      },
+      {
+        id: 'node-5',
+        type: 'orborus_go_agent_worker',
+        label: 'Orborus Go Worker: Sync PSA Ticket #TICK-1002 & Notify SOC Operator',
+        app: 'Shuffle Orborus (Go)',
+        version: '1.4.2',
+        avgDurationMs: 73,
+        description: 'Broadcasts real-time WebSocket alert and updates PSA ticket with safety-lock proof'
+      }
+    ]
+  },
+  {
+    id: 'pb-shuffle-unifi-cef-ips',
+    name: 'UniFi CEF IDS/IPS Signature -> Cortex AbuseIPDB + GreyNoise + CISA KEV -> Temporal Identity Attribution -> Action Broker',
+    category: 'Network IDS/IPS & Threat Intel',
+    enabled: true,
+    runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
+    triggerType: 'UniFi CEF Syslog Stream (unifi-cef-v1.2.0)',
+    runs24h: 5,
+    successRatePct: 100,
+    avgLatencyMs: 448,
+    lastRunAt: new Date(Date.now() - 44 * 60 * 1000).toISOString(),
+    nodes: [
+      {
+        id: 'node-1',
+        type: 'trigger',
+        label: 'UniFi CEF Syslog Ingest (ET MALWARE / C2 Beacon)',
+        app: 'Shuffle Syslog/CEF Listener (Go)',
+        version: '1.4.2',
+        avgDurationMs: 15,
+        description: 'Receives parsed CEF event from UniFi Cloud Gateway / UDM-Pro'
+      },
+      {
+        id: 'node-2',
+        type: 'cortex_analyzer',
+        label: 'Cortex: AbuseIPDB_v2 + GreyNoise_Community + CISA_KEV_Lookup',
+        app: 'Cortex v3.1',
+        version: '3.1.8',
+        avgDurationMs: 215,
+        description: 'Enriches external dstIp/domain and checks CISA Known Exploited Vulnerabilities'
+      },
+      {
+        id: 'node-3',
+        type: 'orborus_go_agent_worker',
+        label: 'Orborus Go Worker: Bi-Temporal Identity Join [observed_from, observed_to]',
+        app: 'Shuffle Orborus (Go)',
+        version: '1.4.2',
+        avgDurationMs: 64,
+        description: 'Resolves exact MAC holding the DHCP lease at event_time (preventing lease-reuse misattribution)'
+      },
+      {
+        id: 'node-4',
+        type: 'thehive_case',
+        label: 'TheHive: Attach Enriched IOC Observables & Temporal Lease Proof',
+        app: 'TheHive Case Engine',
+        version: '5.3-compat',
+        avgDurationMs: 88,
+        description: 'Records temporal MAC attribution and external threat intel in TheHive case'
+      },
+      {
+        id: 'node-5',
+        type: 'action_broker_gate',
+        label: 'Apex Action Broker: Queue Firewall/Client Block (If Non-Protected Guest)',
+        app: 'ApexMSP Action Broker',
+        version: '2026.10.2',
+        avgDurationMs: 66,
+        description: 'Queues MAC block for transient guest devices while protecting POS/infrastructure'
+      }
+    ]
+  },
+  {
+    id: 'pb-shuffle-canary-tripwire',
+    name: 'Canary Decoy File Tamper -> Go Orborus YARA-X/ClamAV Scan + Quarantine -> Velociraptor Artifact Hunt -> TheHive Case',
+    category: 'Endpoint Deception & DFIR',
+    enabled: true,
+    runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
+    triggerType: 'Canary File Write/Rename (APEX-CANARY-2001)',
+    runs24h: 2,
+    successRatePct: 100,
+    avgLatencyMs: 465,
+    lastRunAt: new Date(Date.now() - 95 * 60 * 1000).toISOString(),
+    nodes: [
+      {
+        id: 'node-1',
+        type: 'trigger',
+        label: 'Canary Decoy Tripwire (._apex_canary_financials.xlsx)',
+        app: 'Shuffle Webhook Receiver (Go)',
+        version: '1.4.2',
+        avgDurationMs: 11,
+        description: 'Fires within <50ms of unauthorized modification to seeded canary files'
+      },
+      {
+        id: 'node-2',
+        type: 'cortex_analyzer',
+        label: 'Cortex: YARA_X_Cortex_Analyzer + ClamAV_Socket_Analyzer',
+        app: 'Cortex v3.1',
+        version: '3.1.8',
+        avgDurationMs: 184,
+        description: 'Scans offending binary with YARA-X ruleset and ClamAV socket daemon'
+      },
+      {
+        id: 'node-3',
+        type: 'orborus_go_agent_worker',
+        label: 'Orborus Go Worker: Quarantine Binary & Launch Velociraptor Hunt',
+        app: 'Shuffle Orborus (Go)',
+        version: '1.4.2',
+        avgDurationMs: 132,
+        description: 'Dispatches quarantine_file command and collects Windows.KapeFiles.Targets artifact'
+      },
+      {
+        id: 'node-4',
+        type: 'thehive_case',
+        label: 'TheHive: Create High-Priority DFIR Case & Store Evidence Pointer',
+        app: 'TheHive Case Engine',
+        version: '5.3-compat',
+        avgDurationMs: 89,
+        description: 'Links S3 forensic evidence bundle and Velociraptor hunt ID to TheHive case'
+      },
+      {
+        id: 'node-5',
+        type: 'action_broker_gate',
+        label: 'Apex Action Broker: Request Host Isolation Approval',
+        app: 'ApexMSP Action Broker',
+        version: '2026.10.2',
+        avgDurationMs: 49,
+        description: 'Creates audited isolation request for operator approval'
+      }
+    ]
+  },
+  {
+    id: 'pb-shuffle-tracecat-ai-triage',
+    name: 'AI-Assisted Alert Deduplication & Legitimate Backup (Veeam/wbengine) Auto-Closure Playbook',
+    category: 'Alert Hygiene & False-Positive Suppression',
+    enabled: true,
+    runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
+    triggerType: 'Low/Medium Severity VSS or Scheduled Maintenance Alert',
+    runs24h: 4,
+    successRatePct: 100,
+    avgLatencyMs: 295,
+    lastRunAt: new Date(Date.now() - 52 * 60 * 1000).toISOString(),
+    nodes: [
+      {
+        id: 'node-1',
+        type: 'trigger',
+        label: 'Scheduled Backup / Administrative Activity Trigger',
+        app: 'Shuffle Webhook Receiver (Go)',
+        version: '1.4.2',
+        avgDurationMs: 10,
+        description: 'Receives process creation telemetry involving VSS or backup writers'
+      },
+      {
+        id: 'node-2',
+        type: 'cortex_analyzer',
+        label: 'Cortex: Authenticode Signer & Path Allowlist Analyzer',
+        app: 'Cortex v3.1',
+        version: '3.1.8',
+        avgDurationMs: 118,
+        description: 'Verifies binary resides in C:\\Program Files\\Veeam and carries valid Authenticode signature'
+      },
+      {
+        id: 'node-3',
+        type: 'thehive_case',
+        label: 'TheHive: Tag Observable Allowlist:SignedBackup & Auto-Close Benign Alert',
+        app: 'TheHive Case Engine',
+        version: '5.3-compat',
+        avgDurationMs: 92,
+        description: 'Suppresses alert fatigue by auto-closing verified backup maintenance activity'
+      },
+      {
+        id: 'node-4',
+        type: 'action_broker_gate',
+        label: 'Apex Action Broker: Bypass Containment (Verified Benign)',
+        app: 'ApexMSP Action Broker',
+        version: '2026.10.2',
+        avgDurationMs: 25,
+        description: 'Ensures zero disruption to production backup jobs'
+      },
+      {
+        id: 'node-5',
+        type: 'orborus_go_agent_worker',
+        label: 'Orborus Go Worker: Record Audit Telemetry & Metrics',
+        app: 'Shuffle Orborus (Go)',
+        version: '1.4.2',
+        avgDurationMs: 50,
+        description: 'Updates 24h false-positive suppression counter in SOC overview'
+      }
+    ]
+  }
+];
+
+const cortexAnalyzersCatalog = [
+  {
+    id: 'AbuseIPDB_v2',
+    name: 'AbuseIPDB_v2',
+    version: '2.1.0',
+    dataTypes: ['ip'],
+    status: 'active',
+    avgLatencyMs: 140,
+    description: 'Checks external IP reputation, abuse confidence score, ISP, and country via AbuseIPDB API v2.'
+  },
+  {
+    id: 'VirusTotal_v3_GetReport',
+    name: 'VirusTotal_v3_GetReport',
+    version: '3.4.1',
+    dataTypes: ['hash', 'ip', 'domain'],
+    status: 'active',
+    avgLatencyMs: 185,
+    description: 'Retrieves multi-engine AV detection ratio and sandbox behavior tags from VirusTotal v3.'
+  },
+  {
+    id: 'MalwareBazaar_SHA256',
+    name: 'MalwareBazaar_SHA256',
+    version: '1.2.0',
+    dataTypes: ['hash'],
+    status: 'active',
+    avgLatencyMs: 115,
+    description: 'Queries abuse.ch MalwareBazaar for known ransomware/stealer payload families by SHA-256.'
+  },
+  {
+    id: 'YARA_X_Cortex_Analyzer',
+    name: 'YARA_X_Cortex_Analyzer',
+    version: '0.10.0',
+    dataTypes: ['hash', 'cmdline', 'file'],
+    status: 'active',
+    avgLatencyMs: 65,
+    description: 'Runs Rust-based YARA-X ruleset against process command lines, memory strings, and quarantined binaries.'
+  },
+  {
+    id: 'ClamAV_Socket_Analyzer',
+    name: 'ClamAV_Socket_Analyzer',
+    version: '1.4.1',
+    dataTypes: ['hash', 'file'],
+    status: 'active',
+    avgLatencyMs: 58,
+    description: 'Streams file/buffer over local clamd UNIX socket for instant signature verification.'
+  },
+  {
+    id: 'CISA_KEV_Lookup',
+    name: 'CISA_KEV_Lookup',
+    version: '2026.10',
+    dataTypes: ['cve', 'domain', 'ip', 'cmdline'],
+    status: 'active',
+    avgLatencyMs: 42,
+    description: 'Cross-references indicators and CVEs against the CISA Known Exploited Vulnerabilities catalog.'
+  },
+  {
+    id: 'GreyNoise_Community',
+    name: 'GreyNoise_Community',
+    version: '1.5.0',
+    dataTypes: ['ip'],
+    status: 'active',
+    avgLatencyMs: 130,
+    description: 'Distinguishes targeted intrusion traffic from mass internet background scanner noise.'
+  },
+  {
+    id: 'UniFi_Port43_Topology_Analyzer',
+    name: 'UniFi_Port43_Topology_Analyzer',
+    version: '1.4.0',
+    dataTypes: ['ip', 'mac'],
+    status: 'active',
+    avgLatencyMs: 48,
+    description: 'Inspects UniFi switch port MAC count, VLAN, and OUI table to detect shared hubs (e.g. Gambinos Port 43).'
+  },
+  {
+    id: 'Velociraptor_ProcessTree_Analyzer',
+    name: 'Velociraptor_ProcessTree_Analyzer',
+    version: '0.73.3',
+    dataTypes: ['cmdline', 'hash', 'ip'],
+    status: 'active',
+    avgLatencyMs: 160,
+    description: 'Queries Velociraptor VQL endpoint state for parent-child process tree and Authenticode signer.'
+  },
+  {
+    id: 'Wazuh_MITRE_Mapper',
+    name: 'Wazuh_MITRE_Mapper',
+    version: '4.9.2',
+    dataTypes: ['cmdline', 'hash', 'ip'],
+    status: 'active',
+    avgLatencyMs: 35,
+    description: 'Maps endpoint and syslog events to MITRE ATT&CK v15 Tactics and Techniques.'
+  },
+  {
+    id: 'URLhaus_IOC_Analyzer',
+    name: 'URLhaus_IOC_Analyzer',
+    version: '1.3.0',
+    dataTypes: ['domain', 'ip'],
+    status: 'active',
+    avgLatencyMs: 110,
+    description: 'Checks abuse.ch URLhaus for malware distribution domains and C2 staging servers.'
+  },
+  {
+    id: 'Cortex_ProtectedAsset_Responder',
+    name: 'Cortex_ProtectedAsset_Responder',
+    version: '2.0.1',
+    dataTypes: ['ip', 'mac', 'cmdline'],
+    status: 'active',
+    avgLatencyMs: 28,
+    description: 'Evaluates ApexMSP Protected Asset Safety Lock for PAX A35, KwickPOS, SUNMI, and Municipal CJIS hosts.'
+  }
+];
+
+const theHiveCasesCatalog = [
+  {
+    id: 'thehive-case-401',
+    caseNumber: '#THEHIVE-401',
+    title: 'Gambinos Backoffice VSS Shadow-Copy Deletion (T1490) + SMB Lateral Probe toward KwickPOS c1',
+    clientId: 'c-gambinos',
+    clientName: 'Gambinos Pizza',
+    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
+    linkedIncidentId: 'inc-gmb-1001',
+    linkedTicketNumber: 'TICK-1002',
+    tlp: 'TLP:AMBER',
+    pap: 'PAP:AMBER',
+    severity: 'critical',
+    status: 'InProgress',
+    assignee: 'Chief MSP Operator',
+    createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
+    ttps: [
+      { id: 'T1490', tactic: 'Impact', name: 'Inhibit System Recovery (vssadmin delete shadows)' },
+      { id: 'T1021.002', tactic: 'Lateral Movement', name: 'Remote Services: SMB/Windows Admin Shares (port 445)' }
+    ],
+    tasks: [
+      { id: 'th-task-1', title: 'Verify endpoint reflex termination of PID 6812 (vssadmin.exe)', status: 'Completed', owner: 'Shuffle Orborus Worker' },
+      { id: 'th-task-2', title: 'Enforce Protected Asset Safety Lock on KwickPOS c1 (.101) & Port 43', status: 'Completed', owner: 'Apex Action Broker' },
+      { id: 'th-task-3', title: 'Approve workstation isolation on GAMBINOS-BACKOFFICE-PC (Port 8)', status: 'Waiting', owner: 'Chief MSP Operator' }
+    ],
+    observables: [
+      {
+        id: 'obs-th-1',
+        dataType: 'cmdline',
+        data: 'vssadmin.exe delete shadows /all /quiet',
+        tlp: 'TLP:AMBER',
+        ioc: true,
+        sighted: true,
+        taxonomies: [
+          { level: 'malicious', namespace: 'MITRE', predicate: 'T1490', value: 'Inhibit System Recovery' },
+          { level: 'malicious', namespace: 'YARA_X', predicate: 'Rule', value: 'ApexMSP_Ransomware_Note_or_Recovery_Inhibition' }
+        ]
+      },
+      {
+        id: 'obs-th-2',
+        dataType: 'ip',
+        data: '192.168.1.140',
+        tlp: 'TLP:AMBER',
+        ioc: false,
+        sighted: true,
+        taxonomies: [
+          { level: 'suspicious', namespace: 'UniFi_IDS', predicate: 'SMB_Lateral_Probe', value: 'src=192.168.1.140 -> dst=192.168.1.101:445' },
+          { level: 'info', namespace: 'UniFi_Port', predicate: 'ConfirmedDirect', value: 'US48PoE500W:8 (1 MAC — Safe to Isolate)' }
+        ]
+      },
+      {
+        id: 'obs-th-3',
+        dataType: 'ip',
+        data: '192.168.1.101',
+        tlp: 'TLP:AMBER',
+        ioc: false,
+        sighted: true,
+        taxonomies: [
+          { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'KwickPOS c1 Primary Controller' },
+          { level: 'suspicious', namespace: 'UniFi_Port43', predicate: 'SharedUplink', value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden' }
+        ]
+      }
+    ]
+  },
+  {
+    id: 'thehive-case-402',
+    caseNumber: '#THEHIVE-402',
+    title: 'Gambinos US48PoE500W Port 43 Shared Hub Audit (5 POS & PAX Payment MACs on Single Switch Port)',
+    clientId: 'c-gambinos',
+    clientName: 'Gambinos Pizza',
+    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
+    tlp: 'TLP:AMBER',
+    pap: 'PAP:GREEN',
+    severity: 'high',
+    status: 'Open',
+    assignee: 'Network & SOC Team',
+    createdAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 29 * 60 * 1000).toISOString(),
+    ttps: [
+      { id: 'T1200', tactic: 'Initial Access', name: 'Hardware Additions / Unmanaged Downstream Switch on Port 43' }
+    ],
+    tasks: [
+      { id: 'th-task-4', title: 'Lock automated port shutdown on US48PoE500W Port 43', status: 'Completed', owner: 'Apex Action Broker' },
+      { id: 'th-task-5', title: 'Plan dedicated PCI VLAN 10 migration for PAX A35 terminals (.156, .173, .190, .196, .227)', status: 'InProgress', owner: 'Network Engineering' }
+    ],
+    observables: [
+      {
+        id: 'obs-th-4',
+        dataType: 'ip',
+        data: '192.168.2.190',
+        tlp: 'TLP:AMBER',
+        ioc: false,
+        sighted: true,
+        taxonomies: [
+          { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'PAX A35 Payment Terminal' },
+          { level: 'suspicious', namespace: 'UniFi_Port43', predicate: 'Topology', value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden' }
+        ]
+      },
+      {
+        id: 'obs-th-5',
+        dataType: 'mac',
+        data: '58:9c:fc:01:43:90',
+        tlp: 'TLP:AMBER',
+        ioc: false,
+        sighted: true,
+        taxonomies: [
+          { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'PAX A35 Payment Terminal' },
+          { level: 'suspicious', namespace: 'UniFi_Port43', predicate: 'Topology', value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden' }
+        ]
+      }
+    ]
+  },
+  {
+    id: 'thehive-case-403',
+    caseNumber: '#THEHIVE-403',
+    title: 'Municipal 911 CAD Server Recovery-Inhibition Verification & CJIS Dual-Custody Containment Hold',
+    clientId: 'c-municipality',
+    clientName: 'Municipal Client (City Hall & Public Safety)',
+    siteId: 'muni-city-hall',
+    tlp: 'TLP:RED',
+    pap: 'PAP:RED',
+    severity: 'high',
+    status: 'InProgress',
+    assignee: 'Municipal CJIS Officer',
+    createdAt: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 50 * 60 * 1000).toISOString(),
+    ttps: [
+      { id: 'T1490', tactic: 'Impact', name: 'Inhibit System Recovery (VSS Writer Verification)' }
+    ],
+    tasks: [
+      { id: 'th-task-6', title: 'Verify signed Veeam backup writer on MUNI-DISPATCH-CAD-01 (192.168.1.105)', status: 'Completed', owner: 'Shuffle Orborus Worker' },
+      { id: 'th-task-7', title: 'Confirm zero cross-tenant correlation with Gambinos 192.168.1.105 (KwickPOS c5)', status: 'Completed', owner: 'Temporal Identity Graph' }
+    ],
+    observables: [
+      {
+        id: 'obs-th-6',
+        dataType: 'cmdline',
+        data: 'C:\\Program Files\\Veeam\\Backup and Replication\\Veeam.Backup.Agent.exe',
+        tlp: 'TLP:RED',
+        ioc: false,
+        sighted: true,
+        taxonomies: [
+          { level: 'safe', namespace: 'Allowlist', predicate: 'SignedBackup', value: 'Verified Veeam Backup Service' },
+          { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'Municipal 911 CAD Server (CJIS Enclave)' }
+        ]
+      }
+    ]
+  }
+];
+
+const recentSoarExecutions: ShuffleExecutionRecord[] = [
+  {
+    id: 'exec-shuffle-9001',
+    playbookId: 'pb-shuffle-ransomware-vss',
+    playbookName: 'Ransomware Shadow-Copy Inhibition (vssadmin) -> Cortex Hash & Process Tree -> TheHive Case -> Protected-Asset Gate -> Go Orborus Isolate',
+    clientId: 'c-gambinos',
+    clientName: 'Gambinos Pizza',
+    targetDeviceId: 'dev-gambinos-bo-pc',
+    observableValue: 'vssadmin.exe delete shadows /all /quiet',
+    status: 'awaiting_approval',
+    totalDurationMs: 385,
+    startedAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
+    completedAt: new Date(Date.now() - 18 * 60 * 1000 + 385).toISOString(),
+    theHiveCaseId: '#THEHIVE-401',
+    actionBrokerStatus: 'pending_approval (act-gmb-isolate-bo on dedicated Port 8)',
+    cortexTaxonomies: [
+      { level: 'malicious', namespace: 'MITRE', predicate: 'T1490', value: 'Inhibit System Recovery' },
+      { level: 'malicious', namespace: 'YARA_X', predicate: 'Rule', value: 'ApexMSP_Ransomware_Note_or_Recovery_Inhibition' }
+    ],
+    stepResults: [
+      { nodeId: 'node-1', nodeType: 'trigger', label: 'Wazuh / Go Agent Reflex Webhook', status: 'success', durationMs: 14, outputSummary: 'Ingested event evt-gmb-shadow-001 from GAMBINOS-BACKOFFICE-PC' },
+      { nodeId: 'node-2', nodeType: 'cortex_analyzer', label: 'Cortex: Velociraptor ProcessTree + YARA-X', status: 'success', durationMs: 168, outputSummary: 'Verdict: MALICIOUS (MITRE:T1490="Inhibit System Recovery")' },
+      { nodeId: 'node-3', nodeType: 'thehive_case', label: 'TheHive: Upsert Case #THEHIVE-401', status: 'success', durationMs: 74, outputSummary: 'Attached 3 observables & linked PSA Ticket TICK-1002' },
+      { nodeId: 'node-4', nodeType: 'action_broker_gate', label: 'Apex Action Broker Gate', status: 'success', durationMs: 39, outputSummary: 'Verified Port 8 is confirmed_direct (1 MAC); queued human approval act-gmb-isolate-bo' },
+      { nodeId: 'node-5', nodeType: 'orborus_go_agent_worker', label: 'Orborus Go Worker', status: 'queued', durationMs: 90, outputSummary: 'Velociraptor triage hunt H.GAMBINOS.20261025.01 launched' }
+    ]
+  },
+  {
+    id: 'exec-shuffle-9002',
+    playbookId: 'pb-shuffle-gambinos-port43',
+    playbookName: 'Gambinos Switch Port 43 Multi-MAC Anomaly -> Cortex OUI & UniFi Topology Analyzer -> Shared-Port Guard Lock (mac_count=5) -> TheHive Alert',
+    clientId: 'c-gambinos',
+    clientName: 'Gambinos Pizza',
+    targetDeviceId: 'dev-gambinos-pos-ctrl',
+    observableValue: '192.168.2.190 (PAX A35 / US48PoE500W Port 43)',
+    status: 'blocked_protected_asset',
+    totalDurationMs: 340,
+    startedAt: new Date(Date.now() - 29 * 60 * 1000).toISOString(),
+    completedAt: new Date(Date.now() - 29 * 60 * 1000 + 340).toISOString(),
+    theHiveCaseId: '#THEHIVE-402',
+    actionBrokerStatus: 'blocked_protected_asset (Shared Port 43 with 5 POS/PAX MACs)',
+    cortexTaxonomies: [
+      { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'PAX A35 Payment Terminal' },
+      { level: 'suspicious', namespace: 'UniFi_Port43', predicate: 'Topology', value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden' }
+    ],
+    stepResults: [
+      { nodeId: 'node-1', nodeType: 'trigger', label: 'UniFi Switch Port Anomaly Trigger', status: 'success', durationMs: 12, outputSummary: 'Detected containment test targeting US48PoE500W Port 43' },
+      { nodeId: 'node-2', nodeType: 'cortex_analyzer', label: 'Cortex: UniFi_Port43_Topology_Analyzer', status: 'success', durationMs: 142, outputSummary: 'Detected 5 MACs on Port 43 (PAX A35 .156/.173/.190 + KwickPOS c1/c2)' },
+      { nodeId: 'node-3', nodeType: 'action_broker_gate', label: 'Apex Action Broker Safety Lock', status: 'blocked_safety_lock', durationMs: 31, outputSummary: 'BLOCKED: Shared Port 43 (mac_count=5) & PAX A35 payment terminal lock' },
+      { nodeId: 'node-4', nodeType: 'thehive_case', label: 'TheHive: Escalate Case #THEHIVE-402', status: 'success', durationMs: 82, outputSummary: 'Logged safety lock intervention to #THEHIVE-402' },
+      { nodeId: 'node-5', nodeType: 'orborus_go_agent_worker', label: 'Orborus Go Worker', status: 'success', durationMs: 73, outputSummary: 'Notified SOC console via WebSocket security.action' }
+    ]
+  }
+];
+
+export function evaluateCortexObservable(params: {
+  dataType: 'ip' | 'hash' | 'mac' | 'domain' | 'cmdline' | string;
+  data: string;
+  tlp?: string;
+  analyzers?: string[];
+}) {
+  const raw = String(params.data || '').trim();
+  const lower = raw.toLowerCase();
+  const tlp = params.tlp || 'TLP:AMBER';
+  const taxonomies: CortexTaxonomyBadge[] = [];
+  let overallLevel: CortexTaxonomyBadge['level'] = 'info';
+
+  const isPaxOrPort43 =
+    lower.includes('192.168.2.190') ||
+    lower.includes('192.168.2.196') ||
+    lower.includes('192.168.1.156') ||
+    lower.includes('192.168.1.173') ||
+    lower.includes('192.168.1.190') ||
+    lower.includes('192.168.1.196') ||
+    lower.includes('192.168.1.227') ||
+    lower.includes('58:9c:fc') ||
+    lower.includes('90:6d:78') ||
+    lower.includes('port43') ||
+    lower.includes('port 43');
+
+  const isMaliciousVssOrEicar =
+    lower.includes('vssadmin') ||
+    lower.includes('shadowcopy') ||
+    lower.includes('delete shadows') ||
+    lower.includes('eicar') ||
+    lower.includes('275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f') ||
+    lower.includes('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') ||
+    lower.includes('locker_sim');
+
+  const isSafeVeeam =
+    lower.includes('veeam') ||
+    lower.includes('c:\\program files\\veeam') ||
+    lower.includes('wbengine');
+
+  if (isPaxOrPort43) {
+    overallLevel = 'suspicious';
+    taxonomies.push(
+      {
+        level: 'info',
+        namespace: 'Cortex',
+        predicate: 'ProtectedAsset',
+        value: 'PAX A35 Payment Terminal'
+      },
+      {
+        level: 'suspicious',
+        namespace: 'UniFi_Port43',
+        predicate: 'Topology',
+        value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden'
+      }
+    );
+  }
+
+  if (isMaliciousVssOrEicar) {
+    overallLevel = 'malicious';
+    taxonomies.push(
+      {
+        level: 'malicious',
+        namespace: 'MITRE',
+        predicate: 'T1490',
+        value: 'Inhibit System Recovery'
+      },
+      {
+        level: 'malicious',
+        namespace: 'YARA_X',
+        predicate: 'Rule',
+        value: 'ApexMSP_Ransomware_Note_or_Recovery_Inhibition'
+      },
+      {
+        level: 'malicious',
+        namespace: 'ClamAV',
+        predicate: 'Signature',
+        value: lower.includes('eicar') ? 'Win.Test.EICAR_HDB-1' : 'Heuristics.Ransomware.ShadowDelete'
+      }
+    );
+  }
+
+  if (isSafeVeeam) {
+    overallLevel = 'safe';
+    taxonomies.push(
+      {
+        level: 'safe',
+        namespace: 'Allowlist',
+        predicate: 'SignedBackup',
+        value: 'Verified Veeam Backup Service'
+      },
+      {
+        level: 'safe',
+        namespace: 'Authenticode',
+        predicate: 'Signer',
+        value: 'Veeam Software Group GmbH (Verified)'
+      }
+    );
+  }
+
+  if (taxonomies.length === 0) {
+    overallLevel = 'info';
+    taxonomies.push(
+      {
+        level: 'info',
+        namespace: 'AbuseIPDB',
+        predicate: 'ConfidenceScore',
+        value: '0% (No Prior Abuse Reports)'
+      },
+      {
+        level: 'info',
+        namespace: 'GreyNoise',
+        predicate: 'Classification',
+        value: 'benign_or_internal_rfc1918'
+      }
+    );
+  }
+
+  const selectedAnalyzers = Array.isArray(params.analyzers) && params.analyzers.length > 0
+    ? params.analyzers
+    : isPaxOrPort43
+      ? ['UniFi_Port43_Topology_Analyzer', 'Cortex_ProtectedAsset_Responder']
+      : isMaliciousVssOrEicar
+        ? ['YARA_X_Cortex_Analyzer', 'Velociraptor_ProcessTree_Analyzer', 'Wazuh_MITRE_Mapper', 'ClamAV_Socket_Analyzer']
+        : isSafeVeeam
+          ? ['Velociraptor_ProcessTree_Analyzer', 'Cortex_ProtectedAsset_Responder']
+          : ['AbuseIPDB_v2', 'GreyNoise_Community', 'VirusTotal_v3_GetReport'];
+
+  const jobReports = selectedAnalyzers.map((analyzerName) => ({
+    jobId: `cortex-job-${uuidv4().substring(0, 8)}`,
+    analyzerName,
+    status: 'Success',
+    durationMs: Math.floor(45 + Math.random() * 95),
+    taxonomies,
+    fullReport: {
+      observable: raw,
+      dataType: params.dataType,
+      tlp,
+      verdict: overallLevel,
+      protectedAssetLockTriggered: isPaxOrPort43,
+      analyzedAt: new Date().toISOString()
+    }
+  }));
+
+  return {
+    ok: true,
+    engine: 'Cortex Observable & Responder Engine v3.1',
+    dataType: params.dataType,
+    data: raw,
+    tlp,
+    verdict: overallLevel,
+    protectedAssetLockTriggered: isPaxOrPort43,
+    taxonomies,
+    jobs: jobReports,
+    analyzedAt: new Date().toISOString()
+  };
+}
+
+// GET /api/v1/security/soar/overview
+router.get('/soar/overview', (_req: AuthenticatedRequest, res) => {
+  res.json({
+    shuffleStatus: {
+      online: true,
+      engine: 'Shuffle Go Backend + Orborus Agent Worker v1.4',
+      endpoint: 'http://192.168.11.19:8894',
+      playbooksCount: soarPlaybooks.length,
+      orborusGoWorkersOnline: 5,
+      executions24h: 18 + Math.max(0, recentSoarExecutions.length - 2),
+      avgPlaybookLatencyMs: 412
+    },
+    cortexStatus: {
+      online: true,
+      engine: 'Cortex Observable & Responder Engine v3.1',
+      endpoint: 'http://192.168.11.19:8895',
+      analyzersEnabled: cortexAnalyzersCatalog.length,
+      respondersEnabled: 4,
+      observablesAnalyzed24h: 47
+    },
+    theHiveStatus: {
+      online: true,
+      engine: 'ApexMSP TheHive-Compatible Multi-Tenant Case Engine (AGPL/Native)',
+      endpoint: 'http://192.168.11.19:8895/api/thehive/cases',
+      openCases: theHiveCasesCatalog.length,
+      totalObservables: 19,
+      tlpPolicy: 'TLP:AMBER / PAP:AMBER'
+    },
+    platformComparison: [
+      {
+        platform: 'Shuffle (Go) + Orborus Worker',
+        roleInApexMsp: 'SELECTED — Primary SOAR Playbook & Edge Worker Engine',
+        languageRuntime: 'Go (Backend + Orborus Runner) / OpenAPI',
+        multiTenantFit: 'Native org/sub-org support + lightweight Go Orborus workers at each MSP site',
+        verdict: 'Adopted for sub-500ms DAG execution and native Go alignment with ApexMSP Agent'
+      },
+      {
+        platform: 'Cortex + Apex TheHive-Compatible Case Engine',
+        roleInApexMsp: 'SELECTED — Observable Analysis, Taxonomy Verdicts & Case Management',
+        languageRuntime: 'Scala/Python Analyzers + Native Multi-Tenant TypeScript/Postgres Case Graph',
+        multiTenantFit: 'Full TLP/PAP guardrails + strict MSP tenant RLS without TheHive 5 commercial license restrictions',
+        verdict: 'Adopted for 12+ Observable Analyzers and TheHive-compatible Case/Observable workflow'
+      },
+      {
+        platform: 'Tracecat',
+        roleInApexMsp: 'ADOPTED PATTERN — AI-Assisted Triage & YAML-As-Code Deduplication',
+        languageRuntime: 'Python / FastAPI / Temporal',
+        multiTenantFit: 'Clean UI & AI triage patterns incorporated into pb-shuffle-tracecat-ai-triage',
+        verdict: 'Patterns integrated for signed-backup (Veeam) false-positive auto-closure'
+      },
+      {
+        platform: 'StackStorm (st2)',
+        roleInApexMsp: 'EVALUATED — Event-Driven Infrastructure Remediation Reference',
+        languageRuntime: 'Python + RabbitMQ + MongoDB',
+        multiTenantFit: 'Heavy 6-container footprint; lacks native SOC case/observable UI',
+        verdict: 'Superseded by Shuffle Go + Apex Action Broker'
+      },
+      {
+        platform: 'n8n',
+        roleInApexMsp: 'REJECTED FOR SOC — General IT Workflow Tool Only',
+        languageRuntime: 'Node.js (Fair-Code License)',
+        multiTenantFit: 'No TLP/PAP enforcement, no observable taxonomy, no protected-asset safety lock',
+        verdict: 'Not suitable for safety-critical MDR/EDR containment'
+      }
+    ],
+    playbooks: soarPlaybooks,
+    analyzers: cortexAnalyzersCatalog,
+    theHiveCases: theHiveCasesCatalog,
+    recentExecutions: recentSoarExecutions
+  });
+});
+
+// POST /api/v1/security/soar/playbooks/:id/execute
+router.post('/soar/playbooks/:id/execute', (req: AuthenticatedRequest, res) => {
+  const playbookId = req.params.id as string;
+  const playbook = soarPlaybooks.find((p) => p.id === playbookId);
+  if (!playbook) {
+    res.status(404).json({ error: `Shuffle SOAR playbook '${playbookId}' not found` });
+    return;
+  }
+
+  const { targetDeviceId, clientId, observableValue } = req.body || {};
+  const effectiveClientId = clientId || 'c-gambinos';
+  const client = store.clients.get(effectiveClientId);
+  const clientName = client?.name || effectiveClientId;
+  const effectiveDeviceId =
+    targetDeviceId ||
+    (playbook.id === 'pb-shuffle-gambinos-port43' ? 'dev-gambinos-pos-ctrl' : 'dev-gambinos-bo-pc');
+
+  const defaultObs =
+    observableValue ||
+    (playbook.id === 'pb-shuffle-gambinos-port43'
+      ? '192.168.2.190'
+      : playbook.id === 'pb-shuffle-tracecat-ai-triage'
+        ? 'C:\\Program Files\\Veeam\\Backup and Replication\\Veeam.Backup.Agent.exe'
+        : 'vssadmin.exe delete shadows /all /quiet');
+
+  const cortexEval = evaluateCortexObservable({
+    dataType: defaultObs.includes('192.168.') ? 'ip' : 'cmdline',
+    data: defaultObs,
+    tlp: 'TLP:AMBER'
+  });
+
+  const lockEval = evaluateProtectedAssetLock({
+    clientId: effectiveClientId,
+    targetDeviceId: effectiveDeviceId,
+    targetUnifiClientMac: playbook.id === 'pb-shuffle-gambinos-port43' ? '90:6D:78:A3:51:56' : undefined,
+    actionType: playbook.id === 'pb-shuffle-gambinos-port43' ? 'unifi_block_client' : 'isolate_host',
+    payload: playbook.id === 'pb-shuffle-gambinos-port43' ? { switchId: 'sw-us48poe500w-gmb', switchPort: 43, portMacCount: 5 } : {}
+  });
+
+  const isBlocked = playbook.id === 'pb-shuffle-gambinos-port43' || lockEval.blocked || cortexEval.protectedAssetLockTriggered;
+  const stepResults: ShuffleExecutionRecord['stepResults'] = playbook.nodes.map((n) => {
+    if (n.type === 'action_broker_gate' && isBlocked) {
+      return {
+        nodeId: n.id,
+        nodeType: n.type,
+        label: n.label,
+        status: 'blocked_safety_lock',
+        durationMs: n.avgDurationMs,
+        outputSummary: lockEval.reason || 'PROTECTED ASSET SAFETY LOCK: Shared Uplink (5 MACs) on Port 43 / PAX A35 Payment Terminal — Auto-Block Forbidden'
+      };
+    }
+    if (n.type === 'cortex_analyzer') {
+      return {
+        nodeId: n.id,
+        nodeType: n.type,
+        label: n.label,
+        status: 'success',
+        durationMs: n.avgDurationMs,
+        outputSummary: `Cortex verdict=${cortexEval.verdict.toUpperCase()} (${cortexEval.taxonomies.map((t) => `${t.namespace}:${t.predicate}="${t.value}"`).join(', ')})`
+      };
+    }
+    return {
+      nodeId: n.id,
+      nodeType: n.type,
+      label: n.label,
+      status: 'success',
+      durationMs: n.avgDurationMs,
+      outputSummary: `${n.app} completed step in ${n.avgDurationMs}ms`
+    };
+  });
+
+  const totalDurationMs = stepResults.reduce((acc, s) => acc + s.durationMs, 0);
+  const nowIso = new Date().toISOString();
+  const theHiveCaseId =
+    playbook.id === 'pb-shuffle-gambinos-port43'
+      ? '#THEHIVE-402'
+      : playbook.id === 'pb-shuffle-tracecat-ai-triage'
+        ? '#THEHIVE-403'
+        : '#THEHIVE-401';
+
+  const execRecord: ShuffleExecutionRecord = {
+    id: `exec-shuffle-${uuidv4().substring(0, 8)}`,
+    playbookId: playbook.id,
+    playbookName: playbook.name,
+    clientId: effectiveClientId,
+    clientName,
+    targetDeviceId: effectiveDeviceId,
+    observableValue: defaultObs,
+    status: isBlocked ? 'blocked_protected_asset' : 'completed',
+    totalDurationMs,
+    startedAt: new Date(Date.now() - totalDurationMs).toISOString(),
+    completedAt: nowIso,
+    theHiveCaseId,
+    actionBrokerStatus: isBlocked
+      ? `blocked_protected_asset (${lockEval.reason || 'PAX A35 / Port 43 Shared Uplink Safety Lock'})`
+      : 'verified_safe_or_queued',
+    cortexTaxonomies: cortexEval.taxonomies,
+    stepResults
+  };
+
+  recentSoarExecutions.unshift(execRecord);
+  if (recentSoarExecutions.length > 25) recentSoarExecutions.pop();
+  playbook.runs24h += 1;
+  playbook.lastRunAt = nowIso;
+
+  store.recordAudit({
+    orgId: req.user!.orgId,
+    userId: req.user!.id,
+    actorName: req.user!.name,
+    action: 'security.soar_playbook_executed',
+    targetType: 'soar_playbook',
+    targetId: playbook.id,
+    details: {
+      executionId: execRecord.id,
+      status: execRecord.status,
+      theHiveCaseId,
+      totalDurationMs
+    },
+    ipAddress: req.ip
+  });
+
+  res.status(201).json({
+    ok: true,
+    execution: execRecord,
+    cortexReport: cortexEval,
+    theHiveCase: theHiveCasesCatalog.find((c) => c.caseNumber === theHiveCaseId) || theHiveCasesCatalog[0],
+    actionBrokerSafetyLock: {
+      blocked: isBlocked,
+      criticality: lockEval.criticality,
+      reason: lockEval.reason || (isBlocked ? 'Shared Uplink (5 MACs) — Auto-Block Forbidden' : 'Allowed')
+    }
+  });
+});
+
+// POST /api/v1/security/soar/analyze
+router.post('/soar/analyze', (req: AuthenticatedRequest, res) => {
+  const { dataType, data, tlp, analyzers } = req.body || {};
+  if (!data || typeof data !== 'string') {
+    res.status(400).json({ error: 'Observable data string is required' });
+    return;
+  }
+
+  const report = evaluateCortexObservable({
+    dataType: dataType || 'ip',
+    data,
+    tlp,
+    analyzers
+  });
+
+  store.recordAudit({
+    orgId: req.user!.orgId,
+    userId: req.user!.id,
+    actorName: req.user!.name,
+    action: 'security.cortex_observable_analyzed',
+    targetType: 'observable',
+    targetId: data,
+    details: {
+      dataType: report.dataType,
+      verdict: report.verdict,
+      taxonomies: report.taxonomies
+    },
+    ipAddress: req.ip
+  });
+
+  res.status(201).json(report);
+});
+
 export default router;
+

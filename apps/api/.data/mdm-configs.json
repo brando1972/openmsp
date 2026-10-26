@@ -1,0 +1,59 @@
+[
+  {
+    "id": 1,
+    "name": "Raytreat Clinic Kiosk",
+    "description": "Single-app locked web kiosk for clinical check-in tablets.",
+    "deviceCount": 1,
+    "contentApp": "ApexBrowser (Web Kiosk)",
+    "kioskMode": true,
+    "wifiSsid": "Raytreat",
+    "wifiSecurity": "WPA",
+    "wifiPassword": "11073CoRd1",
+    "startUrl": "https://raytreat.com",
+    "adminPin": "2468",
+    "mobileEnrollment": true,
+    "qrcodeKey": "raytreat-kiosk-qr"
+  },
+  {
+    "id": 2,
+    "name": "Warehouse Scanner & Logistics",
+    "description": "Ruggedized scanning and barcode inventory tablet profile.",
+    "deviceCount": 0,
+    "contentApp": "com.apexmsp.wms",
+    "kioskMode": true,
+    "wifiSsid": "WH-Mesh-5G",
+    "wifiSecurity": "WPA",
+    "startUrl": "https://apexmsp.app/wms",
+    "adminPin": "2468",
+    "mobileEnrollment": true,
+    "qrcodeKey": "warehouse-kiosk-qr"
+  },
+  {
+    "id": 3,
+    "name": "Retail Point-of-Sale Register",
+    "description": "Locked countertop register profile with dual-display support.",
+    "deviceCount": 0,
+    "contentApp": "com.squareup",
+    "kioskMode": true,
+    "wifiSsid": "Raytreat",
+    "wifiSecurity": "WPA",
+    "startUrl": "https://apexmsp.app/pos",
+    "adminPin": "2468",
+    "mobileEnrollment": true,
+    "qrcodeKey": "pos-register-qr"
+  },
+  {
+    "id": 4,
+    "name": "ApexMDM Full Browser & Recovery",
+    "description": "Open browsing and recovery profile with remote assistance unlocked.",
+    "deviceCount": 0,
+    "contentApp": "Standard Browser",
+    "kioskMode": false,
+    "wifiSsid": "Raytreat",
+    "wifiSecurity": "WPA",
+    "startUrl": "https://google.com",
+    "adminPin": "2468",
+    "mobileEnrollment": true,
+    "qrcodeKey": "recovery-qr"
+  }
+]

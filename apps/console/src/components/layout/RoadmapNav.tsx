@@ -7,7 +7,7 @@ import {
   Store, Package, ScrollText, BadgeCheck, Receipt, FileText, Inbox,
   FileCode, BookOpen, Smartphone, AppWindow, SlidersHorizontal, FolderOpen,
   Settings, BarChart3, Bot, ChevronDown, ChevronRight, Server, Laptop, Wifi, Printer,
-  Shield, ShieldAlert, Cpu, Lock,
+  Shield, ShieldAlert, Cpu, Lock, Zap,
   type LucideIcon
 } from 'lucide-react';
 
@@ -85,6 +85,7 @@ const GROUPS: Group[] = [
     title: 'Security & UniFi SOC',
     items: [
       { key: 'soc-overview', label: 'SOC Command Center', Icon: Shield, tint: '#10b981', built: true, tab: 'security-soc', sub: 'soc-overview', badge: 'Live' },
+      { key: 'soc-soar', label: 'SOAR: Shuffle + Cortex + TheHive', Icon: Zap, tint: '#f97316', built: true, tab: 'security-soc', sub: 'soc-soar', badge: 'Go SOAR' },
       { key: 'soc-incidents', label: 'SIEM Incidents & Detections', Icon: ShieldAlert, tint: '#ef4444', built: true, tab: 'security-soc', sub: 'soc-incidents' },
       { key: 'soc-endpoints', label: 'Endpoint EDR / AV Posture', Icon: Cpu, tint: '#0ea5e9', built: true, tab: 'security-soc', sub: 'soc-endpoints' },
       { key: 'soc-unifi', label: 'UniFi Network SOC', Icon: Wifi, tint: '#6366f1', built: true, tab: 'security-soc', sub: 'soc-unifi', badge: 'Gambinos' },

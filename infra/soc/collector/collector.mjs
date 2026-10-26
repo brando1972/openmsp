@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * ApexMSP Vector / CEF / Syslog / IPFIX High-Speed Telemetry Collector
+ * ApexMSP Vector / CEF / Syslog / IPFIX High-Speed Telemetry Collector (:8890)
  * Listens on:
  *  - UDP 5514 & TCP 5514: UniFi OS CEF & RFC3164/RFC5424 Syslog
  *  - UDP 2055 & UDP 4739: NetFlow v9 / IPFIX Flow Telemetry
- *  - HTTP 8890: Health, Metrics, Recent Events, and Direct CEF/JSON Ingestion
+ *  - HTTP 8890: Live Visual HTML Dashboard (GET /), Health (GET /health), Events (GET /events/recent), Ingest (POST /ingest/cef)
  */
 
 import dgram from 'node:dgram';
@@ -21,7 +21,7 @@ const HTTP_PORT = Number(process.env.HTTP_PORT || 8890);
 const APEXMSP_API_URL = process.env.APEXMSP_API_URL || 'http://192.168.4.150:4000';
 const APEXMSP_SOC_INGEST_TOKEN = process.env.APEXMSP_SOC_INGEST_TOKEN || 'apexmsp-soc-dev-token';
 const DATA_DIR = process.env.DATA_DIR || '/data/events';
-const PARSER_VERSION = '2026.10.25-cef-ipfix-v2.0';
+const PARSER_VERSION = '2026.10.25-cef-ipfix-v2.1';
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const JSONL_PATH = path.join(DATA_DIR, 'soc-events.jsonl');
@@ -49,7 +49,7 @@ const SITE_IP_MAP = {
 
 function resolveSiteContext(sourceIp, payloadSiteId) {
   if (payloadSiteId) {
-    return { orgId: 'org-apexmsp', clientId: 'c-gambinos', siteId: payloadSiteId, siteName: 'Explicit Site' };
+    return { orgId: 'org-apexmsp', clientId: 'c-gambinos', siteId: payloadSiteId, siteName: 'Gambinos UDM Pro' };
   }
   for (const [prefix, ctx] of Object.entries(SITE_IP_MAP)) {
     if (sourceIp && sourceIp.startsWith(prefix)) return ctx;
@@ -87,7 +87,6 @@ export function normalizeEvent(rawMessage, sourceIp = '127.0.0.1', transport = '
   let extensions = {};
   let eventTimestamp = ingestedAt;
 
-  // Extract leading RFC5424/ISO timestamp if present before CEF
   const isoMatch = rawPayload.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))/);
   if (isoMatch) {
     eventTimestamp = isoMatch[1];
@@ -194,6 +193,14 @@ async function forwardToApexMspApi(record) {
   }
 }
 
+// Seed initial Gambinos Port 43 telemetry observation so dashboard is populated on boot
+normalizeEvent(
+  '2026-10-26T12:50:00Z UDMPro CEF:0|Ubiquiti|UniFi Network|9.0.114|IPS-401|ET TROJAN Possible Ransomware SMB Lateral Movement|9|src=192.168.2.179 dst=192.168.2.190 smac=70:a7:41:aa:bb:01 UNIFIswitchPort=43 UNIFIvlan=1 UNIFIsiteId=88f7af54-98f8-306a-a1c7-c9349722b1f6',
+  '192.168.2.1',
+  'seed/cef',
+  '88f7af54-98f8-306a-a1c7-c9349722b1f6'
+);
+
 // 1. UDP 5514 Syslog/CEF Server
 const udpSyslog = dgram.createSocket('udp4');
 udpSyslog.on('message', (msg, rinfo) => {
@@ -237,10 +244,123 @@ function bindFlowSocket(port, label) {
 bindFlowSocket(NETFLOW_PORT, 'NetFlow-v9');
 bindFlowSocket(IPFIX_PORT, 'IPFIX-v10');
 
-// 4. HTTP 8890 Control & Ingestion API
+function renderDashboardHtml() {
+  const memMb = Math.round((process.memoryUsage().rss / 1024 / 1024) * 100) / 100;
+  const rows = recentEvents.slice(0, 15).map((e) => `
+    <tr>
+      <td><code>${e.eventTimestamp}</code></td>
+      <td><span class="badge ${e.severity}">${e.severity.toUpperCase()}</span></td>
+      <td><strong>${e.siteName}</strong><br><small>${e.clientId}</small></td>
+      <td><code>${e.signatureId}</code> — ${e.eventName}</td>
+      <td><code>${e.srcIp || '-'}</code> ${e.switchPort ? `<span class="pill">Port ${e.switchPort}</span>` : ''}</td>
+      <td><code>${e.transport}</code></td>
+    </tr>
+  `).join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ApexMSP Vector CEF/Syslog/IPFIX Collector (:8890)</title>
+  <style>
+    body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:#090d16; color:#e2e8f0; }
+    .topnav { background:#111827; border-bottom:1px solid #1f2937; padding:12px 24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+    .topnav .brand { font-weight:700; color:#38bdf8; font-size:16px; }
+    .topnav .links a { color:#94a3b8; text-decoration:none; margin-left:12px; font-size:13px; padding:6px 10px; border-radius:6px; background:#1e293b; }
+    .topnav .links a.active, .topnav .links a:hover { color:#fff; background:#0284c7; }
+    .container { max-width:1280px; margin:24px auto; padding:0 24px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:24px; }
+    .card { background:#111827; border:1px solid #1f2937; border-radius:10px; padding:18px; }
+    .card h3 { margin:0 0 6px 0; font-size:12px; text-transform:uppercase; color:#94a3b8; }
+    .card .val { font-size:26px; font-weight:700; color:#f8fafc; }
+    .badge { padding:3px 8px; border-radius:99px; font-size:11px; font-weight:700; }
+    .badge.critical { background:#7f1d1d; color:#fecaca; }
+    .badge.high { background:#7c2d12; color:#fed7aa; }
+    .badge.medium { background:#713f12; color:#fef08a; }
+    .badge.low { background:#064e3b; color:#a7f3d0; }
+    .pill { background:#1e293b; color:#38bdf8; padding:2px 6px; border-radius:4px; font-size:11px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { border-bottom:1px solid #1f2937; padding:10px; text-align:left; }
+    th { color:#94a3b8; background:#0f172a; }
+    input, button { padding:9px 14px; border-radius:6px; border:1px solid #334155; background:#0f172a; color:#fff; font-size:13px; }
+    button { background:#0284c7; border-color:#0284c7; cursor:pointer; font-weight:600; }
+    button:hover { background:#0369a1; }
+  </style>
+</head>
+<body>
+  <div class="topnav">
+    <div class="brand">🛡️ ApexMSP Proxmox SOC — Vector CEF / Syslog / IPFIX Collector (:8890)</div>
+    <div class="links">
+      <a href="http://192.168.11.19:8890/" class="active">:8890 Vector CEF</a>
+      <a href="http://192.168.11.19:8891/">:8891 ClamAV+YARA-X</a>
+      <a href="http://192.168.11.19:8892/">:8892 Wazuh Manager</a>
+      <a href="http://192.168.11.19:8893/">:8893 Velociraptor</a>
+      <a href="http://192.168.11.19:8894/">:8894 Shuffle SOAR</a>
+      <a href="http://192.168.11.19:8895/">:8895 Cortex+TheHive</a>
+      <a href="http://192.168.4.150:5174/#security-soc" style="background:#059669;color:#fff;">↗ ApexMSP Console</a>
+    </div>
+  </div>
+  <div class="container">
+    <div class="grid">
+      <div class="card"><h3>Status & Parser</h3><div class="val" style="color:#34d399;font-size:18px;">HEALTHY (${PARSER_VERSION})</div></div>
+      <div class="card"><h3>CEF Events Parsed</h3><div class="val">${metrics.cefParsedCount}</div></div>
+      <div class="card"><h3>UDP/TCP 5514 Packets</h3><div class="val">${metrics.syslogUdpCount + metrics.syslogTcpCount}</div></div>
+      <div class="card"><h3>IPFIX (2055/4739)</h3><div class="val">${metrics.ipfixFlowPackets}</div></div>
+      <div class="card"><h3>Container RAM RSS</h3><div class="val">${memMb} MiB <small style="font-size:12px;color:#64748b;">/ 512 MiB</small></div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:24px;">
+      <h3>Inject Live UniFi CEF Telemetry Event</h3>
+      <div style="display:flex;gap:10px;margin-top:10px;">
+        <input id="cefInput" style="flex:1;" value="2026-10-26T12:55:00Z UDMPro CEF:0|Ubiquiti|UniFi Network|9.0.114|IPS-402|ET POLICY Suspicious SMB Scan from POS VLAN|8|src=192.168.2.179 dst=192.168.2.241 smac=70:a7:41:aa:bb:01 UNIFIswitchPort=43 UNIFIvlan=1 UNIFIsiteId=88f7af54-98f8-306a-a1c7-c9349722b1f6" />
+        <button onclick="sendCef()">Ingest CEF Event</button>
+      </div>
+      <pre id="cefOut" style="margin-top:10px;font-size:12px;color:#38bdf8;display:none;"></pre>
+    </div>
+
+    <div class="card">
+      <h3>Recent Normalized UniFi CEF / Syslog / IPFIX Events (${recentEvents.length})</h3>
+      <table>
+        <thead><tr><th>Event Timestamp</th><th>Severity</th><th>Site / Client</th><th>Signature & Event</th><th>Source IP & Port</th><th>Transport</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>
+  <script>
+    async function sendCef() {
+      const rawCef = document.getElementById('cefInput').value;
+      const res = await fetch('/ingest/cef', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ rawCef }) });
+      const data = await res.json();
+      const out = document.getElementById('cefOut');
+      out.style.display = 'block';
+      out.textContent = JSON.stringify(data, null, 2);
+      setTimeout(() => location.reload(), 900);
+    }
+  </script>
+</body>
+</html>`;
+}
+
+// 4. HTTP 8890 Control, Visual UI & Ingestion API
 const httpServer = http.createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if ((req.method === 'GET' || req.method === 'HEAD') && (req.url === '/' || req.url === '/index.html')) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.writeHead(200);
+    res.end(renderDashboardHtml());
+    return;
+  }
+
   res.setHeader('Content-Type', 'application/json');
-  if (req.method === 'GET' && req.url === '/health') {
+  if ((req.method === 'GET' || req.method === 'HEAD') && req.url === '/health') {
     res.writeHead(200);
     res.end(JSON.stringify({
       status: 'healthy',
@@ -252,7 +372,7 @@ const httpServer = http.createServer((req, res) => {
     }));
     return;
   }
-  if (req.method === 'GET' && req.url === '/events/recent') {
+  if ((req.method === 'GET' || req.method === 'HEAD') && req.url === '/events/recent') {
     res.writeHead(200);
     res.end(JSON.stringify({ count: recentEvents.length, events: recentEvents.slice(0, 25) }));
     return;

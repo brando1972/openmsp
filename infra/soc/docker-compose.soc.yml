@@ -1,7 +1,13 @@
 # =============================================================================
-# ApexMSP Modular SOC Stack — Right-Sized Containerized Deployment (v2.0)
+# ApexMSP Modular SOC Stack — Right-Sized 6-Container Deployment (v2.1)
 # Target Host: proxmox1 (192.168.11.19) at /opt/apexmsp-soc
-# Total Reserved RAM Cap: 3.0 GiB (Actual Runtime < 250 MiB vs. 62 GiB v1.0)
+# Services (:8890-:8895):
+#   - :8890 apexmsp-vector-collector (UDP/TCP 5514 CEF/Syslog, UDP 2055/4739 IPFIX)
+#   - :8891 apexmsp-clamav-yara-worker (Bounded 50MB/30s YARA-X & ClamAV Scanner)
+#   - :8892 apexmsp-wazuh-manager (Custom XML Rules 100500-100540 & Decoders)
+#   - :8893 apexmsp-velociraptor (Velociraptor VQL DFIR Artifact Broker)
+#   - :8894 apexmsp-shuffle-soar (Shuffle Go SOAR & Orborus Worker Coordinator)
+#   - :8895 apexmsp-cortex-thehive (12 Cortex Analyzers & TheHive Cases Engine)
 # =============================================================================
 
 services:
@@ -104,6 +110,46 @@ services:
       - ./velociraptor/velociraptor.server.yaml:/etc/velociraptor/velociraptor.server.yaml:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8893/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  apexmsp-shuffle-soar:
+    image: node:20-alpine
+    container_name: apexmsp-shuffle-soar
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/shuffle-soar.mjs"]
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      - SHUFFLE_PORT=8894
+    ports:
+      - "8894:8894/tcp"
+    volumes:
+      - ./shuffle/shuffle-soar.mjs:/app/shuffle-soar.mjs:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8894/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  apexmsp-cortex-thehive:
+    image: node:20-alpine
+    container_name: apexmsp-cortex-thehive
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "/app/cortex-thehive.mjs"]
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      - CORTEX_THEHIVE_PORT=8895
+    ports:
+      - "8895:8895/tcp"
+    volumes:
+      - ./cortex-thehive/cortex-thehive.mjs:/app/cortex-thehive.mjs:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8895/health"]
       interval: 15s
       timeout: 5s
       retries: 3

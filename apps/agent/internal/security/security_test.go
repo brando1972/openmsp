@@ -378,3 +378,160 @@ func TestLivePostureCollectionAndIsolationState(t *testing.T) {
 	}
 }
 
+// TestShuffleOrborusAndCortexAnalyzers verifies all 5 native Go Shuffle SOAR & Cortex Analyzer actions
+// (cortex_analyze_file_hash, cortex_analyze_process_cmdline, shuffle_reseed_canaries,
+// shuffle_quarantine_and_verify, and shuffle_protected_asset_check).
+func TestShuffleOrborusAndCortexAnalyzers(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// 1. cortex_analyze_file_hash on EICAR file
+	eicarFile := filepath.Join(tmpDir, "eicar_cortex.com")
+	if err := os.WriteFile(eicarFile, []byte(EICARStandardSignature), 0600); err != nil {
+		t.Fatalf("write eicar file: %v", err)
+	}
+
+	step1 := ShuffleWorkflowStep{
+		ExecutionID: "exec-001",
+		WorkflowID:  "wf-cortex-file",
+		StepID:      "step-1",
+		AppName:     "ApexCortexAnalyzer",
+		Action:      "cortex_analyze_file_hash",
+		Parameters: map[string]interface{}{
+			"filePath": eicarFile,
+			"tlp":      2,
+			"pap":      2,
+		},
+	}
+	res1 := ExecuteShufflePlaybookStep(ctx, step1)
+	if !res1.Success || res1.Status != "FINISHED" || res1.ObservableResult == nil {
+		t.Fatalf("step1 failed: %+v", res1)
+	}
+	if len(res1.ObservableResult.Taxonomies) != 1 || res1.ObservableResult.Taxonomies[0].Level != "malicious" {
+		t.Errorf("expected Cortex taxonomy level=malicious, got %+v", res1.ObservableResult.Taxonomies)
+	}
+	if res1.Output["sha256"] != EICARStandardSHA256 {
+		t.Errorf("expected SHA256 %s, got %v", EICARStandardSHA256, res1.Output["sha256"])
+	}
+
+	// 2. cortex_analyze_process_cmdline on malicious vssadmin AND legitimate Veeam backup exclusion
+	step2Mal := ShuffleWorkflowStep{
+		ExecutionID: "exec-002",
+		WorkflowID:  "wf-cortex-proc",
+		StepID:      "step-2a",
+		AppName:     "ApexCortexAnalyzer",
+		Action:      "cortex_analyze_process_cmdline",
+		Parameters: map[string]interface{}{
+			"pid":     6001,
+			"name":    "vssadmin.exe",
+			"cmdline": "vssadmin.exe delete shadows /all /quiet",
+		},
+	}
+	res2Mal := ExecuteShufflePlaybookStep(ctx, step2Mal)
+	if !res2Mal.Success || res2Mal.ObservableResult == nil {
+		t.Fatalf("step2Mal failed: %+v", res2Mal)
+	}
+	if res2Mal.ObservableResult.Taxonomies[0].Level != "malicious" {
+		t.Errorf("expected malicious taxonomy for vssadmin delete shadows, got %+v", res2Mal.ObservableResult.Taxonomies[0])
+	}
+	if len(res2Mal.ObservableResult.MitreAttackTags) == 0 || res2Mal.ObservableResult.MitreAttackTags[0] != "T1490" {
+		t.Errorf("expected MITRE tag T1490, got %v", res2Mal.ObservableResult.MitreAttackTags)
+	}
+
+	step2Safe := ShuffleWorkflowStep{
+		ExecutionID: "exec-002",
+		WorkflowID:  "wf-cortex-proc",
+		StepID:      "step-2b",
+		AppName:     "ApexCortexAnalyzer",
+		Action:      "cortex_analyze_process_cmdline",
+		Parameters: map[string]interface{}{
+			"pid":           6002,
+			"name":          "vssadmin.exe",
+			"cmdline":       "vssadmin resize shadowstorage /for=C: /on=C: /maxsize=20%",
+			"parentName":    "VeeamAgent.exe",
+			"parentExePath": `C:\Program Files\Veeam\Endpoint Backup\VeeamAgent.exe`,
+		},
+	}
+	res2Safe := ExecuteShufflePlaybookStep(ctx, step2Safe)
+	if !res2Safe.Success || res2Safe.ObservableResult == nil || res2Safe.ObservableResult.Taxonomies[0].Level != "safe" {
+		t.Errorf("expected safe taxonomy for verified Veeam parent, got %+v", res2Safe)
+	}
+
+	// 3. shuffle_reseed_canaries
+	canaryDir := filepath.Join(tmpDir, "canaries")
+	step3 := ShuffleWorkflowStep{
+		ExecutionID: "exec-003",
+		WorkflowID:  "wf-soar-canary",
+		StepID:      "step-3",
+		AppName:     "ApexEndpointSOAR",
+		Action:      "shuffle_reseed_canaries",
+		Parameters: map[string]interface{}{
+			"canaryDir": canaryDir,
+		},
+	}
+	res3 := ExecuteShufflePlaybookStep(ctx, step3)
+	if !res3.Success || res3.Output["intact"] != true {
+		t.Fatalf("shuffle_reseed_canaries failed: %+v", res3)
+	}
+
+	// 4. shuffle_quarantine_and_verify
+	quarDir := filepath.Join(tmpDir, "quarantine")
+	step4 := ShuffleWorkflowStep{
+		ExecutionID: "exec-004",
+		WorkflowID:  "wf-soar-quarantine",
+		StepID:      "step-4",
+		AppName:     "ApexEndpointSOAR",
+		Action:      "shuffle_quarantine_and_verify",
+		Parameters: map[string]interface{}{
+			"filePath":      eicarFile,
+			"quarantineDir": quarDir,
+			"reason":        "Shuffle automated containment",
+		},
+	}
+	res4 := ExecuteShufflePlaybookStep(ctx, step4)
+	if !res4.Success || res4.Output["verified"] != true {
+		t.Fatalf("shuffle_quarantine_and_verify failed: %+v", res4)
+	}
+
+	// 5. shuffle_protected_asset_check (POS VLAN 88 & PAX terminal blocked without human approval; standard workstation allowed)
+	step5Blocked := ShuffleWorkflowStep{
+		ExecutionID: "exec-005",
+		WorkflowID:  "wf-soar-guard",
+		StepID:      "step-5a",
+		AppName:     "ApexEndpointSOAR",
+		Action:      "shuffle_protected_asset_check",
+		Parameters: map[string]interface{}{
+			"ip":                  "10.88.0.45",
+			"mac":                 "00:1d:ea:aa:bb:cc",
+			"vlanId":              88,
+			"assetCriticality":    "pos_payment",
+			"switchPortHostCount": 4,
+			"humanApproved":       "false",
+		},
+	}
+	res5Blocked := ExecuteShufflePlaybookStep(ctx, step5Blocked)
+	if res5Blocked.Status != "BLOCKED_PROTECTED_ASSET" || res5Blocked.Output["autoContainmentAllowed"] != false {
+		t.Errorf("expected BLOCKED_PROTECTED_ASSET for POS VLAN 88 / PAX terminal, got %+v", res5Blocked)
+	}
+
+	step5Allowed := ShuffleWorkflowStep{
+		ExecutionID: "exec-005",
+		WorkflowID:  "wf-soar-guard",
+		StepID:      "step-5b",
+		AppName:     "ApexEndpointSOAR",
+		Action:      "shuffle_protected_asset_check",
+		Parameters: map[string]interface{}{
+			"ip":                  "10.20.1.55",
+			"mac":                 "a4:83:e7:11:22:33",
+			"vlanId":              20,
+			"assetCriticality":    "standard",
+			"switchPortHostCount": 1,
+		},
+	}
+	res5Allowed := ExecuteShufflePlaybookStep(ctx, step5Allowed)
+	if res5Allowed.Status != "FINISHED" || res5Allowed.Output["autoContainmentAllowed"] != true {
+		t.Errorf("expected autoContainmentAllowed=true for standard workstation on single-host port, got %+v", res5Allowed)
+	}
+}
+
+

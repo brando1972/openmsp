@@ -12,7 +12,11 @@ import {
   type UnifiSiteCapability,
   type UnifiSiteTopologyResponse,
   type DeviceTimelineResponse,
-  type SimulationRunResponse
+  type SimulationRunResponse,
+  type SoarOverviewResponse,
+  type ShuffleExecutionTrace,
+  type CortexAnalysisResult,
+  type CortexTaxonomyBadge
 } from '../../services/api';
 import {
   Shield,
@@ -46,6 +50,7 @@ import {
 
 type SocSubTab =
   | 'soc-overview'
+  | 'soc-soar'
   | 'soc-incidents'
   | 'soc-endpoints'
   | 'soc-unifi'
@@ -54,6 +59,7 @@ type SocSubTab =
 
 const VALID_SUB_TABS: SocSubTab[] = [
   'soc-overview',
+  'soc-soar',
   'soc-incidents',
   'soc-endpoints',
   'soc-unifi',
@@ -82,7 +88,7 @@ export const SecuritySocView: React.FC = () => {
   const [unifiSites, setUnifiSites] = useState<UnifiSiteCapability[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>('88f7af54-98f8-306a-a1c7-c9349722b1f6');
   const [siteTopology, setSiteTopology] = useState<UnifiSiteTopologyResponse | null>(null);
-  const [selectedTimelineDeviceId, setSelectedTimelineDeviceId] = useState<string>('dev-gambinos-c1');
+  const [selectedTimelineDeviceId, setSelectedTimelineDeviceId] = useState<string>('dev-gambinos-pos-ctrl');
   const [timelineData, setTimelineData] = useState<DeviceTimelineResponse | null>(null);
 
   // Simulation & Notification banner state
@@ -97,6 +103,16 @@ export const SecuritySocView: React.FC = () => {
   const [newActionType, setNewActionType] = useState<SecurityActionType>('isolate_host');
   const [newActionReason, setNewActionReason] = useState<string>('');
 
+  // SOAR (Shuffle Go + Cortex + TheHive) state
+  const [soarOverview, setSoarOverview] = useState<SoarOverviewResponse | null>(null);
+  const [activePlaybookTrace, setActivePlaybookTrace] = useState<ShuffleExecutionTrace | null>(null);
+  const [runningPlaybookId, setRunningPlaybookId] = useState<string | null>(null);
+  const [cortexDataType, setCortexDataType] = useState<'ip' | 'hash' | 'mac' | 'domain' | 'cmdline'>('ip');
+  const [cortexDataInput, setCortexDataInput] = useState<string>('192.168.2.190');
+  const [cortexTlp, setCortexTlp] = useState<string>('TLP:AMBER');
+  const [runningCortex, setRunningCortex] = useState<boolean>(false);
+  const [cortexResult, setCortexResult] = useState<CortexAnalysisResult | null>(null);
+
   const showToast = (type: 'success' | 'warn' | 'error', text: string) => {
     setToastMessage({ type, text });
     setTimeout(() => {
@@ -108,13 +124,14 @@ export const SecuritySocView: React.FC = () => {
     setLoading(true);
     try {
       const clientFilter = selectedClientId === 'all' ? undefined : selectedClientId;
-      const [ovRes, incRes, evtRes, devRes, actRes, sitesRes] = await Promise.all([
+      const [ovRes, incRes, evtRes, devRes, actRes, sitesRes, soarRes] = await Promise.all([
         api.security.getOverview(clientFilter),
         api.security.getIncidents(clientFilter),
         api.security.getEvents(clientFilter),
         api.security.getDevices(clientFilter),
         api.security.getActions(clientFilter),
-        api.unifi.getSites(clientFilter)
+        api.unifi.getSites(clientFilter),
+        api.security.getSoarOverview(clientFilter)
       ]);
 
       setOverview(ovRes);
@@ -124,14 +141,21 @@ export const SecuritySocView: React.FC = () => {
       setSecDevices(devRes.devices);
       setActions(actRes.actions);
       setUnifiSites(sitesRes.sites);
+      setSoarOverview(soarRes);
+      setActivePlaybookTrace(prev => prev || soarRes.recentExecutions[0] || null);
+      setCortexResult(prev => prev || soarRes.lastCortexAnalysis || null);
 
       const activeSite = sitesRes.sites.find(s => s.siteId === selectedSiteId)?.siteId ||
         sitesRes.sites[0]?.siteId ||
         '88f7af54-98f8-306a-a1c7-c9349722b1f6';
 
+      const activeTimelineDevice = devRes.devices.find(d => d.deviceId === selectedTimelineDeviceId)?.deviceId ||
+        devRes.devices[0]?.deviceId ||
+        selectedTimelineDeviceId;
+
       const [topoRes, tlRes] = await Promise.all([
         api.unifi.getSiteTopology(activeSite),
-        api.security.getDeviceTimeline(selectedTimelineDeviceId)
+        api.security.getDeviceTimeline(activeTimelineDevice)
       ]);
       setSiteTopology(topoRes);
       setTimelineData(tlRes);
@@ -238,6 +262,87 @@ export const SecuritySocView: React.FC = () => {
     await api.security.updateIncident(incidentId, { status });
     showToast('success', `Incident updated to ${status}`);
     await loadAllSocData();
+  };
+
+  const handleExecuteSoarPlaybook = async (playbookId: string) => {
+    setRunningPlaybookId(playbookId);
+    try {
+      const res = await api.security.executeSoarPlaybook(playbookId, {
+        targetDeviceId: selectedTimelineDeviceId,
+        clientId: selectedClientId === 'all' ? undefined : selectedClientId,
+        observableValue: cortexDataInput
+      });
+      setActivePlaybookTrace(res.trace);
+      showToast(
+        res.trace.status === 'blocked_protected_asset' ? 'warn' : 'success',
+        `Shuffle Go Playbook "${res.trace.playbookName}" executed in ${res.trace.totalDurationMs}ms (${res.trace.status.replace(/_/g, ' ')})`
+      );
+      await loadAllSocData();
+    } catch (err: any) {
+      showToast('error', `Shuffle Playbook error: ${err?.message || 'Execution failed'}`);
+    } finally {
+      setRunningPlaybookId(null);
+    }
+  };
+
+  const handleRunCortexAnalysis = async (
+    overrideType?: 'ip' | 'hash' | 'mac' | 'domain' | 'cmdline',
+    overrideData?: string,
+    overrideTlp?: string
+  ) => {
+    const dType = overrideType || cortexDataType;
+    const dVal = (overrideData ?? cortexDataInput).trim();
+    const dTlp = overrideTlp || cortexTlp;
+    if (!dVal) return;
+
+    if (overrideType) setCortexDataType(overrideType);
+    if (overrideData !== undefined) setCortexDataInput(overrideData);
+    if (overrideTlp) setCortexTlp(overrideTlp);
+
+    setRunningCortex(true);
+    try {
+      const res = await api.security.runCortexAnalysis({
+        dataType: dType,
+        data: dVal,
+        tlp: dTlp
+      });
+      setCortexResult(res);
+      showToast(
+        res.overallVerdict === 'malicious' || res.overallVerdict === 'suspicious' ? 'warn' : 'success',
+        `Cortex analyzed "${dVal}" (${dType.toUpperCase()}) -> ${res.overallVerdict.toUpperCase()} across ${res.analyzerReports.length} analyzers`
+      );
+      await loadAllSocData();
+    } catch (err: any) {
+      showToast('error', `Cortex Analyzer error: ${err?.message || 'Analysis failed'}`);
+    } finally {
+      setRunningCortex(false);
+    }
+  };
+
+  const renderCortexBadge = (badge: CortexTaxonomyBadge, idx: number) => {
+    const colorMap: Record<CortexTaxonomyBadge['level'], string> = {
+      malicious: 'bg-rose-100 text-rose-900 border-rose-300',
+      suspicious: 'bg-amber-100 text-amber-900 border-amber-300',
+      safe: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+      info: 'bg-sky-100 text-sky-900 border-sky-300'
+    };
+    const dotMap: Record<CortexTaxonomyBadge['level'], string> = {
+      malicious: 'bg-rose-600',
+      suspicious: 'bg-amber-500',
+      safe: 'bg-emerald-600',
+      info: 'bg-sky-500'
+    };
+    return (
+      <span
+        key={`${badge.namespace}-${badge.predicate}-${idx}`}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold border ${colorMap[badge.level]}`}
+      >
+        <span className={`w-2 h-2 rounded-full ${dotMap[badge.level]}`} />
+        <span>
+          {badge.namespace}:{badge.predicate}=&quot;{badge.value}&quot;
+        </span>
+      </span>
+    );
   };
 
   // Coverage badge helper (Acceptance Test #12: Unknown NEVER appears protected!)
@@ -460,10 +565,11 @@ export const SecuritySocView: React.FC = () => {
           </div>
         )}
 
-        {/* 6 Sub-Tabs Bar */}
+        {/* 7 Sub-Tabs Bar */}
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
           {[
             { id: 'soc-overview', label: 'SOC Command Center', Icon: Shield },
+            { id: 'soc-soar', label: 'SOAR: Shuffle + Cortex + TheHive', Icon: Zap },
             { id: 'soc-incidents', label: `SIEM Incidents (${kpis.openIncidents})`, Icon: ShieldAlert },
             { id: 'soc-endpoints', label: `Endpoint EDR / AV (${secDevices.length})`, Icon: Cpu },
             { id: 'soc-unifi', label: `UniFi Network SOC (${unifiSites.length} Sites)`, Icon: Wifi },
@@ -586,6 +692,54 @@ export const SecuritySocView: React.FC = () => {
                 <div className="mt-1 text-[11px] text-slate-500">
                   Gambinos, TBI, Raytreat, SOS Volleyball
                 </div>
+              </div>
+            </div>
+
+            {/* Prominent SOAR (Shuffle Go + Cortex + TheHive) Status Banner Card */}
+            <div className="bg-gradient-to-r from-orange-950 via-slate-900 to-indigo-950 text-white rounded-xl p-4 border border-orange-500/40 shadow-md flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-lg shrink-0">
+                  <Zap className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40 text-[10px] font-black uppercase">
+                      Open-Source SOAR Plane Active
+                    </span>
+                    <h2 className="text-sm font-black text-white">
+                      Shuffle (Go v1.4 + Orborus Workers :8894) + Cortex Analyzers (:8895) + TheHive Case Engine (:8895)
+                    </h2>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    {soarOverview?.engines.shuffle.activePlaybooks ?? 5} Go Playbook DAGs active ·{' '}
+                    {soarOverview?.engines.cortex.activeAnalyzers ?? 12} Cortex Observable Analyzers (TLP/PAP Guard) ·{' '}
+                    {soarOverview?.engines.thehive.activeCases ?? 3} Active TheHive Cases ({soarOverview?.engines.thehive.trackedObservables ?? 19} IOCs tracked)
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href="http://192.168.11.19:8894/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold text-orange-300 flex items-center gap-1.5 transition"
+                >
+                  Shuffle :8894 <ExternalLink className="w-3 h-3" />
+                </a>
+                <a
+                  href="http://192.168.11.19:8895/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold text-indigo-300 flex items-center gap-1.5 transition"
+                >
+                  TheHive/Cortex :8895 <ExternalLink className="w-3 h-3" />
+                </a>
+                <button
+                  onClick={() => setSubTab('soc-soar')}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 text-white text-xs font-black flex items-center gap-1.5 shadow-md cursor-pointer transition"
+                >
+                  <Zap className="w-3.5 h-3.5" /> Open SOAR Workbench (Shuffle + Cortex + TheHive)
+                </button>
               </div>
             </div>
 
@@ -832,6 +986,743 @@ export const SecuritySocView: React.FC = () => {
               </div>
             </div>
           </>
+        )}
+
+        {/* =================================================================== */}
+        {/* TAB 1B: SOAR: SHUFFLE (GO) + CORTEX + THEHIVE (soc-soar)            */}
+        {/* =================================================================== */}
+        {currentSubTab === 'soc-soar' && soarOverview && (
+          <div className="space-y-6">
+            {/* SECTION 1: SOAR Engine Status & Open-Source Architecture Bar */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-xl p-5 border border-slate-700 shadow-md">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40 text-[10px] font-black uppercase">
+                      Combined Open-Source SOAR Architecture
+                    </span>
+                    <h2 className="text-base font-black text-white">
+                      Shuffle (Go Workflow Engine + Orborus Workers) + Cortex (Observable Analyzers) + TheHive (Case &amp; TTP Engine)
+                    </h2>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Why we combined Shuffle + TheHive/Cortex: Shuffle provides a blazing-fast Go backend &amp; native Orborus agent worker execution, while Cortex + TheHive provide structured observable enrichment, TLP/PAP guardrails, and multi-tenant SOC case management—all gated by the ApexMSP Protected-Asset Action Broker.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href={soarOverview.engines.shuffle.endpointUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3.5 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-black flex items-center gap-1.5 shadow transition"
+                  >
+                    Open Shuffle UI (:8894) <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  <a
+                    href={soarOverview.engines.thehive.endpointUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black flex items-center gap-1.5 shadow transition"
+                  >
+                    Open TheHive &amp; Cortex UI (:8895) <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Card 1: Shuffle Go Backend */}
+                <div className="bg-slate-800/90 rounded-xl p-4 border border-orange-500/40">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-orange-300">
+                      1. Shuffle Go Backend &amp; Orborus Worker
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      {soarOverview.engines.shuffle.status} (:8894)
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm font-black text-white">
+                    {soarOverview.engines.shuffle.name} ({soarOverview.engines.shuffle.version})
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center bg-slate-900/80 rounded-lg p-2 border border-slate-700">
+                    <div>
+                      <div className="text-xs font-black text-orange-400">
+                        {soarOverview.engines.shuffle.activePlaybooks}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Playbooks</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-emerald-400">
+                        {soarOverview.engines.shuffle.orborusGoWorkers}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Go Workers</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-sky-400">
+                        {soarOverview.engines.shuffle.executions24h}
+                      </div>
+                      <div className="text-[10px] text-slate-400">24h Runs</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-300 flex items-center justify-between">
+                    <span>Runtime: <strong>{soarOverview.engines.shuffle.runtime}</strong></span>
+                    <a
+                      href={soarOverview.engines.shuffle.endpointUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-orange-300 hover:underline font-mono"
+                    >
+                      {soarOverview.engines.shuffle.endpointUrl}
+                    </a>
+                  </div>
+                </div>
+
+                {/* Card 2: Cortex Observable & Responder Engine */}
+                <div className="bg-slate-800/90 rounded-xl p-4 border border-sky-500/40">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-sky-300">
+                      2. Cortex Observable &amp; Responder Engine
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      {soarOverview.engines.cortex.status} (:8895)
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm font-black text-white">
+                    {soarOverview.engines.cortex.name} ({soarOverview.engines.cortex.version})
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center bg-slate-900/80 rounded-lg p-2 border border-slate-700">
+                    <div>
+                      <div className="text-xs font-black text-sky-400">
+                        {soarOverview.engines.cortex.activeAnalyzers}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Analyzers</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-indigo-400">
+                        {soarOverview.engines.cortex.activeResponders}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Responders</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-emerald-400">
+                        {soarOverview.engines.cortex.observablesAnalyzed24h}
+                      </div>
+                      <div className="text-[10px] text-slate-400">24h Jobs</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-300 flex items-center justify-between">
+                    <span>Guard: <strong>{soarOverview.engines.cortex.tlpGuardEnforced ? 'TLP/PAP Enforced' : 'Standard'}</strong></span>
+                    <a
+                      href={soarOverview.engines.cortex.endpointUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sky-300 hover:underline font-mono"
+                    >
+                      {soarOverview.engines.cortex.endpointUrl}
+                    </a>
+                  </div>
+                </div>
+
+                {/* Card 3: TheHive Multi-Tenant Case Engine */}
+                <div className="bg-slate-800/90 rounded-xl p-4 border border-indigo-500/40">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-indigo-300">
+                      3. TheHive Multi-Tenant Case Engine
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      {soarOverview.engines.thehive.status} (:8895)
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm font-black text-white">
+                    {soarOverview.engines.thehive.name} ({soarOverview.engines.thehive.version})
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center bg-slate-900/80 rounded-lg p-2 border border-slate-700">
+                    <div>
+                      <div className="text-xs font-black text-amber-400">
+                        {soarOverview.engines.thehive.activeCases}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Active Cases</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-rose-400">
+                        {soarOverview.engines.thehive.mitreAttackMappings}
+                      </div>
+                      <div className="text-[10px] text-slate-400">MITRE TTPs</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-emerald-400">
+                        {soarOverview.engines.thehive.trackedObservables}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Observables</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-300 flex items-center justify-between">
+                    <span>Sync: <strong>{soarOverview.engines.thehive.psaBiDirectionalSync ? 'ApexMSP PSA + NodalCortex' : 'Local'}</strong></span>
+                    <a
+                      href={soarOverview.engines.thehive.endpointUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-300 hover:underline font-mono"
+                    >
+                      {soarOverview.engines.thehive.endpointUrl}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 2: Shuffle (Go) Visual Playbook DAG Orchestrator & 1-Click Runner */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              <div className="xl:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 border border-orange-300 text-[10px] font-black uppercase">
+                        Shuffle Go v1.4 DAGs
+                      </span>
+                      <h3 className="text-sm font-black text-slate-900">
+                        Shuffle (Go) Visual Playbook DAG Orchestrator &amp; 1-Click Runner
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Each playbook chains Trigger → Cortex Analyzer → TheHive Case → Protected-Asset Broker Gate → Go Agent Orborus Worker.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {soarOverview.playbooks.map(pb => {
+                    const isRunning = runningPlaybookId === pb.id;
+                    const isSelectedTrace = activePlaybookTrace?.playbookId === pb.id;
+                    return (
+                      <div
+                        key={pb.id}
+                        className={`p-4 rounded-xl border transition ${
+                          isSelectedTrace
+                            ? 'bg-orange-50/40 border-orange-400 shadow-sm'
+                            : 'bg-slate-50/70 border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="px-2 py-0.5 rounded bg-slate-900 text-white text-[10px] font-mono font-bold">
+                                {pb.id}
+                              </span>
+                              <h4 className="text-xs font-black text-slate-900">{pb.name}</h4>
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                  pb.lastStatus === 'blocked_protected_asset'
+                                    ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                    : pb.lastStatus === 'pending_approval'
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                }`}
+                              >
+                                {pb.lastStatus.replace(/_/g, ' ')}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-1">{pb.description}</p>
+                          </div>
+
+                          <button
+                            disabled={isRunning}
+                            onClick={() => handleExecuteSoarPlaybook(pb.id)}
+                            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white text-xs font-black flex items-center gap-1.5 shadow cursor-pointer disabled:opacity-50 shrink-0"
+                          >
+                            {isRunning ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                            )}
+                            Run Shuffle Playbook
+                          </button>
+                        </div>
+
+                        {/* Visual DAG Pipeline Nodes */}
+                        <div className="mt-3 pt-3 border-t border-slate-200/80 flex items-center gap-1.5 overflow-x-auto pb-1">
+                          {pb.nodes.map((node, nIdx) => {
+                            const typeBadgeColor: Record<string, string> = {
+                              trigger: 'bg-slate-800 text-white border-slate-700',
+                              cortex_analyzer: 'bg-sky-100 text-sky-900 border-sky-300',
+                              thehive_case: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+                              broker_gate: 'bg-amber-100 text-amber-900 border-amber-300',
+                              orborus_worker: 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                            };
+                            return (
+                              <React.Fragment key={node.id}>
+                                <div
+                                  className={`px-2.5 py-1.5 rounded-lg border text-[10px] shrink-0 ${
+                                    typeBadgeColor[node.stage] || 'bg-slate-100 text-slate-800 border-slate-300'
+                                  }`}
+                                >
+                                  <div className="font-black">{node.name}</div>
+                                  <div className="opacity-80 font-mono text-[9px] flex items-center justify-between gap-2 mt-0.5">
+                                    <span>{node.app}</span>
+                                    <span>{node.latencyMs}ms</span>
+                                  </div>
+                                </div>
+                                {nIdx < pb.nodes.length - 1 && (
+                                  <span className="text-slate-400 font-black text-xs shrink-0">→</span>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
+                          <span>Trigger: <strong>{pb.triggerSource}</strong> · Queue: <strong>{pb.orborusQueue}</strong></span>
+                          <span>Runs: <strong>{pb.executionsCount}</strong> · Avg Duration: <strong>{pb.avgRuntimeMs}ms</strong></span>
+                          <span>Last Run: {new Date(pb.lastExecutedAt).toLocaleTimeString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Live Execution Trace Panel */}
+              <div className="xl:col-span-5 bg-slate-900 text-white rounded-xl border border-slate-800 p-5 shadow-md flex flex-col">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <div>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase">
+                      Orborus Go Worker Trace
+                    </span>
+                    <h3 className="text-sm font-black text-white mt-1">
+                      Live Shuffle Playbook Execution Trace
+                    </h3>
+                  </div>
+                  {activePlaybookTrace && (
+                    <span className="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-orange-300">
+                      Total: {activePlaybookTrace.totalDurationMs}ms
+                    </span>
+                  )}
+                </div>
+
+                {activePlaybookTrace ? (
+                  <div className="mt-4 space-y-3 flex-1">
+                    <div className="p-3 rounded-lg bg-slate-800/90 border border-slate-700 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-orange-300">
+                          {activePlaybookTrace.executionId}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                            activePlaybookTrace.status === 'blocked_protected_asset'
+                              ? 'bg-rose-600 text-white'
+                              : activePlaybookTrace.status === 'awaiting_human_approval'
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-emerald-600 text-white'
+                          }`}
+                        >
+                          {activePlaybookTrace.status.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <div className="font-black text-white mt-1">
+                        {activePlaybookTrace.playbookName}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-slate-400 font-mono">
+                        {activePlaybookTrace.theHiveCaseId && (
+                          <span className="text-indigo-300">
+                            TheHive: {activePlaybookTrace.theHiveCaseId}
+                          </span>
+                        )}
+                        {activePlaybookTrace.actionBrokerId && (
+                          <span className="text-amber-300">
+                            Broker Action: {activePlaybookTrace.actionBrokerId}
+                          </span>
+                        )}
+                        {activePlaybookTrace.targetDevice && (
+                          <span className="text-emerald-300">
+                            Target: {activePlaybookTrace.targetDevice}
+                          </span>
+                        )}
+                        <span>At: {new Date(activePlaybookTrace.startedAt).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                        Per-Node DAG Step Execution &amp; Latency
+                      </div>
+                      {activePlaybookTrace.nodeTraces.map((step, idx) => (
+                        <div
+                          key={step.id}
+                          className="p-3 rounded-lg bg-slate-950/90 border border-slate-800 text-xs"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-full bg-slate-800 text-orange-400 font-mono text-[10px] font-black flex items-center justify-center">
+                                {idx + 1}
+                              </span>
+                              <span className="font-bold text-white">{step.name}</span>
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                                {step.app}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[11px] text-emerald-400 font-bold">
+                                {step.latencyMs}ms
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
+                                  step.status === 'blocked_safety_lock'
+                                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                    : step.status === 'auto_excluded'
+                                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                }`}
+                              >
+                                {step.status.replace(/_/g, ' ')}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-slate-300 font-mono mt-1.5 pl-7">
+                            {step.outputSummary}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400 py-8 text-center">
+                    Click &ldquo;Run Shuffle Playbook&rdquo; on any DAG to inspect per-node execution telemetry.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* SECTION 3: Cortex Observable Analyzer Workbench (Interactive IOC Enrichment) */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-300 text-[10px] font-black uppercase">
+                      Cortex v3.1.8 Observable Workbench
+                    </span>
+                    <h3 className="text-sm font-black text-slate-900">
+                      Cortex Observable Analyzer Workbench (Interactive IOC &amp; Command-Line Enrichment)
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Enrich any IP, hash, MAC address, domain, or command line across AbuseIPDB, VirusTotal, YARA_X, ClamAV, UniFi_Port43_Topology_Analyzer, and Velociraptor_ProcessTree with TLP/PAP guardrails.
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick-Preset Chips */}
+              <div className="mb-3">
+                <div className="text-[11px] font-bold text-slate-500 uppercase mb-1.5">
+                  Quick-Preset Observables (1-Click Load &amp; Analyze):
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    {
+                      label: '192.168.2.190 (Gambinos PAX A35 on Port 43)',
+                      dataType: 'ip' as const,
+                      data: '192.168.2.190',
+                      tlp: 'TLP:AMBER'
+                    },
+                    {
+                      label: 'vssadmin.exe delete shadows /all /quiet',
+                      dataType: 'cmdline' as const,
+                      data: 'vssadmin.exe delete shadows /all /quiet',
+                      tlp: 'TLP:AMBER'
+                    },
+                    {
+                      label: '98:03:8e:75:98:07 (Port 43 Unknown MAC)',
+                      dataType: 'mac' as const,
+                      data: '98:03:8e:75:98:07',
+                      tlp: 'TLP:AMBER'
+                    },
+                    {
+                      label: 'C:\\Program Files\\Veeam\\Veeam.Backup.Agent.Service.exe',
+                      dataType: 'cmdline' as const,
+                      data: 'C:\\Program Files\\Veeam\\Veeam.Backup.Agent.Service.exe',
+                      tlp: 'TLP:GREEN'
+                    },
+                    {
+                      label: '44d88612fea8a8f36de82e1278abb02f (EICAR MD5)',
+                      dataType: 'hash' as const,
+                      data: '44d88612fea8a8f36de82e1278abb02f',
+                      tlp: 'TLP:CLEAR'
+                    }
+                  ].map(preset => (
+                    <button
+                      key={preset.label}
+                      onClick={() => handleRunCortexAnalysis(preset.dataType, preset.data, preset.tlp)}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-sky-50 border border-slate-300 hover:border-sky-400 text-xs font-mono font-bold text-slate-800 transition cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Bar */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="md:col-span-2">
+                  <select
+                    value={cortexDataType}
+                    onChange={e => setCortexDataType(e.target.value as any)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800"
+                  >
+                    <option value="ip">Type: IP Address</option>
+                    <option value="cmdline">Type: Command Line</option>
+                    <option value="mac">Type: MAC Address</option>
+                    <option value="hash">Type: SHA256 / MD5 Hash</option>
+                    <option value="domain">Type: Domain / FQDN</option>
+                  </select>
+                </div>
+                <div className="md:col-span-6">
+                  <input
+                    type="text"
+                    value={cortexDataInput}
+                    onChange={e => setCortexDataInput(e.target.value)}
+                    placeholder="Enter IP, hash, MAC, domain, or command line..."
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-900"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <select
+                    value={cortexTlp}
+                    onChange={e => setCortexTlp(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-amber-800"
+                  >
+                    <option value="TLP:AMBER">TLP:AMBER (Strict)</option>
+                    <option value="TLP:RED">TLP:RED (Local Only)</option>
+                    <option value="TLP:GREEN">TLP:GREEN</option>
+                    <option value="TLP:CLEAR">TLP:CLEAR</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <button
+                    disabled={runningCortex}
+                    onClick={() => handleRunCortexAnalysis()}
+                    className="w-full py-2 px-4 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow cursor-pointer disabled:opacity-50"
+                  >
+                    {runningCortex ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Search className="w-3.5 h-3.5" />
+                    )}
+                    Run Cortex Analyzers
+                  </button>
+                </div>
+              </div>
+
+              {/* Cortex Analysis Result & Standardized Taxonomy Badges */}
+              {cortexResult && (
+                <div className="mt-4 p-4 rounded-xl bg-slate-900 text-white border border-slate-800">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-sky-300 font-mono text-xs font-bold">
+                        {cortexResult.dataType.toUpperCase()}: {cortexResult.data}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black">
+                        {cortexResult.tlp}
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-[10px] font-black">
+                        {cortexResult.pap}
+                      </span>
+                    </div>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-black uppercase ${
+                        cortexResult.overallVerdict === 'malicious'
+                          ? 'bg-rose-600 text-white'
+                          : cortexResult.overallVerdict === 'suspicious'
+                          ? 'bg-amber-500 text-white'
+                          : cortexResult.overallVerdict === 'safe'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-sky-600 text-white'
+                      }`}
+                    >
+                      Verdict: {cortexResult.overallVerdict}
+                    </span>
+                  </div>
+
+                  {/* Standardized Cortex Taxonomy Badges */}
+                  <div className="mt-3">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+                      Standardized Cortex Taxonomy Badges (namespace:predicate=&quot;value&quot;)
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {cortexResult.taxonomies.map((badge, bIdx) => renderCortexBadge(badge, bIdx))}
+                    </div>
+                  </div>
+
+                  {/* Individual Analyzer Reports */}
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {cortexResult.analyzerReports.map(rep => (
+                      <div
+                        key={rep.analyzerId}
+                        className="p-3 rounded-lg bg-slate-800/90 border border-slate-700 text-xs"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-black text-sky-300">{rep.analyzerName}</span>
+                          <span className="font-mono text-[10px] text-emerald-400">{rep.durationMs}ms</span>
+                        </div>
+                        <p className="text-[11px] text-slate-200 mt-1.5">{rep.summary}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SECTION 4: TheHive Cases, Tasks, TTPs & Observables Table + SOAR Comparison Matrix */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              {/* Active TheHive Cases */}
+              <div className="xl:col-span-7 bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-300 text-[10px] font-black uppercase">
+                        TheHive v5.3 Multi-Tenant Cases
+                      </span>
+                      <h3 className="text-sm font-black text-slate-900">
+                        Active TheHive Cases, Investigation Tasks, MITRE TTPs &amp; Linked Observables
+                      </h3>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {soarOverview.cases.map(thCase => (
+                    <div
+                      key={thCase.id}
+                      className="p-4 rounded-xl bg-slate-50 border border-slate-200"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-indigo-900 text-white font-mono text-xs font-black">
+                            {thCase.caseNumber}
+                          </span>
+                          {renderSeverityBadge(thCase.severity)}
+                          <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black">
+                            {thCase.tlp}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300 text-[10px] font-black">
+                            {thCase.pap}
+                          </span>
+                          <span className="text-xs font-bold text-slate-500">
+                            ({thCase.clientName})
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-600">
+                          Assignee: {thCase.assignee}
+                        </span>
+                      </div>
+
+                      <h4 className="text-sm font-black text-slate-900 mt-2">{thCase.title}</h4>
+
+                      {/* MITRE ATT&CK TTPs & Observables */}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {thCase.ttps.map(ttp => (
+                          <span
+                            key={ttp.id}
+                            className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 text-[10px] font-mono font-bold"
+                          >
+                            MITRE {ttp.id}: {ttp.technique}
+                          </span>
+                        ))}
+                        {thCase.observables.map((obs, oIdx) => (
+                          <span
+                            key={`${obs.value}-${oIdx}`}
+                            className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 text-[10px] font-mono"
+                          >
+                            {obs.dataType}: {obs.value}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Investigation Tasks */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {thCase.tasks.map(task => (
+                          <div
+                            key={task.id}
+                            className="flex items-center justify-between px-2.5 py-1 rounded bg-white border border-slate-200 text-[11px]"
+                          >
+                            <span className="font-medium text-slate-800 truncate">{task.title}</span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase shrink-0 ${
+                                task.status === 'Completed'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : task.status === 'InProgress'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {task.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SOAR Architecture Comparison Matrix */}
+              <div className="xl:col-span-5 bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="mb-4">
+                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-black uppercase">
+                    Open-Source SOAR Evaluation
+                  </span>
+                  <h3 className="text-sm font-black text-slate-900 mt-1">
+                    SOAR Architecture Comparison Matrix
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Why ApexMSP combines Shuffle (Go) + TheHive &amp; Cortex + Tracecat patterns over legacy Python/Node tools.
+                  </p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-[10px] font-black uppercase text-slate-500 bg-slate-50">
+                        <th className="py-2 px-2.5">Platform</th>
+                        <th className="py-2 px-2.5">Runtime / RAM</th>
+                        <th className="py-2 px-2.5">Role in ApexMSP</th>
+                        <th className="py-2 px-2.5">Disposition</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {soarOverview.comparisonMatrix.map(row => (
+                        <tr key={row.platform} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-2.5 font-black text-slate-900">
+                            <div>{row.platform}</div>
+                            <div className="text-[10px] font-normal text-slate-500">{row.license}</div>
+                          </td>
+                          <td className="py-2.5 px-2.5 font-mono text-[11px] text-slate-700">
+                            <div>{row.languageRuntime}</div>
+                            <div className="text-[10px] text-slate-400">{row.ramFootprint}</div>
+                          </td>
+                          <td className="py-2.5 px-2.5 text-[11px] text-slate-700">
+                            <div className="font-bold text-slate-900">{row.roleInApexMsp}</div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">{row.strengthsAndTradeoffs}</div>
+                          </td>
+                          <td className="py-2.5 px-2.5">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-black uppercase inline-block ${
+                                row.verdict === 'PRIMARY ORCHESTRATOR' || row.verdict === 'CASE & IOC ENGINE'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                  : row.verdict === 'TRIAGE PATTERN ADOPTED'
+                                  ? 'bg-sky-100 text-sky-800 border border-sky-300'
+                                  : 'bg-slate-100 text-slate-600 border border-slate-300'
+                              }`}
+                            >
+                              {row.verdict}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* =================================================================== */}

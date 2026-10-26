@@ -31,8 +31,11 @@ const MainAppContent: React.FC = () => {
     return <LoginView />;
   }
 
+  const isDirectSocRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/soc');
   const currentTab = tabs.find(t => t.id === activeTabId);
-  const currentViewType = tabbedNavigationEnabled && currentTab ? currentTab.type : activeTab;
+  const currentViewType = isDirectSocRoute
+    ? 'security-soc'
+    : (tabbedNavigationEnabled && currentTab ? currentTab.type : activeTab);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f4f6f8] text-[#1a1a24] font-sans select-none antialiased">

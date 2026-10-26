@@ -54,6 +54,8 @@ func (e *Executor) Execute(ctx context.Context, cmd client.DeviceCommand) client
 		e.executeIsolateHost(cmd.Payload, &result)
 	case "unisolate_host":
 		e.executeUnisolateHost(&result)
+	case "execute_soar_playbook", "shuffle_playbook_step", "cortex_analyze_file_hash", "cortex_analyze_process_cmdline", "shuffle_reseed_canaries", "shuffle_quarantine_and_verify", "shuffle_protected_asset_check":
+		e.executeSoarPlaybook(ctx, cmd.ID, cmd.CommandType, cmd.Payload, &result)
 	case "install_approved_patches":
 		result.Status = "completed"
 		result.Output = "Patch manager executed: all approved system packages are up-to-date"
@@ -331,6 +333,45 @@ func (e *Executor) executeUnisolateHost(res *client.CommandResultRequest) {
 	security.SetIsolated(false)
 	res.Status = "completed"
 	res.Output = "Host containment policy lifted: normal network posture restored"
+}
+
+func (e *Executor) executeSoarPlaybook(ctx context.Context, cmdID string, cmdType string, payload map[string]interface{}, res *client.CommandResultRequest) {
+	action := extractString(payload, "action", "stepAction", "playbookAction")
+	if action == "" && cmdType != "execute_soar_playbook" && cmdType != "shuffle_playbook_step" {
+		action = cmdType
+	}
+	if action == "" {
+		res.Status = "failed"
+		res.Error = "execute_soar_playbook requires an 'action' in payload"
+		return
+	}
+
+	params := payload
+	if subParams, ok := payload["parameters"].(map[string]interface{}); ok && len(subParams) > 0 {
+		params = subParams
+	}
+
+	step := security.ShuffleWorkflowStep{
+		ExecutionID: extractString(payload, "executionId", "id"),
+		WorkflowID:  extractString(payload, "workflowId", "playbookId"),
+		StepID:      extractString(payload, "stepId"),
+		AppName:     extractString(payload, "appName"),
+		Action:      action,
+		Parameters:  params,
+	}
+	if step.ExecutionID == "" {
+		step.ExecutionID = cmdID
+	}
+
+	stepRes := security.ExecuteShufflePlaybookStep(ctx, step)
+	raw, _ := json.Marshal(stepRes)
+	res.Output = string(raw)
+	if !stepRes.Success {
+		res.Status = "failed"
+		res.Error = stepRes.Message
+	} else {
+		res.Status = "completed"
+	}
 }
 
 func extractInt(m map[string]interface{}, keys ...string) int {

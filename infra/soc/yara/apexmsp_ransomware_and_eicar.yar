@@ -1,66 +1,69 @@
 /*
-   ApexMSP YARA-X Ruleset (infra/soc/yara/apexmsp_ransomware_and_eicar.yar)
-   Compatible with YARA-X (`yr scan`) and standard YARA.
-   Covers:
-     1. EICAR Standard Antivirus Test File (68-byte and 67-byte variants)
-     2. ApexMSP Benign Ransomware Simulation Artifacts
-     3. Ransomware Recovery Inhibition Batch / Script Dropper Indicators
-     4. Suspicious Ransom Note & Double-Extortion Artifacts
-*/
+ * ApexMSP YARA-X / ClamAV Bounded Signature Ruleset (v2.0)
+ * License: BSD-3-Clause / First-Party ApexMSP Security
+ */
 
-rule APEX_AV_EICAR_Standard_Test_File {
+rule APEXMSP_EICAR_Standard_Test_File {
     meta:
-        rule_id = "APEX-AV-EICAR-001"
-        author = "ApexMSP Detection Engineering"
+        description = "Detects standard EICAR anti-malware test signature for pipeline verification"
+        author = "ApexMSP Security Engineering"
         severity = "high"
-        confidence = "1.0"
-        category = "malware"
-        description = "Detects the standard EICAR antivirus test string for end-to-end pipeline verification"
-        is_benign_simulation = true
+        mitre_attack = "T1204"
+        rule_id = "YARA-100501"
     strings:
-        $eicar_std = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*" ascii
-        $eicar_alt = "X5O!P%@AP[4\\ZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*" ascii
-        $eicar_sub = "EICAR-STANDARD-ANTIVIRUS-TEST-FILE" ascii
+        $eicar = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
     condition:
-        filesize < 10KB and ($eicar_std or $eicar_alt or $eicar_sub)
+        $eicar
 }
 
-rule APEX_YARA_Benign_Ransomware_Simulation {
+rule APEXMSP_Ransomware_ShadowCopy_Recovery_Inhibition {
     meta:
-        rule_id = "APEX-YARA-RANSOM-SIM"
-        author = "ApexMSP Detection Engineering"
+        description = "Detects Windows Volume Shadow Copy deletion and boot recovery inhibition commands"
+        author = "ApexMSP Security Engineering"
         severity = "critical"
-        confidence = "0.99"
-        category = "ransomware"
-        mitre_attack = "T1486"
-        description = "Detects benign ApexMSP ransomware simulation artifacts used in Purple-Team & Acceptance tests"
-        is_benign_simulation = true
-    strings:
-        $marker1 = "APEXMSP-RANSOMWARE-SIMULATION-ARTIFACT" ascii wide
-        $marker2 = "YOUR_FILES_HAVE_BEEN_ENCRYPTED_APEX_TEST" ascii wide
-        $marker3 = "APEX-CANARY-TAMPER-TEST-PAYLOAD" ascii wide
-    condition:
-        filesize < 50MB and any of ($marker*)
-}
-
-rule APEX_EDR_Recovery_Inhibition_Script {
-    meta:
-        rule_id = "APEX-YARA-RI-SCRIPT"
-        author = "ApexMSP Detection Engineering"
-        severity = "critical"
-        confidence = "0.96"
-        category = "recovery_inhibition"
         mitre_attack = "T1490"
-        description = "Detects batch, PowerShell, or script droppers containing multiple shadow copy & backup deletion commands"
+        rule_id = "YARA-100502"
     strings:
-        $vss1 = "vssadmin delete shadows" ascii wide nocase
-        $vss2 = "vssadmin.exe delete shadows" ascii wide nocase
-        $vss3 = "vssadmin resize shadowstorage" ascii wide nocase
-        $wmic = "wmic shadowcopy delete" ascii wide nocase
-        $wbadmin = "wbadmin delete catalog" ascii wide nocase
-        $bcd1 = "recoveryenabled no" ascii wide nocase
-        $bcd2 = "bootstatuspolicy ignoreallfailures" ascii wide nocase
-        $cipher = "cipher /w:" ascii wide nocase
+        $vss1 = "vssadmin delete shadows" nocase
+        $vss2 = "vssadmin.exe delete shadows" nocase
+        $wmic = "wmic shadowcopy delete" nocase
+        $wbadm = "wbadmin delete catalog" nocase
+        $bcd1 = "bcdedit /set {default} recoveryenabled no" nocase
+        $bcd2 = "bcdedit /set {default} bootstatuspolicy ignoreallfailures" nocase
+        $cipher = "cipher /w:" nocase
     condition:
-        filesize < 5MB and (2 of ($vss1, $vss2, $vss3, $wmic, $wbadmin, $bcd1, $bcd2, $cipher))
+        any of ($vss1, $vss2, $wmic, $wbadm, $bcd1, $bcd2, $cipher)
+}
+
+rule APEXMSP_Canary_Tripwire_Tamper_Marker {
+    meta:
+        description = "Detects unauthorized modification or encryption header on ApexMSP canary tripwire files"
+        author = "ApexMSP Security Engineering"
+        severity = "critical"
+        mitre_attack = "T1486"
+        rule_id = "YARA-100503"
+    strings:
+        $canary_id = "APEXMSP-CANARY-TRIPWIRE-DO-NOT-MODIFY"
+        $ransom_note1 = "YOUR FILES HAVE BEEN ENCRYPTED" nocase
+        $ransom_note2 = "readme_to_decrypt" nocase
+        $lockbit = ".lockbit" nocase
+    condition:
+        any of ($ransom_note1, $ransom_note2, $lockbit) and not $canary_id
+}
+
+rule APEXMSP_Suspicious_Encoded_PowerShell_Stager {
+    meta:
+        description = "Detects hidden/encoded PowerShell download cradles and AMSI bypass strings"
+        author = "ApexMSP Security Engineering"
+        severity = "high"
+        mitre_attack = "T1059.001"
+        rule_id = "YARA-100504"
+    strings:
+        $enc = "-EncodedCommand" nocase
+        $enc_short = "-enc " nocase
+        $amsi = "AmsiScanBuffer" nocase
+        $iex = "Invoke-Expression" nocase
+        $dl = "Net.WebClient" nocase
+    condition:
+        ($enc or $enc_short) and ($amsi or $iex or $dl)
 }

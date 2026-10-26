@@ -315,7 +315,8 @@ export type DeviceCommandType =
   | 'kill_process'
   | 'isolate_host'
   | 'unisolate_host'
-  | 'deploy_canary_files';
+  | 'deploy_canary_files'
+  | 'execute_soar_playbook';
 
 export type DeviceCommandStatus = 'pending' | 'dispatched' | 'running' | 'completed' | 'failed';
 
