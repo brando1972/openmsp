@@ -568,14 +568,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     api.ws.connect(orgId);
 
     // Subscribe to WebSocket events
+    const unsubEnrolled = api.ws.on('device.enrolled' as any, (event) => {
+      const enrolled = event.payload as ManagedDevice;
+      if (!enrolled || !enrolled.id) return;
+      setDevices(prev => {
+        if (prev.some(d => d.id === enrolled.id)) {
+          return prev.map(d => (d.id === enrolled.id ? { ...d, ...enrolled } : d));
+        }
+        return [enrolled, ...prev];
+      });
+    });
+
     const unsubHeartbeat = api.ws.on('device.heartbeat', (event) => {
       const { deviceId, health, metrics } = event.payload || {};
       if (!deviceId) return;
-      setDevices(prev => prev.map(d => (
-        d.id === deviceId
-          ? { ...d, health: health || d.health, metrics: metrics ? { ...d.metrics, ...metrics } : d.metrics }
-          : d
-      )));
+      setDevices(prev => {
+        if (!prev.some(d => d.id === deviceId)) {
+          api.devices.getDevices().then(list => {
+            if (Array.isArray(list) && list.length > 0) {
+              setDevices(cur => {
+                const byId = new Map(cur.map(d => [d.id, d]));
+                for (const item of list) {
+                  if (item.id !== 'HNQ01Q1C' && item.name !== 'Richs Auburn') {
+                    byId.set(item.id, item);
+                  }
+                }
+                return Array.from(byId.values());
+              });
+            }
+          }).catch(() => {});
+          return prev;
+        }
+        return prev.map(d => (
+          d.id === deviceId
+            ? { ...d, health: health || d.health, metrics: metrics ? { ...d.metrics, ...metrics } : d.metrics }
+            : d
+        ));
+      });
     });
 
     const unsubHealthChanged = api.ws.on('device.health_changed', (event) => {
@@ -631,9 +660,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const healthTimer = setInterval(refreshRemoteHealth, 15000);
+    const devicesPollTimer = setInterval(() => {
+      api.devices.getDevices().then(list => {
+        if (Array.isArray(list) && list.length > 0) {
+          setDevices(cur => {
+            const byId = new Map(cur.map(d => [d.id, d]));
+            for (const item of list) {
+              if (item.id !== 'HNQ01Q1C' && item.name !== 'Richs Auburn') {
+                byId.set(item.id, item);
+              }
+            }
+            return Array.from(byId.values());
+          });
+        }
+      }).catch(() => {});
+    }, 8000);
 
     return () => {
       clearInterval(healthTimer);
+      clearInterval(devicesPollTimer);
+      unsubEnrolled();
       unsubHeartbeat();
       unsubHealthChanged();
       unsubCommandUpdated();
