@@ -103,8 +103,8 @@ interface AppContextType {
   setSelectedTicketId: (id: string | null) => void;
   createTicket: (ticket: Omit<PSATicket, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt' | 'comments' | 'timeEntries'>) => void;
   updateTicketStatus: (ticketId: string, status: PSATicket['status']) => void;
-  addTicketComment: (ticketId: string, content: string, isInternal: boolean, authorRole?: 'tech' | 'client' | 'ai_copilot') => void;
-  addTicketTimeEntry: (ticketId: string, minutes: number, description: string, billable: boolean) => void;
+  addTicketComment: (ticketId: string, content: string, isInternal: boolean, authorRole?: 'tech' | 'client' | 'ai_copilot', authorName?: string) => void;
+  addTicketTimeEntry: (ticketId: string, minutes: number, description: string, billable: boolean, techName?: string) => void;
   
   // Bitwarden Vault
   vaultItems: VaultItem[];
@@ -954,10 +954,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const addTicketComment = (ticketId: string, content: string, isInternal: boolean, authorRole: 'tech' | 'client' | 'ai_copilot' = 'tech') => {
+  const addTicketComment = (ticketId: string, content: string, isInternal: boolean, authorRole: 'tech' | 'client' | 'ai_copilot' = 'tech', authorName?: string) => {
     const newComment = {
       id: `c-${Date.now()}`,
-      author: authorRole === 'tech' ? (currentUser?.name || 'Alex Rivera (Tech)') : authorRole === 'ai_copilot' ? 'Apex AI Copilot' : 'Client User',
+      author: authorName || (authorRole === 'tech' ? (currentUser?.name || 'Alex Rivera (Tech)') : authorRole === 'ai_copilot' ? 'Apex AI Copilot' : 'Client User'),
       authorRole,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       content,
@@ -978,10 +978,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const addTicketTimeEntry = (ticketId: string, minutes: number, description: string, billable: boolean) => {
+  const addTicketTimeEntry = (ticketId: string, minutes: number, description: string, billable: boolean, techName?: string) => {
     const newTimeEntry = {
       id: `te-${Date.now()}`,
-      technician: currentUser?.name || 'Alex Rivera',
+      technician: techName || currentUser?.name || 'Alex Rivera',
       minutes,
       description,
       date: new Date().toISOString().split('T')[0],

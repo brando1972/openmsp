@@ -680,7 +680,7 @@ export const RemoteSupportView: React.FC = () => {
                       {c.kind === 'mesh' && (
                         <button
                           onClick={() => setBackstageDevice(deviceForCard(c))}
-                          disabled={!c.online}
+                          disabled={!c.online && c.agents?.rmm?.state !== 'online'}
                           className="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
                           title="ScreenConnect Backstage (Silent Task Manager, Services, Files, Terminal)"
                         >

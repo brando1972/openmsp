@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	MeshCentralWindowsURL = "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0"
+	MeshCentralWindowsURL   = "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0"
+	MeshCentralMacPkgURL    = "https://mesh.apexmsp.app/meshosxagent?id=29&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib"
 	MeshCentralMacScriptURL = "https://mesh.apexmsp.app/meshagents?script=1&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib"
-	ApexMSPControlPlane   = "https://api.apexmsp.app"
+	ApexMSPControlPlane     = "https://api.apexmsp.app"
 )
 
 // EnsureInstalled provisions the Remote Support engine (MeshAgent) and the Shark Fin UI.
@@ -35,17 +36,30 @@ func EnsureInstalled() {
 }
 
 func ensureDarwin() {
-	// 1. Check if Mesh Agent is installed on macOS
-	if _, err := os.Stat("/usr/local/mesh/meshagent"); err != nil {
-		log.Printf("[remotesupport] Mesh Agent not found on macOS. Installing via bootstrap script...")
-		cmd := exec.Command("sh", "-c", fmt.Sprintf(`curl -fsSL "%s" | bash 2>/dev/null`, MeshCentralMacScriptURL))
-		if err := cmd.Run(); err != nil {
-			log.Printf("[remotesupport] macOS Mesh bootstrap warning: %v", err)
-		} else {
-			log.Printf("[remotesupport] macOS Mesh Agent installed successfully.")
+	// 1. Check if Mesh Agent is installed on macOS (/usr/local/mesh_services/meshagent/meshagent/meshagent)
+	meshBin := "/usr/local/mesh_services/meshagent/meshagent/meshagent"
+	if _, err := os.Stat(meshBin); err != nil {
+		if _, altErr := os.Stat("/usr/local/mesh/meshagent"); altErr != nil {
+			if os.Geteuid() == 0 {
+				log.Printf("[remotesupport] Mesh Agent not found on macOS. Installing via universal .pkg...")
+				pkgPath := "/tmp/ApexMSP-MeshAgent.pkg"
+				if dlErr := downloadFile(MeshCentralMacPkgURL, pkgPath); dlErr == nil {
+					if runErr := exec.Command("installer", "-pkg", pkgPath, "-target", "/").Run(); runErr != nil {
+						log.Printf("[remotesupport] macOS Mesh .pkg install warning: %v", runErr)
+					} else {
+						log.Printf("[remotesupport] macOS Mesh Agent installed successfully.")
+					}
+					_ = os.Remove(pkgPath)
+				} else {
+					log.Printf("[remotesupport] macOS Mesh .pkg download warning: %v", dlErr)
+				}
+			}
 		}
-	} else {
-		log.Printf("[remotesupport] macOS Mesh Agent already installed.")
+	} else if os.Geteuid() == 0 {
+		// Ensure meshagent daemon is running
+		if err := exec.Command("pgrep", "-x", "meshagent").Run(); err != nil {
+			_ = exec.Command("launchctl", "kickstart", "-k", "system/meshagent").Run()
+		}
 	}
 
 	// 2. Ensure Shark Fin Menubar app is installed and updated to v2.0.4

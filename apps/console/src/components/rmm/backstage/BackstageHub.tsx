@@ -91,6 +91,11 @@ export const BackstageHub: React.FC<BackstageHubProps> = ({
               <Shield className="w-3.5 h-3.5 text-emerald-400" />
               <span>Device Owner / MDM Bridge</span>
             </div>
+          ) : device.os === 'macos' ? (
+            <div className="hidden md:flex items-center gap-1.5 bg-sky-950/40 text-sky-300 px-2 py-1 rounded border border-sky-800/60 text-[11px] font-semibold">
+              <Shield className="w-3.5 h-3.5 text-sky-400" />
+              <span>root / LaunchDaemon (Background)</span>
+            </div>
           ) : (
             <div className="hidden md:flex items-center gap-1.5 bg-amber-950/40 text-amber-300 px-2 py-1 rounded border border-amber-800/60 text-[11px] font-semibold">
               <Shield className="w-3.5 h-3.5 text-amber-400" />

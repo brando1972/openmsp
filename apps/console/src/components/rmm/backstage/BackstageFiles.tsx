@@ -13,14 +13,13 @@ import {
   Upload,
   FolderUp,
   Trash2,
-  ChevronRight,
   FolderPlus,
   X,
   AlertTriangle
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
-import { MeshFileChannel, RemoteDirEntry, TransferCancelled } from './meshFiles';
+import { FileChannel, MeshFileChannel, RemoteDirEntry, TransferCancelled } from './meshFiles';
 import { buildZip, ZipEntry } from './zipStore';
 
 // Folder downloads are zipped in browser memory, so keep them bounded.
@@ -39,7 +38,30 @@ interface PendingUpload {
   conflicts: string[];
 }
 
-const joinWin = (dir: string, name: string) => `${dir.replace(/\\+$/, '')}\\${name}`;
+const joinPath = (dir: string, name: string, isWindows: boolean): string => {
+  if (isWindows) {
+    const cleanDir = dir.replace(/\//g, '\\').replace(/\\+$/, '');
+    const cleanName = name.replace(/\//g, '\\').replace(/^\\+/, '');
+    return cleanName ? `${cleanDir}\\${cleanName}` : `${cleanDir}\\`;
+  }
+  const cleanDir = dir === '/' ? '' : dir.replace(/\\/g, '/').replace(/\/+$/, '');
+  const cleanName = name.replace(/\\/g, '/').replace(/^\/+/, '');
+  return cleanName ? `${cleanDir}/${cleanName}` : (cleanDir || '/');
+};
+
+const normalizePath = (raw: string, isWindows: boolean): string => {
+  const trimmed = raw.trim();
+  if (isWindows) {
+    if (!trimmed || trimmed === '\\' || trimmed === '/') return 'C:\\';
+    const win = trimmed.replace(/\//g, '\\');
+    if (/^[a-zA-Z]:\\?$/.test(win)) return `${win[0].toUpperCase()}:\\`;
+    return win.replace(/\\+$/, '');
+  }
+  if (!trimmed) return '/';
+  const posix = trimmed.replace(/\\/g, '/');
+  const withLead = posix.startsWith('/') ? posix : `/${posix}`;
+  return withLead.length > 1 ? withLead.replace(/\/+$/, '') : '/';
+};
 
 const saveBlob = (blob: Blob, name: string) => {
   const url = URL.createObjectURL(blob);
@@ -58,9 +80,9 @@ const formatModified = (d?: string): string | undefined => {
   return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
 };
 
-const toItem = (dir: string, e: RemoteDirEntry): RemoteFileItem => ({
+const toItem = (dir: string, e: RemoteDirEntry, isWindows: boolean): RemoteFileItem => ({
   name: e.n,
-  path: joinWin(dir, e.n),
+  path: joinPath(dir, e.n, isWindows),
   isDir: e.t !== 3,
   sizeBytes: e.t === 3 ? e.s : undefined,
   modified: formatModified(e.d)
@@ -92,6 +114,9 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
   onOpenTerminalWithCommand
 }) => {
   const isWindows = device.os === 'windows';
+  const isMac = device.os === 'macos';
+  const isSupportedOs = isWindows || isMac || device.os === 'linux';
+  const deviceOs: 'windows' | 'macos' | 'linux' = isWindows ? 'windows' : device.os === 'linux' ? 'linux' : 'macos';
   const initialRoot = isWindows ? 'C:\\' : '/';
 
   const [currentPath, setCurrentPath] = useState(initialRoot);
@@ -106,39 +131,58 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [transfer, setTransfer] = useState<TransferState | null>(null);
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
+  const [channelMode, setChannelMode] = useState<'mesh' | 'agent' | null>(null);
+
+  // Add Folder modal state (supported on both Windows and Mac)
+  const [showAddFolder, setShowAddFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderError, setNewFolderError] = useState<string | null>(null);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+
   const requestSeq = useRef(0);
-  // Everything here (listing, delete, transfers) goes over MeshCentral's file
-  // relay, which stays connected; the ApexMSP agent's queue is far slower.
-  const channelRef = useRef<Promise<MeshFileChannel> | null>(null);
+  const channelRef = useRef<Promise<FileChannel> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => () => { channelRef.current?.then((c) => c.close()).catch(() => {}); }, []);
 
-  const getChannel = useCallback(async (): Promise<MeshFileChannel> => {
+  useEffect(() => {
+    if (showAddFolder) {
+      setTimeout(() => newFolderInputRef.current?.focus(), 40);
+    }
+  }, [showAddFolder]);
+
+  const getChannel = useCallback(async (): Promise<FileChannel> => {
     const existing = channelRef.current;
     if (existing) {
       try {
         const c = await existing;
-        if (!c.closed) return c;
+        if (!c.closed) {
+          setChannelMode(c.mode);
+          return c;
+        }
       } catch { /* reopen below */ }
     }
-    const opening = MeshFileChannel.open(device.id);
+    const opening = MeshFileChannel.open(device.id, deviceOs);
     channelRef.current = opening;
-    opening.catch(() => { if (channelRef.current === opening) channelRef.current = null; });
+    opening.then((c) => setChannelMode(c.mode)).catch(() => {
+      if (channelRef.current === opening) channelRef.current = null;
+    });
     return opening;
-  }, [device.id]);
+  }, [device.id, deviceOs]);
 
   const listDir = useCallback(async (path: string): Promise<RemoteFileItem[]> => {
     const channel = await getChannel();
     const entries = await channel.ls(path);
     if (!entries) throw new Error(`Can't open ${path}: it doesn't exist or access is denied.`);
-    const items = entries.filter((e) => e.t !== 1).map((e) => toItem(path, e));
+    const items = entries.filter((e) => e.t !== 1).map((e) => toItem(path, e, isWindows));
     items.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
     return items;
-  }, [getChannel]);
+  }, [getChannel, isWindows]);
 
-  const navigateTo = useCallback(async (newPath: string) => {
+  const navigateTo = useCallback(async (rawPath: string) => {
+    const newPath = normalizePath(rawPath, isWindows);
     const seq = ++requestSeq.current;
     setCurrentPath(newPath);
     setPathInput(newPath);
@@ -146,7 +190,7 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
     setLoadError(null);
     setFiles([]);
     setSelectedPath(null);
-    if (!isWindows) return;
+    if (!isSupportedOs) return;
 
     setIsLoading(true);
     try {
@@ -159,11 +203,14 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
     } finally {
       if (seq === requestSeq.current) setIsLoading(false);
     }
-  }, [isWindows, listDir]);
+  }, [isSupportedOs, isWindows, listDir]);
 
   useEffect(() => {
+    channelRef.current?.then((c) => c.close()).catch(() => {});
+    channelRef.current = null;
+    setChannelMode(null);
     navigateTo(initialRoot);
-  }, [navigateTo, initialRoot]);
+  }, [device.id, initialRoot, navigateTo]);
 
   const handleGoUp = () => {
     if (isWindows) {
@@ -182,6 +229,58 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
     }
   };
 
+  const handleOpenAddFolder = () => {
+    setNewFolderName('');
+    setNewFolderError(null);
+    setShowAddFolder(true);
+  };
+
+  const handleCreateFolder = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = newFolderName.trim();
+    if (!trimmed) {
+      setNewFolderError('Please enter a folder name.');
+      return;
+    }
+    if (trimmed === '.' || trimmed === '..') {
+      setNewFolderError('Folder name cannot be "." or "..".');
+      return;
+    }
+    if (/[\\/]/.test(trimmed) || (isWindows && /[<>:"|?*]/.test(trimmed))) {
+      setNewFolderError(
+        isWindows
+          ? 'Folder name cannot contain \\ / : * ? " < > |'
+          : 'Folder name cannot contain / or \\'
+      );
+      return;
+    }
+    if (files.some((f) => f.name.toLowerCase() === trimmed.toLowerCase())) {
+      setNewFolderError(`"${trimmed}" already exists in ${currentPath}.`);
+      return;
+    }
+
+    setIsCreatingFolder(true);
+    setNewFolderError(null);
+    const targetFolder = joinPath(currentPath, trimmed, isWindows);
+    try {
+      const channel = await getChannel();
+      await channel.mkdir(targetFolder);
+      const after = await listDir(currentPath);
+      if (!after.some((f) => f.name.toLowerCase() === trimmed.toLowerCase())) {
+        throw new Error(`Could not create "${trimmed}" in ${currentPath} (access denied or read-only directory).`);
+      }
+      setFiles(after);
+      setShowAddFolder(false);
+      setNewFolderName('');
+      setSelectedPath(targetFolder);
+      setActionMessage({ text: `Created folder "${trimmed}" in ${currentPath}.`, type: 'success' });
+    } catch (err) {
+      setNewFolderError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  };
+
   const handleDeleteFile = async (item: RemoteFileItem) => {
     setIsDeleting(true);
     setActionMessage({ text: `Deleting "${item.name}"…`, type: 'info' });
@@ -193,7 +292,8 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
         throw new Error('it is still there. It may be in use by another program, or access is denied.');
       }
       setConfirmDelete(null);
-      await navigateTo(currentPath);
+      setFiles(after);
+      if (selectedPath === item.path) setSelectedPath(null);
       setActionMessage({ text: `Deleted "${item.name}".`, type: 'success' });
     } catch (err) {
       setConfirmDelete(null);
@@ -239,12 +339,12 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
       while (pending.length > 0) {
         if (controller.signal.aborted) throw new TransferCancelled();
         const rel = pending.shift()!;
-        const abs = rel ? joinWin(item.path, rel) : item.path;
+        const abs = rel ? joinPath(item.path, rel, isWindows) : item.path;
         setTransfer((t) => (t ? { ...t, label: `Scanning "${item.name}"… ${rows.length} files found` } : t));
         const entries = await walker.ls(abs);
         if (!entries) throw new Error(`can't read ${abs} (access denied?).`);
         for (const e of entries) {
-          const childRel = rel ? `${rel}\\${e.n}` : e.n;
+          const childRel = rel ? `${rel}/${e.n}` : e.n;
           if (e.t === 3) {
             rows.push({ Rel: childRel, Length: e.s ?? 0, Modified: e.d });
             walkedBytes += e.s ?? 0;
@@ -270,7 +370,7 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
         const r = rows[i];
         setTransfer({ label: `Downloading "${item.name}" (file ${i + 1} of ${rows.length})`, done: doneBefore, total: totalBytes, controller });
         const data = await channel.download(
-          joinWin(item.path, r.Rel),
+          joinPath(item.path, r.Rel, isWindows),
           (done) => setTransfer((t) => (t ? { ...t, done: doneBefore + done } : t)),
           controller.signal,
           Number(r.Length || 0)
@@ -296,10 +396,12 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
     if (!list || list.length === 0) return;
     const items = Array.from(list).map((file) => ({
       file,
-      relPath: (asFolder && file.webkitRelativePath ? file.webkitRelativePath : file.name).replace(/\//g, '\\')
+      relPath: (asFolder && file.webkitRelativePath ? file.webkitRelativePath : file.name)
+        .replace(/\\/g, '/')
+        .replace(/^\/+/, '')
     }));
     const existing = new Set(files.map((f) => f.name.toLowerCase()));
-    const topNames = Array.from(new Set(items.map((i) => i.relPath.split('\\')[0])));
+    const topNames = Array.from(new Set(items.map((i) => i.relPath.split('/')[0])));
     const conflicts = topNames.filter((n) => existing.has(n.toLowerCase()));
     if (conflicts.length > 0) setPendingUpload({ items, conflicts });
     else startUpload(items);
@@ -320,26 +422,29 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
       // folder that already exists, so check each parent's listing first.
       const dirs = Array.from(new Set(
         items.flatMap((i) => {
-          const parts = i.relPath.split('\\').slice(0, -1);
-          return parts.map((_, k) => parts.slice(0, k + 1).join('\\'));
+          const parts = i.relPath.split('/').slice(0, -1);
+          return parts.map((_, k) => parts.slice(0, k + 1).join('/'));
         })
-      )).sort((a, b) => a.split('\\').length - b.split('\\').length);
+      )).sort((a, b) => a.split('/').length - b.split('/').length);
       const known = new Map<string, Set<string>>();
       for (const rel of dirs) {
-        const parts = rel.split('\\');
+        const parts = rel.split('/');
         const name = parts.pop()!;
-        const parentAbs = parts.length ? joinWin(target, parts.join('\\')) : target;
-        let names = known.get(parentAbs.toLowerCase());
+        const parentAbs = parts.length ? joinPath(target, parts.join('/'), isWindows) : target;
+        const parentKey = isWindows ? parentAbs.toLowerCase() : parentAbs;
+        let names = known.get(parentKey);
         if (!names) {
           const entries = await channel.ls(parentAbs);
           if (!entries) throw new Error(`can't read ${parentAbs} (access denied?).`);
-          names = new Set(entries.map((e) => e.n.toLowerCase()));
-          known.set(parentAbs.toLowerCase(), names);
+          names = new Set(entries.map((e) => (isWindows ? e.n.toLowerCase() : e.n)));
+          known.set(parentKey, names);
         }
-        if (!names.has(name.toLowerCase())) {
-          await channel.mkdir(joinWin(parentAbs, name));
-          names.add(name.toLowerCase());
-          known.set(joinWin(parentAbs, name).toLowerCase(), new Set());
+        const nameKey = isWindows ? name.toLowerCase() : name;
+        if (!names.has(nameKey)) {
+          const newDirAbs = joinPath(parentAbs, name, isWindows);
+          await channel.mkdir(newDirAbs);
+          names.add(nameKey);
+          known.set(isWindows ? newDirAbs.toLowerCase() : newDirAbs, new Set());
         }
       }
       let doneBefore = 0;
@@ -347,7 +452,7 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
         const { file, relPath } = items[i];
         setTransfer({ label: `Uploading "${file.name}" (${i + 1} of ${items.length})`, done: doneBefore, total: totalBytes, controller });
         await channel.upload(
-          joinWin(target, relPath),
+          joinPath(target, relPath, isWindows),
           file,
           (done) => setTransfer((t) => (t ? { ...t, done: doneBefore + done } : t)),
           controller.signal
@@ -375,8 +480,40 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
 
   const filteredFiles = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return files.filter(f => f.name.toLowerCase().includes(q));
+    return files.filter((f) => f.name.toLowerCase().includes(q));
   }, [files, searchQuery]);
+
+  const quickShortcuts = useMemo(() => {
+    if (isWindows) {
+      return [
+        { label: 'C:\\', path: 'C:\\' },
+        { label: 'ApexMSP', path: 'C:\\ProgramData\\ApexMSP' },
+        { label: 'Program Files', path: 'C:\\Program Files' },
+        { label: 'Users', path: 'C:\\Users' },
+        { label: 'Temp', path: 'C:\\Windows\\Temp' }
+      ];
+    }
+    if (isMac) {
+      return [
+        { label: '/', path: '/' },
+        { label: 'Users', path: '/Users' },
+        { label: 'Applications', path: '/Applications' },
+        { label: 'ApexMSP', path: '/Library/Application Support/ApexMSP' },
+        { label: 'Temp', path: '/tmp' }
+      ];
+    }
+    return [
+      { label: '/', path: '/' },
+      { label: 'home', path: '/home' },
+      { label: 'etc', path: '/etc' },
+      { label: 'var/log', path: '/var/log' },
+      { label: 'tmp', path: '/tmp' }
+    ];
+  }, [isWindows, isMac]);
+
+  const terminalListingCmd = isWindows
+    ? `Get-ChildItem -LiteralPath '${currentPath.replace(/'/g, "''")}'`
+    : `ls -la '${currentPath.replace(/'/g, "'\\''")}'`;
 
   return (
     <div className="flex flex-col h-full bg-[#0a0e17] text-slate-200 overflow-hidden select-none font-sans">
@@ -419,83 +556,112 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
           </button>
         </div>
 
-        {isWindows && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!!transfer || isLoading || !!loadError}
-              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded-lg border border-slate-700 text-[11px] font-semibold flex items-center gap-1.5 transition"
-              title={`Upload files into ${currentPath}`}
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload file
-            </button>
-            <button
-              onClick={() => folderInputRef.current?.click()}
-              disabled={!!transfer || isLoading || !!loadError}
-              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded-lg border border-slate-700 text-[11px] font-semibold flex items-center gap-1.5 transition"
-              title={`Upload a folder into ${currentPath}`}
-            >
-              <FolderUp className="w-3.5 h-3.5" /> Upload folder
-            </button>
-            <button
-              onClick={() => selectedItem && handleDownload(selectedItem)}
-              disabled={!selectedItem || !!transfer}
-              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:border-slate-700 text-white rounded-lg border border-blue-500 text-[11px] font-semibold flex items-center gap-1.5 transition"
-              title={selectedItem ? `Download ${selectedItem.name}` : 'Select a file or folder to download'}
-            >
-              <Download className="w-3.5 h-3.5" />
-              {selectedItem ? `Download ${selectedItem.isDir ? 'folder' : 'file'}` : 'Download'}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => { queueUpload(e.target.files, false); e.target.value = ''; }}
-            />
-            <input
-              ref={folderInputRef}
-              type="file"
-              className="hidden"
-              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
-              onChange={(e) => { queueUpload(e.target.files, true); e.target.value = ''; }}
-            />
+        {/* File Transfer & Folder Actions Bar (Windows & Mac) */}
+        {isSupportedOs && (
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!!transfer || isLoading || !!loadError}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded-lg border border-slate-700 text-[11px] font-semibold flex items-center gap-1.5 transition"
+                title={`Upload files into ${currentPath}`}
+              >
+                <Upload className="w-3.5 h-3.5 text-sky-400" /> Upload file
+              </button>
+              <button
+                onClick={() => folderInputRef.current?.click()}
+                disabled={!!transfer || isLoading || !!loadError}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded-lg border border-slate-700 text-[11px] font-semibold flex items-center gap-1.5 transition"
+                title={`Upload a folder into ${currentPath}`}
+              >
+                <FolderUp className="w-3.5 h-3.5 text-amber-400" /> Upload folder
+              </button>
+              <button
+                onClick={handleOpenAddFolder}
+                disabled={!!transfer || isLoading || !!loadError}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 rounded-lg border border-slate-700 text-[11px] font-semibold flex items-center gap-1.5 transition"
+                title={`Create a new folder in ${currentPath}`}
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-emerald-400" /> Add folder
+              </button>
+              <button
+                onClick={() => selectedItem && handleDownload(selectedItem)}
+                disabled={!selectedItem || !!transfer}
+                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:border-slate-700 text-white rounded-lg border border-blue-500 text-[11px] font-semibold flex items-center gap-1.5 transition"
+                title={selectedItem ? `Download ${selectedItem.name}` : 'Select a file or folder to download'}
+              >
+                <Download className="w-3.5 h-3.5" />
+                {selectedItem ? `Download ${selectedItem.isDir ? 'folder' : 'file'}` : 'Download'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => { queueUpload(e.target.files, false); e.target.value = ''; }}
+              />
+              <input
+                ref={folderInputRef}
+                type="file"
+                className="hidden"
+                {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+                onChange={(e) => { queueUpload(e.target.files, true); e.target.value = ''; }}
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              {channelMode && (
+                <span
+                  className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-semibold ${
+                    channelMode === 'mesh'
+                      ? 'bg-emerald-950/50 border-emerald-800/70 text-emerald-300'
+                      : 'bg-sky-950/50 border-sky-800/70 text-sky-300'
+                  }`}
+                  title={
+                    channelMode === 'mesh'
+                      ? 'Connected over live ApexConnect high-speed file relay'
+                      : 'Connected over live ApexMSP App Agent'
+                  }
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                  {channelMode === 'mesh' ? 'ApexConnect Live' : 'ApexMSP App Live'}
+                </span>
+              )}
+              <div className="relative">
+                <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter folder…"
+                  className="pl-7 pr-6 py-1 bg-slate-900 border border-slate-700/80 rounded-lg text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 w-36 sm:w-44 transition"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    title="Clear filter"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
         {/* Quick Shortcuts */}
         <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar text-xs">
           <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mr-1">Jump:</span>
-          <button
-            onClick={() => navigateTo('C:\\')}
-            className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded border border-slate-800 text-[11px] font-mono transition"
-          >
-            C:\
-          </button>
-          <button
-            onClick={() => navigateTo('C:\\ProgramData\\ApexMSP')}
-            className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded border border-slate-800 text-[11px] font-mono transition"
-          >
-            ApexMSP
-          </button>
-          <button
-            onClick={() => navigateTo('C:\\Program Files')}
-            className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded border border-slate-800 text-[11px] font-mono transition"
-          >
-            Program Files
-          </button>
-          <button
-            onClick={() => navigateTo('C:\\Users')}
-            className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded border border-slate-800 text-[11px] font-mono transition"
-          >
-            Users
-          </button>
-          <button
-            onClick={() => navigateTo('C:\\Windows\\Temp')}
-            className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded border border-slate-800 text-[11px] font-mono transition"
-          >
-            Temp
-          </button>
+          {quickShortcuts.map((sc) => (
+            <button
+              key={sc.path}
+              onClick={() => navigateTo(sc.path)}
+              className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded border border-slate-800 text-[11px] font-mono transition whitespace-nowrap"
+            >
+              {sc.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -553,6 +719,7 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
       {/* Files Table Rows */}
       <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-800/60 text-xs font-mono">
         {filteredFiles.map((file) => {
+          const lower = file.name.toLowerCase();
           return (
             <div
               key={file.path}
@@ -565,9 +732,11 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
               <div className="col-span-6 flex items-center gap-2 min-w-0 pr-2">
                 {file.isDir ? (
                   <Folder className="w-4 h-4 text-amber-400 shrink-0" />
-                ) : file.name.endsWith('.exe') ? (
+                ) : /\.(exe|msi|pkg|dmg|sh|command|py|ps1|bat)$/.test(lower) ? (
                   <FileCode className="w-4 h-4 text-sky-400 shrink-0" />
-                ) : file.name.endsWith('.json') || file.name.endsWith('.log') ? (
+                ) : /\.(zip|tar|gz|tgz|7z|rar)$/.test(lower) ? (
+                  <Archive className="w-4 h-4 text-purple-400 shrink-0" />
+                ) : /\.(json|log|plist|txt|md|yml|yaml|xml|ini|conf)$/.test(lower) ? (
                   <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
                 ) : (
                   <File className="w-4 h-4 text-slate-400 shrink-0" />
@@ -614,7 +783,7 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
           );
         })}
 
-        {!isWindows ? (
+        {!isSupportedOs ? (
           <BackstageLiveStatus state="unsupported" deviceName={device.name} what="file browsing" />
         ) : isLoading && files.length === 0 ? (
           <BackstageLiveStatus state="loading" deviceName={device.name} what={currentPath} />
@@ -635,13 +804,85 @@ export const BackstageFiles: React.FC<BackstageFilesProps> = ({
 
         {onOpenTerminalWithCommand && (
           <button
-            onClick={() => onOpenTerminalWithCommand(`Get-ChildItem -LiteralPath '${currentPath.replace(/'/g, "''")}'`)}
+            onClick={() => onOpenTerminalWithCommand(terminalListingCmd)}
             className="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1"
           >
             <span>Open in Terminal</span>
           </button>
         )}
       </div>
+
+      {/* Add Folder Modal (Windows & Mac) */}
+      {showAddFolder && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form
+            onSubmit={handleCreateFolder}
+            className="bg-[#111625] border border-emerald-800/80 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4 text-slate-200 font-sans"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 text-emerald-400 font-bold text-base">
+                <FolderPlus className="w-5 h-5 shrink-0" />
+                <span>Add New Folder</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isCreatingFolder && setShowAddFolder(false)}
+                className="text-slate-400 hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-slate-300">
+                Folder Name
+              </label>
+              <input
+                ref={newFolderInputRef}
+                type="text"
+                value={newFolderName}
+                onChange={(e) => {
+                  setNewFolderName(e.target.value);
+                  if (newFolderError) setNewFolderError(null);
+                }}
+                disabled={isCreatingFolder}
+                placeholder="e.g. Deployments"
+                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="text-[11px] text-slate-400 bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800 font-mono break-all">
+              <span className="text-slate-500 font-sans">Target path: </span>
+              {joinPath(currentPath, newFolderName.trim() || 'NewFolder', isWindows)}
+            </div>
+
+            {newFolderError && (
+              <div className="text-xs text-rose-300 bg-rose-950/60 border border-rose-800/80 rounded-lg px-3 py-2">
+                {newFolderError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowAddFolder(false)}
+                disabled={isCreatingFolder}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isCreatingFolder || !newFolderName.trim()}
+                className="disabled:opacity-50 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                <span>{isCreatingFolder ? 'Creating…' : 'Create Folder'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {pendingUpload && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
