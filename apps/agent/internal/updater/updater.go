@@ -94,7 +94,7 @@ func Apply(u Update) error {
 		if err := os.Rename(tmpPath, staged); err != nil {
 			return fmt.Errorf("stage: %w", err)
 		}
-		return nil // caller exits; ApplyPendingWindows finishes the swap next boot
+		return nil // caller exits so the service restarts; ApplyPendingWindows finishes the swap
 	}
 
 	// unix: atomic swap over the running binary, then re-exec.

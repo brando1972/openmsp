@@ -5,3 +5,5 @@ apps/agent
 infra
 docs
 .DS_Store
+# Runtime data lives in the mounted DATA_DIR, never in the image.
+apps/api/.data

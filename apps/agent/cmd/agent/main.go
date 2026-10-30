@@ -372,6 +372,11 @@ func main() {
 			go func(u client.AgentUpdate) {
 				if err := updater.Apply(updater.Update{Version: u.Version, URL: u.URL, SHA256: u.SHA256}); err != nil {
 					log.Printf("[update] failed: %v", err)
+				} else if runtime.GOOS == "windows" {
+					// Windows stages the update; exiting non-zero makes the service manager's
+					// recovery action restart the service, and ApplyPendingWindows swaps it in.
+					log.Printf("[update] staged %s; restarting service to apply it", u.Version)
+					os.Exit(1)
 				}
 			}(*hbResp.Update)
 		}
