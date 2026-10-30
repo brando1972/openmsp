@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"openmsp/agent/internal/backup"
 	"openmsp/agent/internal/client"
 	"openmsp/agent/internal/collector"
 	"openmsp/agent/internal/security"
@@ -58,6 +59,16 @@ func (e *Executor) Execute(ctx context.Context, cmd client.DeviceCommand) client
 		e.executeSoarPlaybook(ctx, cmd.ID, cmd.CommandType, cmd.Payload, &result)
 	case "update_security_policy":
 		e.executeUpdateSecurityPolicy(cmd.Payload, &result)
+	case "backup_configure":
+		e.executeBackupConfigure(ctx, cmd.Payload, &result)
+	case "backup_run":
+		e.executeBackupRun(ctx, cmd.Payload, &result)
+	case "backup_restore":
+		e.executeBackupRestore(ctx, cmd.Payload, &result)
+	case "backup_verify":
+		e.executeBackupVerify(ctx, cmd.Payload, &result)
+	case "backup_baremetal_capture":
+		e.executeBackupBareMetalCapture(ctx, cmd.Payload, &result)
 	case "install_approved_patches":
 		result.Status = "completed"
 		result.Output = "Patch manager executed: all approved system packages are up-to-date"
@@ -388,6 +399,73 @@ func (e *Executor) executeUpdateSecurityPolicy(payload map[string]interface{}, r
 		return
 	}
 	raw, _ := json.Marshal(updated)
+	res.Status = "completed"
+	res.Output = string(raw)
+}
+
+func (e *Executor) executeBackupConfigure(ctx context.Context, payload map[string]interface{}, res *client.CommandResultRequest) {
+	cfgRes, err := backup.Global().Configure(ctx, payload)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+	raw, _ := json.Marshal(cfgRes)
+	res.Status = "completed"
+	res.Output = string(raw)
+}
+
+func (e *Executor) executeBackupRun(ctx context.Context, payload map[string]interface{}, res *client.CommandResultRequest) {
+	runRes, err := backup.Global().RunBackup(ctx, payload)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+	raw, _ := json.Marshal(runRes)
+	res.Status = "completed"
+	res.Output = string(raw)
+}
+
+func (e *Executor) executeBackupRestore(ctx context.Context, payload map[string]interface{}, res *client.CommandResultRequest) {
+	restRes, err := backup.Global().RestoreSnapshot(ctx, payload)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+	raw, _ := json.Marshal(restRes)
+	res.Status = "completed"
+	res.Output = string(raw)
+}
+
+func (e *Executor) executeBackupVerify(ctx context.Context, payload map[string]interface{}, res *client.CommandResultRequest) {
+	verRes, err := backup.Global().VerifySnapshots(ctx, payload)
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+	raw, _ := json.Marshal(verRes)
+	res.Status = "completed"
+	res.Output = string(raw)
+}
+
+func (e *Executor) executeBackupBareMetalCapture(ctx context.Context, payload map[string]interface{}, res *client.CommandResultRequest) {
+	targetPath := extractString(payload, "targetPath", "path", "sourcePath")
+	var bmRes *backup.BareMetalMetadata
+	var err error
+	if targetPath != "" {
+		bmRes, err = backup.CaptureBareMetalMetadata(ctx, targetPath)
+	} else {
+		bmRes, err = backup.CaptureBareMetalMetadata(ctx)
+	}
+	if err != nil {
+		res.Status = "failed"
+		res.Error = err.Error()
+		return
+	}
+	raw, _ := json.Marshal(bmRes)
 	res.Status = "completed"
 	res.Output = string(raw)
 }

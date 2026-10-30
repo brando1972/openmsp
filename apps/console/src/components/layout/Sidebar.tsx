@@ -32,7 +32,8 @@ import {
   KeyRound,
   Bot,
   UserCheck,
-  Headphones
+  Headphones,
+  HardDrive
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -83,6 +84,9 @@ export const Sidebar: React.FC = () => {
     }
     if (tabId === 'security-soc') {
       setActiveSubRailView('soc-overview');
+    }
+    if (tabId === 'backups') {
+      setActiveSubRailView('backups-overview');
     }
   };
 
@@ -206,6 +210,20 @@ export const Sidebar: React.FC = () => {
             >
               <Shield className="w-5 h-5" />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            </button>
+
+            {/* ApexVault Backups & Bare-Metal Recovery */}
+            <button
+              onClick={() => handleNavClick('backups')}
+              className={`w-10 h-10 rounded-lg flex items-center justify-center transition cursor-pointer relative ${
+                activeTab === 'backups'
+                  ? 'bg-teal-600 text-white font-bold shadow-lg shadow-teal-600/30'
+                  : 'text-teal-400/90 hover:text-white hover:bg-teal-950/50'
+              }`}
+              title="ApexVault Backups & BMR — 3-2-1 Kopia Dedup, VSS Snapshots & Bare-Metal Recovery"
+            >
+              <HardDrive className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
             </button>
 
             {/* ApexMDM — Android Fleet & Config Deploy */}

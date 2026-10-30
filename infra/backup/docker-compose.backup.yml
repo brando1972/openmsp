@@ -1,0 +1,110 @@
+# =============================================================================
+# ApexVault 3-2-1 Backup Gateway — UniFi NAS (UNAS Pro) + Backblaze B2 Stack
+# Target Host: Proxmox Node (192.168.11.x) in front of UniFi NAS (192.168.11.50)
+#
+# Architecture:
+#   Tier 1 (Endpoint) : openmsp-agent + Kopia CLI -> VSS/APFS/LVM + Zstd + AES-256-GCM
+#   Tier 2 (On-Prem)  : apexvault-kopia-gateway (:51515 gRPC/HTTP2 TLS) -> NFSv4.1 to UniFi NAS
+#                       Enforces APPEND-ONLY ACLs (Zero-Trust Ransomware Immunity)
+#                       Uses Proxmox local NVMe cache for sub-millisecond chunk index lookups
+#   Tier 3 (Cloud)    : apexvault-b2-replicator -> Mirrors encrypted repo to Backblaze B2
+#                       with S3 Object Lock (COMPLIANCE mode) + 5% weekly block verification
+# =============================================================================
+
+services:
+  apexvault-kopia-gateway:
+    image: kopia/kopia:0.18.2
+    container_name: apexvault-kopia-gateway
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/scripts/entrypoint-kopia-gateway.sh"]
+    mem_limit: 4096m
+    cpus: 2.0
+    environment:
+      - KOPIA_PASSWORD=${KOPIA_REPOSITORY_PASSWORD:-apexvault-master-repo-key-change-me}
+      - KOPIA_CONFIG_PATH=/config/repository.config
+      - KOPIA_CACHE_DIRECTORY=/cache/kopia
+      - KOPIA_LOG_DIR=/config/logs
+      - KOPIA_REPO_PATH=/mnt/unifi-nas/repo
+      - KOPIA_GATEWAY_HOST=${KOPIA_GATEWAY_HOST:-192.168.11.19}
+      - KOPIA_GATEWAY_PORT=${KOPIA_GATEWAY_PORT:-51515}
+      - KOPIA_SERVER_CONTROL_USER=${KOPIA_SERVER_CONTROL_USER:-admin}
+      - KOPIA_SERVER_CONTROL_PASSWORD=${KOPIA_SERVER_CONTROL_PASSWORD:-apexvault-control-secret-change-me}
+      - KOPIA_AGENT_DEFAULT_USER=${KOPIA_AGENT_DEFAULT_USER:-apex-agent@apexmsp-local}
+      - KOPIA_AGENT_DEFAULT_PASSWORD=${KOPIA_AGENT_DEFAULT_PASSWORD:-apex-agent-append-secret-change-me}
+      - KOPIA_CONTENT_CACHE_SIZE_MB=${KOPIA_CONTENT_CACHE_SIZE_MB:-20480}
+      - KOPIA_METADATA_CACHE_SIZE_MB=${KOPIA_METADATA_CACHE_SIZE_MB:-10240}
+      - RETENTION_LATEST=${RETENTION_LATEST:-24}
+      - RETENTION_HOURLY=${RETENTION_HOURLY:-48}
+      - RETENTION_DAILY=${RETENTION_DAILY:-30}
+      - RETENTION_WEEKLY=${RETENTION_WEEKLY:-12}
+      - RETENTION_MONTHLY=${RETENTION_MONTHLY:-24}
+      - RETENTION_ANNUAL=${RETENTION_ANNUAL:-7}
+      - KOPIA_CHECK_FOR_UPDATES=false
+    ports:
+      - "${KOPIA_GATEWAY_PORT:-51515}:51515/tcp"
+    volumes:
+      - unifi_nas_backup_repo:/mnt/unifi-nas
+      - kopia_nvme_cache:/cache/kopia
+      - kopia_tls_certs:/certs
+      - kopia_config:/config
+      - ./entrypoint-kopia-gateway.sh:/scripts/entrypoint-kopia-gateway.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "kopia --config-file=/config/repository.config server status --address=https://127.0.0.1:51515 --server-cert-fingerprint=$$(cat /certs/kopia-cert.sha256) --remote-username=$${KOPIA_SERVER_CONTROL_USER:-admin} --remote-password=$${KOPIA_SERVER_CONTROL_PASSWORD:-apexvault-control-secret-change-me} >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  apexvault-b2-replicator:
+    image: kopia/kopia:0.18.2
+    container_name: apexvault-b2-replicator
+    restart: unless-stopped
+    depends_on:
+      - apexvault-kopia-gateway
+    entrypoint: ["/bin/sh", "/scripts/sync-unifi-to-b2.sh"]
+    mem_limit: 2048m
+    cpus: 1.5
+    environment:
+      - KOPIA_PASSWORD=${KOPIA_REPOSITORY_PASSWORD:-apexvault-master-repo-key-change-me}
+      - KOPIA_CONFIG_PATH=/config/repository.config
+      - KOPIA_CACHE_DIRECTORY=/cache/kopia
+      - KOPIA_REPO_PATH=/mnt/unifi-nas/repo
+      - B2_BUCKET=${B2_BUCKET:-apexmsp-immutable-vault-prod}
+      - B2_KEY_ID=${B2_KEY_ID:-005ce51e78f6ccc0000000002}
+      - B2_APP_KEY=${B2_APP_KEY:-}
+      - B2_S3_ENDPOINT=${B2_S3_ENDPOINT:-s3.us-east-005.backblazeb2.com}
+      - B2_PREFIX=${B2_PREFIX:-unifi-nas-mirror/}
+      - B2_PARALLEL_TRANSFERS=${B2_PARALLEL_TRANSFERS:-8}
+      - B2_OBJECT_LOCK_MODE=${B2_OBJECT_LOCK_MODE:-COMPLIANCE}
+      - B2_OBJECT_LOCK_DAYS=${B2_OBJECT_LOCK_DAYS:-30}
+      - VERIFY_FILES_PERCENT=${VERIFY_FILES_PERCENT:-5}
+      - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-14400}
+      - APEXMSP_API_URL=${APEXMSP_API_URL:-http://192.168.4.150:4000}
+      - KOPIA_CHECK_FOR_UPDATES=false
+    volumes:
+      - unifi_nas_backup_repo:/mnt/unifi-nas
+      - kopia_nvme_cache:/cache/kopia
+      - kopia_tls_certs:/certs:ro
+      - kopia_config:/config
+      - ./sync-unifi-to-b2.sh:/scripts/sync-unifi-to-b2.sh:ro
+
+volumes:
+  # UniFi NAS (UNAS Pro) NFS v4.1 high-throughput mount (1MB rsize/wsize)
+  unifi_nas_backup_repo:
+    driver: local
+    driver_opts:
+      type: "nfs4"
+      o: "addr=${UNIFI_NAS_IP:-192.168.4.161},rw,nfsvers=4.1,noatime,rsize=1048576,wsize=1048576"
+      device: ":${UNIFI_NAS_NFS_EXPORT:-/volume1/.srv/.unifi-drive/ApexVault-Backups/.data}"
+
+  # Local Proxmox NVMe cache for sub-millisecond deduplication index lookups
+  kopia_nvme_cache:
+    driver: local
+
+  # Persistent TLS certificates & SHA-256 fingerprint for openmsp-agent pinning
+  kopia_tls_certs:
+    driver: local
+
+  # Persistent Kopia repository & server ACL configuration
+  kopia_config:
+    driver: local

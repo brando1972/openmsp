@@ -15,6 +15,7 @@ export type NavigationTab =
   | 'network-map'
   | 'mdm'
   | 'security-soc'
+  | 'backups'
   | 'settings';
 
 export type DeviceOS = 'windows' | 'macos' | 'linux' | 'network' | 'android' | 'ios';
@@ -317,7 +318,12 @@ export type DeviceCommandType =
   | 'unisolate_host'
   | 'deploy_canary_files'
   | 'execute_soar_playbook'
-  | 'update_security_policy';
+  | 'update_security_policy'
+  | 'backup_configure'
+  | 'backup_run'
+  | 'backup_restore'
+  | 'backup_verify'
+  | 'backup_baremetal_capture';
 
 export type DeviceCommandStatus = 'pending' | 'dispatched' | 'running' | 'completed' | 'failed';
 
@@ -393,6 +399,7 @@ export interface AgentHeartbeatRequest {
   arch?: string;
   securityPosture?: SecurityPostureReport;
   securityDetections?: SecurityDetectionInput[];
+  backupStatus?: BackupAgentReport;
 }
 
 export interface AgentUpdate {
@@ -533,7 +540,10 @@ export type WSMessageType =
   | 'security.detection'
   | 'security.incident'
   | 'security.action'
-  | 'unifi.synced';
+  | 'unifi.synced'
+  | 'backup.snapshot'
+  | 'backup.job'
+  | 'backup.vault';
 
 export interface WSEvent<T = any> {
   type: WSMessageType;
@@ -1030,6 +1040,219 @@ export interface SecurityPolicy {
   };
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// ApexVault Backup, Deduplication, Snapshots & Bare-Metal Recovery (v1)
+// ---------------------------------------------------------------------------
+
+export type BackupStorageBackendType =
+  | 'unifi_nas_kopia'
+  | 'backblaze_b2'
+  | 's3_compatible'
+  | 'hybrid_321';
+
+export type BackupMode =
+  | 'file_object_dedup'
+  | 'volume_snapshot_vss'
+  | 'bare_metal_image';
+
+export interface BackupStorageVault {
+  id: string;
+  orgId: string;
+  name: string;
+  description: string;
+  backendType: BackupStorageBackendType;
+  endpointUrl: string;
+  region?: string;
+  unifiNasIp?: string;
+  unifiNfsExport?: string;
+  b2BucketName?: string;
+  b2KeyId?: string;
+  b2ApplicationKeyRestricted?: boolean;
+  immutableObjectLock: boolean;
+  immutableLockMode?: 'COMPLIANCE' | 'GOVERNANCE';
+  immutableRetentionDays: number;
+  appendOnlyEnforced: boolean;
+  encryptionAlgorithm: 'AES256-GCM-HMAC-SHA256' | 'CHACHA20-POLY1305-HMAC-SHA256';
+  chunkSplitter: 'DYNAMIC-4M-BUZHASH' | 'DYNAMIC-8M-RABIN';
+  compressionAlgorithm: 'zstd' | 'zstd-fastest' | 's2-default';
+  capacityBytes: number;
+  logicalProtectedBytes: number;
+  storedDeduplicatedBytes: number;
+  dedupRatio: number; // e.g. 3.8 means 3.8x space reduction
+  online: boolean;
+  connectedAgentsCount: number;
+  totalSnapshotsCount: number;
+  lastSyncToCloudAt?: string;
+  lastVerifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BackupPolicy {
+  id: string;
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  siteId?: string;
+  name: string;
+  enabled: boolean;
+  mode: BackupMode;
+  targetOs: DeviceOS | 'all';
+  scheduleCron: string;
+  scheduleLabel: string;
+  primaryVaultId: string;
+  replicateToCloudVaultId?: string;
+  includePaths: string[];
+  excludePatterns: string[];
+  enableWindowsVss: boolean;
+  enableApfsSnapshot: boolean;
+  enableLvmSnapshot: boolean;
+  capturePartitionTable: boolean;
+  captureEfiBootloader: boolean;
+  compressionAlgorithm: 'zstd' | 'zstd-fastest' | 's2-default';
+  bandwidthLimitMbps?: number;
+  retention: {
+    latest: number;
+    hourly: number;
+    daily: number;
+    weekly: number;
+    monthly: number;
+    annual: number;
+  };
+  immutableLockDays: number;
+  autoVerifyWeekly: boolean;
+  assignedDeviceIds: string[];
+  updatedAt: string;
+}
+
+export interface BackupFileEntry {
+  path: string;
+  sizeBytes: number;
+  modTime: string;
+  type: 'file' | 'dir' | 'vhdx_block' | 'partition_table';
+  sha256?: string;
+  chunksCount?: number;
+}
+
+export interface BackupSnapshot {
+  id: string;
+  manifestId: string;
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  siteId?: string;
+  deviceId: string;
+  deviceName: string;
+  os: DeviceOS;
+  policyId: string;
+  policyName: string;
+  vaultId: string;
+  vaultName: string;
+  mode: BackupMode;
+  status: 'completed' | 'running' | 'verifying' | 'verified' | 'failed';
+  logicalBytes: number;
+  storedDeduplicatedBytes: number;
+  dedupSavingsPct: number;
+  fileCount: number;
+  dirCount: number;
+  vssShadowCopyUsed: boolean;
+  vssShadowCopyPath?: string;
+  partitionLayoutCaptured: boolean;
+  bootEfiCaptured: boolean;
+  replicatedToB2: boolean;
+  immutableUntil: string;
+  verificationStatus: 'pending' | 'verified_ok' | 'corrupted';
+  sha256RootHash: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  filesPreview: BackupFileEntry[];
+}
+
+export type BackupJobType =
+  | 'backup_file_dedup'
+  | 'backup_full_snapshot'
+  | 'backup_bare_metal'
+  | 'restore_files'
+  | 'restore_bare_metal_iso'
+  | 'verify_integrity'
+  | 'sync_unifi_to_b2'
+  | 'provision_b2_tenant_key';
+
+export interface BackupJob {
+  id: string;
+  jobNumber: string;
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  deviceId?: string;
+  deviceName?: string;
+  vaultId: string;
+  vaultName: string;
+  policyId?: string;
+  jobType: BackupJobType;
+  mode: BackupMode;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  progressPct: number;
+  transferRateMbps: number;
+  logicalBytesProcessed: number;
+  deduplicatedBytesWritten: number;
+  commandId?: string;
+  snapshotId?: string;
+  targetRestorePath?: string;
+  recoveryPairingCode?: string;
+  details: string;
+  error?: string;
+  startedAt: string;
+  completedAt?: string;
+}
+
+export interface BareMetalRecoverySession {
+  id: string;
+  pairingCode: string; // 6-digit WinPE / Alpine Live ISO pairing code
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  sourceDeviceId: string;
+  sourceDeviceName: string;
+  sourceOs: DeviceOS;
+  snapshotId: string;
+  manifestId: string;
+  vaultId: string;
+  vaultEndpoint: string;
+  targetHardwareProfile: 'same_hardware' | 'dissimilar_hardware_virtio' | 'proxmox_vm_p2v';
+  bootloaderType: 'uefi_gpt' | 'bios_mbr';
+  partitionLayoutSummary: string;
+  injectVirtioDrivers: boolean;
+  status: 'awaiting_iso_boot' | 'iso_paired' | 'partitioning_disks' | 'streaming_dedup_blocks' | 'repairing_bootloader' | 'completed' | 'expired';
+  progressPct: number;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface BackupAgentReport {
+  kopiaInstalled: boolean;
+  kopiaVersion: string;
+  kopiaBinaryPath: string;
+  kopiaSha256Verified: boolean;
+  repositoryConnected: boolean;
+  vaultEndpoint: string;
+  appendOnlyMode: boolean;
+  vssAvailable: boolean;
+  apfsSnapshotAvailable: boolean;
+  lvmSnapshotAvailable: boolean;
+  lastSnapshotId?: string;
+  lastSnapshotAt?: string;
+  logicalBytesTotal: number;
+  deduplicatedBytesTotal: number;
+  dedupRatio: number;
+  activeJobId?: string;
+  status: 'idle' | 'running_backup' | 'running_restore' | 'verifying' | 'error' | 'unconfigured';
+  lastError?: string;
+  reportedAt: string;
+}
+
 
 
 

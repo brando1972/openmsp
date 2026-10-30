@@ -21,7 +21,9 @@ import {
   Settings,
   HelpCircle,
   ExternalLink,
-  Menu
+  Menu,
+  HardDrive,
+  Shield
 } from 'lucide-react';
 
 export const TopNavbar: React.FC = () => {
@@ -69,6 +71,10 @@ export const TopNavbar: React.FC = () => {
         return <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />;
       case 'ai-copilot':
         return <Bot className="w-3.5 h-3.5 text-purple-400 shrink-0" />;
+      case 'security-soc':
+        return <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" />;
+      case 'backups':
+        return <HardDrive className="w-3.5 h-3.5 text-teal-400 shrink-0" />;
       case 'settings':
         return <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />;
       default:
@@ -78,7 +84,7 @@ export const TopNavbar: React.FC = () => {
 
   const handleTabClick = (tab: WorkspaceTab) => {
     setActiveTabId(tab.id);
-    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'settings'].includes(tab.type)) {
+    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'backups', 'settings'].includes(tab.type)) {
       setActiveTab(tab.type as NavigationTab);
     }
   };
@@ -305,6 +311,8 @@ export const TopNavbar: React.FC = () => {
                     <div className="mt-1 space-y-0.5">
                       {[
                         { type: 'dashboard', title: 'Home Dashboard' },
+                        { type: 'security-soc', title: 'Security & UniFi SOC' },
+                        { type: 'backups', title: 'ApexVault Backups & BMR' },
                         { type: 'rmm', title: 'Assets & Endpoints' },
                         { type: 'psa-tickets', title: 'PSA Tickets' },
                         { type: 'vault', title: 'Bitwarden Vault' },

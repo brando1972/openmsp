@@ -87,6 +87,31 @@ type AgentHeartbeatRequest struct {
 	Arch               string                   `json:"arch,omitempty"`
 	SecurityPosture    *SecurityPostureReport   `json:"securityPosture,omitempty"`
 	SecurityDetections []SecurityDetectionInput `json:"securityDetections,omitempty"`
+	BackupStatus       *BackupAgentReport       `json:"backupStatus,omitempty"`
+}
+
+// BackupAgentReport summarizes local Kopia sidecar health, repository connection,
+// OS volume snapshot capabilities, and deduplication metrics.
+type BackupAgentReport struct {
+	KopiaInstalled         bool    `json:"kopiaInstalled"`
+	KopiaVersion           string  `json:"kopiaVersion"`
+	KopiaBinaryPath        string  `json:"kopiaBinaryPath"`
+	KopiaSha256Verified    bool    `json:"kopiaSha256Verified"`
+	RepositoryConnected    bool    `json:"repositoryConnected"`
+	VaultEndpoint          string  `json:"vaultEndpoint"`
+	AppendOnlyMode         bool    `json:"appendOnlyMode"`
+	VssAvailable           bool    `json:"vssAvailable"`
+	ApfsSnapshotAvailable  bool    `json:"apfsSnapshotAvailable"`
+	LvmSnapshotAvailable   bool    `json:"lvmSnapshotAvailable"`
+	LastSnapshotId         string  `json:"lastSnapshotId,omitempty"`
+	LastSnapshotAt         string  `json:"lastSnapshotAt,omitempty"`
+	LogicalBytesTotal      int64   `json:"logicalBytesTotal"`
+	DeduplicatedBytesTotal int64   `json:"deduplicatedBytesTotal"`
+	DedupRatio             float64 `json:"dedupRatio"`
+	ActiveJobId            string  `json:"activeJobId,omitempty"`
+	Status                 string  `json:"status"` // "idle" | "running_backup" | "running_restore" | "verifying" | "error" | "unconfigured"
+	LastError              string  `json:"lastError,omitempty"`
+	ReportedAt             string  `json:"reportedAt"`
 }
 
 // SecuritySensorState represents the operational state of a local security sensor or AV engine.

@@ -23,6 +23,7 @@ import dispatchRouter from './routes/dispatch.js';
 import stagedAppsRouter from './routes/stagedApps.js';
 import securityRouter, { upsertDeviceSecurityPosture } from './routes/security.js';
 import unifiRouter from './routes/unifi.js';
+import backupsRouter from './routes/backups.js';
 import { store } from './db/store.js';
 import { meshClient } from './mesh/meshClient.js';
 import { startWatchdog } from './mesh/heal.js';
@@ -396,6 +397,7 @@ app.use('/api/v1/dispatch', dispatchRouter);
 app.use('/api/v1/staged-apps', stagedAppsRouter);
 app.use('/api/v1/security', securityRouter);
 app.use('/api/v1/integrations/unifi', unifiRouter);
+app.use('/api/v1/backups', backupsRouter);
 
 // 404 Handler
 app.use((req, res) => {

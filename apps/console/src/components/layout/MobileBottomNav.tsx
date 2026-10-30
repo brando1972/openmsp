@@ -5,6 +5,7 @@ import {
   Layers,
   Ticket,
   Radio,
+  HardDrive,
   Menu
 } from 'lucide-react';
 
@@ -95,6 +96,23 @@ export const MobileBottomNav: React.FC = () => {
           <span className={`absolute -top-0.5 -right-1 w-2 h-2 rounded-full ${rustDeskConfig.onlineState ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
         </div>
         <span className="text-[10px]">Remote</span>
+      </button>
+
+      {/* ApexVault Backups */}
+      <button
+        onClick={() => {
+          setActiveTab('backups');
+          openTab({ type: 'backups', title: 'ApexVault Backups & BMR' });
+        }}
+        className={`flex flex-col items-center justify-center flex-1 py-1 transition cursor-pointer relative ${
+          activeTab === 'backups' ? 'text-emerald-600 font-bold' : 'text-slate-500 hover:text-slate-800'
+        }`}
+      >
+        <div className="relative">
+          <HardDrive className="w-5 h-5 mb-0.5 text-emerald-600" />
+          <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+        </div>
+        <span className="text-[10px]">Backups</span>
       </button>
 
       {/* Menu / Drawer */}

@@ -182,11 +182,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
     { id: 'tab-security-soc', type: 'security-soc', title: 'Security & UniFi SOC', closable: false },
+    { id: 'tab-backups', type: 'backups', title: 'ApexVault Backups & BMR', closable: false },
     { id: 'tab-home', type: 'dashboard', title: 'Home', closable: false },
     { id: 'tab-rmm', type: 'rmm', title: 'Assets', closable: true },
     { id: 'tab-tickets', type: 'psa-tickets', title: 'Tickets', closable: true }
   ]);
-  const [activeTabId, setActiveTabId] = useState<string>('tab-security-soc');
+  const [activeTabId, setActiveTabId] = useState<string>(() => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/backups')) {
+      return 'tab-backups';
+    }
+    return 'tab-security-soc';
+  });
 
   const [activeTimersCount, setActiveTimersCount] = useState<number>(3);
   const [activeSubRailView, setActiveSubRailView] = useState<string>('all');
@@ -199,7 +205,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     if (existing) {
       setActiveTabId(existing.id);
-      if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'settings'].includes(existing.type)) {
+      if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'backups', 'settings'].includes(existing.type)) {
         setActiveTabState(existing.type as NavigationTab);
       }
       return existing.id;
@@ -215,7 +221,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setTabs(prev => [...prev, created]);
     setActiveTabId(tabId);
-    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'settings'].includes(newTab.type)) {
+    if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'backups', 'settings'].includes(newTab.type)) {
       setActiveTabState(newTab.type as NavigationTab);
     }
     return tabId;
@@ -230,7 +236,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const nextActive = updated[Math.max(0, idx - 1)] || updated[0];
         if (nextActive) {
           setActiveTabId(nextActive.id);
-          if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'settings'].includes(nextActive.type)) {
+          if (['dashboard', 'rmm', 'remote-support', 'psa-tickets', 'vault', 'ai-copilot', 'patching', 'automations', 'network-map', 'mdm', 'security-soc', 'backups', 'settings'].includes(nextActive.type)) {
             setActiveTabState(nextActive.type as NavigationTab);
           }
         }
@@ -268,6 +274,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'network-map': 'Network Map',
         'mdm': 'MDM Management',
         'security-soc': 'Security & UniFi SOC',
+        'backups': 'ApexVault Backups & BMR',
         'settings': 'Settings'
       };
       const newId = `tab-${navTab}`;

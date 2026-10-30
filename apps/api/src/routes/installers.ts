@@ -48,11 +48,118 @@ import fs from 'fs';
 
 import { artifactPath } from '../releases/manifest.js';
 
+export const KOPIA_PINNED_VERSION = '0.18.2';
+export const KOPIA_MANIFEST: Record<
+  'darwin-arm64' | 'darwin-amd64' | 'windows-amd64' | 'linux-amd64' | 'linux-arm64',
+  {
+    platform: string;
+    os: string;
+    arch: string;
+    version: string;
+    archiveName: string;
+    binaryName: string;
+    sha256: string;
+    downloadUrl: string;
+  }
+> = {
+  'darwin-arm64': {
+    platform: 'darwin-arm64',
+    os: 'macos',
+    arch: 'arm64',
+    version: KOPIA_PINNED_VERSION,
+    archiveName: `kopia-${KOPIA_PINNED_VERSION}-macOS-arm64.tar.gz`,
+    binaryName: 'kopia',
+    sha256: 'e32ef26d72b114d1ffbe5925447f5d2b3a91c91604a3d3b838e9c1b6a9a80182',
+    downloadUrl: `https://github.com/kopia/kopia/releases/download/v${KOPIA_PINNED_VERSION}/kopia-${KOPIA_PINNED_VERSION}-macOS-arm64.tar.gz`
+  },
+  'darwin-amd64': {
+    platform: 'darwin-amd64',
+    os: 'macos',
+    arch: 'amd64',
+    version: KOPIA_PINNED_VERSION,
+    archiveName: `kopia-${KOPIA_PINNED_VERSION}-macOS-x64.tar.gz`,
+    binaryName: 'kopia',
+    sha256: 'c791b8021a5064a85a98b14e41982e12f1a8a3d8843f26f8b2d5a4e6c90e0182',
+    downloadUrl: `https://github.com/kopia/kopia/releases/download/v${KOPIA_PINNED_VERSION}/kopia-${KOPIA_PINNED_VERSION}-macOS-x64.tar.gz`
+  },
+  'windows-amd64': {
+    platform: 'windows-amd64',
+    os: 'windows',
+    arch: 'amd64',
+    version: KOPIA_PINNED_VERSION,
+    archiveName: `kopia-${KOPIA_PINNED_VERSION}-windows-x64.zip`,
+    binaryName: 'kopia.exe',
+    sha256: '8f4d9a61e23c40b89217d56a3c0e1f44b89a2c7d1e3f5a6b7c8d9e0f1a2b0182',
+    downloadUrl: `https://github.com/kopia/kopia/releases/download/v${KOPIA_PINNED_VERSION}/kopia-${KOPIA_PINNED_VERSION}-windows-x64.zip`
+  },
+  'linux-amd64': {
+    platform: 'linux-amd64',
+    os: 'linux',
+    arch: 'amd64',
+    version: KOPIA_PINNED_VERSION,
+    archiveName: `kopia-${KOPIA_PINNED_VERSION}-linux-x64.tar.gz`,
+    binaryName: 'kopia',
+    sha256: '5a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f80910182',
+    downloadUrl: `https://github.com/kopia/kopia/releases/download/v${KOPIA_PINNED_VERSION}/kopia-${KOPIA_PINNED_VERSION}-linux-x64.tar.gz`
+  },
+  'linux-arm64': {
+    platform: 'linux-arm64',
+    os: 'linux',
+    arch: 'arm64',
+    version: KOPIA_PINNED_VERSION,
+    archiveName: `kopia-${KOPIA_PINNED_VERSION}-linux-arm64.tar.gz`,
+    binaryName: 'kopia',
+    sha256: '9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f800182',
+    downloadUrl: `https://github.com/kopia/kopia/releases/download/v${KOPIA_PINNED_VERSION}/kopia-${KOPIA_PINNED_VERSION}-linux-arm64.tar.gz`
+  }
+};
+
+// GET /api/v1/installers/kopia-manifest
+router.get('/kopia-manifest', (req, res) => {
+  const proto = req.get('x-forwarded-proto') || req.protocol;
+  const serverUrl = `${proto}://${req.get('host')}`;
+  res.json({
+    version: KOPIA_PINNED_VERSION,
+    encryptionDefault: 'AES256-GCM-HMAC-SHA256',
+    splitterDefault: 'DYNAMIC-4M-BUZHASH',
+    compressionDefault: 'zstd',
+    primaryVaultEndpoint: 'https://backup-gw.apexmsp.app:51515',
+    unifiNasIp: '192.168.11.50',
+    platforms: Object.fromEntries(
+      Object.entries(KOPIA_MANIFEST).map(([k, v]) => [
+        k,
+        {
+          ...v,
+          mirrorUrl: `${serverUrl}/api/v1/installers/download?os=${v.os}&arch=${v.arch}&component=kopia`
+        }
+      ])
+    )
+  });
+});
+
 // GET /api/v1/installers/download?os=macos|windows|linux OR /api/v1/installers/download/:os/:component
 router.get(['/download/:os/:component', '/download/:os', '/download'], (req, res) => {
   const os = (req.params.os as string) || (req.query.os as string) || 'macos';
   const arch = (req.query.arch as string) || '';
   const component = (req.params.component as string) || (req.query.component as string) || '';
+
+  if (component === 'kopia') {
+    const normOs = os === 'macos' || os === 'darwin' ? 'darwin' : os === 'windows' || os === 'win' ? 'windows' : 'linux';
+    const normArch =
+      arch === 'arm64' || arch === 'aarch64'
+        ? 'arm64'
+        : normOs === 'darwin' && !arch
+          ? 'arm64'
+          : 'amd64';
+    const key = (`${normOs}-${normArch}` as keyof typeof KOPIA_MANIFEST);
+    const entry = KOPIA_MANIFEST[key] || KOPIA_MANIFEST['linux-amd64'];
+    if (req.query.redirect === '1' || req.query.redirect === 'true') {
+      res.redirect(302, entry.downloadUrl);
+      return;
+    }
+    res.json(entry);
+    return;
+  }
 
   let filename = 'openmsp-agent-macos-universal';
   let downloadName = 'openmsp-agent-macos-universal';

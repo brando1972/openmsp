@@ -25,7 +25,13 @@ import type {
   SecurityIncident,
   SecurityAction,
   UnifiSiteCapability,
-  SecurityPolicy
+  SecurityPolicy,
+  BackupStorageVault,
+  BackupPolicy,
+  BackupSnapshot,
+  BackupJob,
+  BareMetalRecoverySession,
+  BackupAgentReport
 } from '@openmsp/api-types';
 
 export interface DBUser {
@@ -100,6 +106,23 @@ class DataStore {
   public unifiSites: Map<string, UnifiSiteCapability> = new Map(); // key = siteId
   public securityPolicies: Map<string, SecurityPolicy> = new Map(); // key = policyId
 
+  // ---- ApexVault Backup, Deduplication, Snapshots & Bare-Metal Recovery ----
+  public backupVaults: Map<string, BackupStorageVault> = new Map();
+  public backupPolicies: Map<string, BackupPolicy> = new Map();
+  public backupSnapshots: Map<string, BackupSnapshot> = new Map();
+  public backupJobs: Map<string, BackupJob> = new Map();
+  public bareMetalSessions: Map<string, BareMetalRecoverySession> = new Map();
+  public deviceBackupReports: Map<string, BackupAgentReport> = new Map();
+  private backupJobSeq = 1001;
+
+  public nextBackupJobNumber(): string {
+    for (const j of this.backupJobs.values()) {
+      const n = parseInt((j.jobNumber || '').replace(/\D/g, ''), 10);
+      if (Number.isFinite(n) && n >= this.backupJobSeq) this.backupJobSeq = n + 1;
+    }
+    return `BKP-${this.backupJobSeq++}`;
+  }
+
   public nextJobNumber(): string {
     for (const j of this.dispatchJobs.values()) {
       const n = parseInt((j.jobNumber || '').replace(/\D/g, ''), 10);
@@ -118,7 +141,8 @@ class DataStore {
     'dispatchJobs', 'jobMessages', 'techLocations', 'techShifts',
     'stagedApps', 'deviceStagedDeployments',
     'securityPostures', 'identityObservations', 'securityDetections',
-    'securityIncidents', 'securityActions', 'unifiSites', 'securityPolicies'
+    'securityIncidents', 'securityActions', 'unifiSites', 'securityPolicies',
+    'backupVaults', 'backupPolicies', 'backupSnapshots', 'backupJobs', 'bareMetalSessions', 'deviceBackupReports'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -135,8 +159,48 @@ class DataStore {
     if (this.unifiSites.size === 0 || this.identityObservations.size === 0 || this.securityPolicies.size === 0) {
       this.seedSecurityAndUnifiDefaults();
     }
+    if (this.backupVaults.size === 0) {
+      this.seedBackupDefaults();
+    }
+    this.reconcileLiveBackupVaults();
     this.hydrateUnifiFixtures();
     this.startPersistence();
+  }
+
+  private reconcileLiveBackupVaults(): void {
+    const unifi = this.backupVaults.get('vault-unifi-nas-01');
+    if (unifi) {
+      unifi.unifiNasIp = '192.168.4.161';
+      unifi.description = 'High-speed local LAN 10GbE NFSv4.1 content-addressable deduplicated vault hosted on UniFi UNAS Pro (192.168.4.161) via Proxmox Kopia Repository Server with zero-trust append-only client tokens.';
+      this.backupVaults.set(unifi.id, unifi);
+    }
+    const b2 = this.backupVaults.get('vault-b2-cloud-01');
+    if (b2) {
+      b2.name = 'Backblaze B2 — Immutable 3-2-1 Offsite Archive (US-East-005)';
+      b2.description = 'Live Backblaze B2 (APEXBckUp • Vaultwarden 580ad0cc) S3-compatible WORM Object Lock COMPLIANCE archive (bucketId: 5c5ee571eeb788efa61c0c1c) with restricted write-only tenant application keys.';
+      b2.endpointUrl = 'https://s3.us-east-005.backblazeb2.com';
+      b2.region = 'us-east-005';
+      b2.b2BucketName = 'apexmsp-immutable-vault-prod';
+      b2.b2KeyId = '005ce51e78f6ccc0000000002';
+      this.backupVaults.set(b2.id, b2);
+    }
+    if (!this.vaultItems.has('v-b2-apexbckup')) {
+      this.vaultItems.set('v-b2-apexbckup', {
+        id: 'v-b2-apexbckup',
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        folder: 'Cloud Backup & Disaster Recovery',
+        type: 'server_credential',
+        title: 'BackBlaze B2 — APEXBckUp Master Application Key',
+        username: '005ce51e78f6ccc0000000002',
+        password: '••••••••••••',
+        url: 'https://s3.us-east-005.backblazeb2.com',
+        notes: 'Synced from Vaultwarden (vault.devguru.app item 580ad0cc-a06c-46b3-a720-63a78719f644). Bucket: apexmsp-immutable-vault-prod (5c5ee571eeb788efa61c0c1c) with S3 Object Lock enabled.',
+        favorite: true,
+        strengthScore: 98,
+        lastModified: new Date().toISOString()
+      });
+    }
   }
 
   private hydrate(): boolean {
@@ -511,6 +575,7 @@ class DataStore {
 
     this.seedDefaultStagedApps();
     this.seedSecurityAndUnifiDefaults();
+    this.seedBackupDefaults();
   }
 
   public seedDefaultStagedApps() {
@@ -2042,6 +2107,689 @@ class DataStore {
     }
 
     return { hydratedFiles, observationsMerged, sitesMerged };
+  }
+
+  public seedBackupDefaults() {
+    const orgId = Array.from(this.orgs.values())[0]?.id || '00000000-0000-0000-0000-000000000001';
+    const now = Date.now();
+    const iso = (msOffset = 0) => new Date(now + msOffset).toISOString();
+
+    // Ensure ACME-EXEC-PC (dev-win-01) and Brandons-MacBook-Pro.local (dev-mac-7c8a43) exist in devices map
+    if (!this.devices.has('dev-win-01')) {
+      this.devices.set('dev-win-01', {
+        id: 'dev-win-01',
+        name: 'ACME-EXEC-PC',
+        hostname: 'acme-exec-pc.apexmsp.local',
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        siteId: 'Primary',
+        siteName: 'Primary',
+        os: 'windows',
+        osVersion: 'Windows 11 Pro 24H2',
+        serialNumber: 'WIN-EXEC-00192',
+        ipAddress: '192.168.4.145',
+        publicIp: '98.42.110.14',
+        macAddress: 'D8:BB:C1:44:01:45',
+        health: 'healthy',
+        metrics: { cpuUsage: 18, ramUsage: 52, diskUsage: 46, uptimeDays: 14.3, lastSeen: iso(-10000) },
+        rustDeskId: '719000145',
+        rustDeskOnline: true,
+        agentVersion: '2.0.4',
+        arch: 'amd64',
+        mdmEnrolled: true,
+        encryptionStatus: 'encrypted',
+        patchCompliance: 100,
+        pendingPatchesCount: 0,
+        installedApps: [],
+        services: [],
+        eventLogs: [],
+        tags: ['executive', 'bare-metal-protected', 'vss-enabled'],
+        loggedInUser: 'APEX\\brandon',
+        domain: 'APEXMSP.LOCAL',
+        createdAt: iso(-86400000 * 60),
+        updatedAt: iso(-10000)
+      });
+    }
+
+    if (!this.devices.has('dev-mac-7c8a43')) {
+      this.devices.set('dev-mac-7c8a43', {
+        id: 'dev-mac-7c8a43',
+        name: 'Brandons-MacBook-Pro.local',
+        hostname: 'Brandons-MacBook-Pro.local',
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        siteId: 'Primary',
+        siteName: 'Primary',
+        os: 'macos',
+        osVersion: 'macOS Sequoia 15.3.1',
+        serialNumber: 'C02X90887C8A',
+        ipAddress: '192.168.4.122',
+        publicIp: '98.42.110.14',
+        macAddress: 'F0:18:98:7C:8A:43',
+        health: 'healthy',
+        metrics: { cpuUsage: 14, ramUsage: 48, diskUsage: 41, uptimeDays: 21.8, lastSeen: iso(-8000) },
+        rustDeskId: '719000122',
+        rustDeskOnline: true,
+        agentVersion: '2.0.4',
+        arch: 'arm64',
+        mdmEnrolled: true,
+        encryptionStatus: 'encrypted',
+        patchCompliance: 100,
+        pendingPatchesCount: 0,
+        installedApps: [],
+        services: [],
+        eventLogs: [],
+        tags: ['executive', 'apfs-snapshot', 'site-collector'],
+        loggedInUser: 'dev',
+        createdAt: iso(-86400000 * 60),
+        updatedAt: iso(-8000)
+      });
+    }
+
+    // 1. Seed 2 Backup Storage Vaults (UniFi UNAS Pro + Backblaze B2)
+    const TB = 1024 ** 4;
+    const GB = 1024 ** 3;
+    const MB = 1024 ** 2;
+
+    const vaultUnifi: BackupStorageVault = {
+      id: 'vault-unifi-nas-01',
+      orgId,
+      name: 'UniFi UNAS Pro — Primary 10GbE Vault (Proxmox Kopia Gateway)',
+      description: 'High-speed local LAN 10GbE NFSv4.1 content-addressable deduplicated vault hosted on UniFi UNAS Pro (192.168.4.161) via Proxmox Kopia Repository Server with zero-trust append-only client tokens.',
+      backendType: 'unifi_nas_kopia',
+      endpointUrl: 'https://backup-gw.apexmsp.app:51515',
+      region: 'LAN-10GbE-Primary',
+      unifiNasIp: '192.168.4.161',
+      unifiNfsExport: '/volume1/.srv/.unifi-drive/ApexVault-Backups/.data',
+      immutableObjectLock: true,
+      immutableLockMode: 'COMPLIANCE',
+      immutableRetentionDays: 30,
+      appendOnlyEnforced: true,
+      encryptionAlgorithm: 'AES256-GCM-HMAC-SHA256',
+      chunkSplitter: 'DYNAMIC-4M-BUZHASH',
+      compressionAlgorithm: 'zstd',
+      capacityBytes: Math.round(32 * TB),
+      logicalProtectedBytes: Math.round(4.85 * TB),
+      storedDeduplicatedBytes: Math.round(1.18 * TB),
+      dedupRatio: 4.11,
+      online: true,
+      connectedAgentsCount: 7,
+      totalSnapshotsCount: 6,
+      lastSyncToCloudAt: iso(-1800000),
+      lastVerifiedAt: iso(-3600000),
+      createdAt: iso(-86400000 * 60),
+      updatedAt: iso(-300000)
+    };
+
+    const vaultB2: BackupStorageVault = {
+      id: 'vault-b2-cloud-01',
+      orgId,
+      name: 'Backblaze B2 — Immutable 3-2-1 Offsite Archive (US-East-005)',
+      description: 'Live Backblaze B2 (APEXBckUp • Vaultwarden 580ad0cc) S3-compatible WORM Object Lock COMPLIANCE archive (bucketId: 5c5ee571eeb788efa61c0c1c) with restricted write-only tenant application keys.',
+      backendType: 'backblaze_b2',
+      endpointUrl: 'https://s3.us-east-005.backblazeb2.com',
+      region: 'us-east-005',
+      b2BucketName: 'apexmsp-immutable-vault-prod',
+      b2KeyId: '005ce51e78f6ccc0000000002',
+      b2ApplicationKeyRestricted: true,
+      immutableObjectLock: true,
+      immutableLockMode: 'COMPLIANCE',
+      immutableRetentionDays: 30,
+      appendOnlyEnforced: true,
+      encryptionAlgorithm: 'AES256-GCM-HMAC-SHA256',
+      chunkSplitter: 'DYNAMIC-4M-BUZHASH',
+      compressionAlgorithm: 'zstd',
+      capacityBytes: Math.round(100 * TB),
+      logicalProtectedBytes: Math.round(4.85 * TB),
+      storedDeduplicatedBytes: Math.round(1.18 * TB),
+      dedupRatio: 4.11,
+      online: true,
+      connectedAgentsCount: 7,
+      totalSnapshotsCount: 6,
+      lastSyncToCloudAt: iso(-1800000),
+      lastVerifiedAt: iso(-3600000),
+      createdAt: iso(-86400000 * 60),
+      updatedAt: iso(-1800000)
+    };
+
+    this.backupVaults.set(vaultUnifi.id, vaultUnifi);
+    this.backupVaults.set(vaultB2.id, vaultB2);
+
+    // 2. Seed 3 Backup Policies (Phase 1 File Dedup, Phase 2 VSS/APFS Snapshot, Phase 3 Bare-Metal Image)
+    const policies: BackupPolicy[] = [
+      {
+        id: 'pol-backup-files-dedup',
+        orgId,
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        siteId: 'Primary',
+        name: 'Workstation File & Object Dedup (Hourly -> UniFi NAS + B2)',
+        enabled: true,
+        mode: 'file_object_dedup',
+        targetOs: 'all',
+        scheduleCron: '0 * * * *',
+        scheduleLabel: 'Every Hour on the Hour',
+        primaryVaultId: 'vault-unifi-nas-01',
+        replicateToCloudVaultId: 'vault-b2-cloud-01',
+        includePaths: [
+          'C:\\Users',
+          'C:\\QuickBooksData',
+          '/Users',
+          '/etc',
+          '/var/lib/kwickpos'
+        ],
+        excludePatterns: [
+          '**/node_modules/**',
+          '**/.git/objects/**',
+          '**/AppData/Local/Temp/**',
+          '**/Caches/**',
+          '*.tmp',
+          'pagefile.sys',
+          'hiberfil.sys'
+        ],
+        enableWindowsVss: false,
+        enableApfsSnapshot: false,
+        enableLvmSnapshot: false,
+        capturePartitionTable: false,
+        captureEfiBootloader: false,
+        compressionAlgorithm: 'zstd',
+        bandwidthLimitMbps: 500,
+        retention: {
+          latest: 48,
+          hourly: 24,
+          daily: 30,
+          weekly: 12,
+          monthly: 24,
+          annual: 7
+        },
+        immutableLockDays: 30,
+        autoVerifyWeekly: true,
+        assignedDeviceIds: ['dev-mac-7c8a43', 'dev-gambinos-bo-pc', 'dev-raytreat-clin-01'],
+        updatedAt: iso(-3600000 * 6)
+      },
+      {
+        id: 'pol-backup-vss-snapshot',
+        orgId,
+        clientId: 'c-gambinos',
+        clientName: 'Gambinos',
+        siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
+        name: 'Executive & POS Atomic Volume Snapshot (VSS / APFS)',
+        enabled: true,
+        mode: 'volume_snapshot_vss',
+        targetOs: 'all',
+        scheduleCron: '0 */4 * * *',
+        scheduleLabel: 'Every 4 Hours (Atomic VSS/APFS Freeze)',
+        primaryVaultId: 'vault-unifi-nas-01',
+        replicateToCloudVaultId: 'vault-b2-cloud-01',
+        includePaths: [
+          'C:\\Users',
+          'C:\\ProgramData\\ApexMSP',
+          'C:\\POSDatabase',
+          '/Users',
+          '/opt/kwickpos',
+          '/var/lib/mysql'
+        ],
+        excludePatterns: [
+          '**/Temp/**',
+          '**/Caches/**',
+          '*.swap'
+        ],
+        enableWindowsVss: true,
+        enableApfsSnapshot: true,
+        enableLvmSnapshot: true,
+        capturePartitionTable: true,
+        captureEfiBootloader: false,
+        compressionAlgorithm: 'zstd',
+        bandwidthLimitMbps: 1000,
+        retention: {
+          latest: 24,
+          hourly: 12,
+          daily: 30,
+          weekly: 12,
+          monthly: 12,
+          annual: 5
+        },
+        immutableLockDays: 30,
+        autoVerifyWeekly: true,
+        assignedDeviceIds: ['dev-win-01', 'dev-gambinos-pos-ctrl', 'dev-tbi-pos-srv', 'dev-mac-7c8a43'],
+        updatedAt: iso(-3600000 * 4)
+      },
+      {
+        id: 'pol-backup-baremetal',
+        orgId,
+        clientId: 'c-municipality',
+        clientName: 'Municipal Client (City Hall & Public Safety)',
+        siteId: 'muni-city-hall',
+        name: 'Critical Server & Executive Bare-Metal Image (VHDX + EFI/GPT)',
+        enabled: true,
+        mode: 'bare_metal_image',
+        targetOs: 'windows',
+        scheduleCron: '0 2 * * *',
+        scheduleLabel: 'Nightly at 02:00 AM + Pre-Patch Trigger',
+        primaryVaultId: 'vault-unifi-nas-01',
+        replicateToCloudVaultId: 'vault-b2-cloud-01',
+        includePaths: [
+          '\\\\?\\Volume{EFI-SYSTEM}',
+          'C:\\',
+          'D:\\CAD_Database'
+        ],
+        excludePatterns: [
+          'pagefile.sys',
+          'hiberfil.sys',
+          'swapfile.sys'
+        ],
+        enableWindowsVss: true,
+        enableApfsSnapshot: true,
+        enableLvmSnapshot: true,
+        capturePartitionTable: true,
+        captureEfiBootloader: true,
+        compressionAlgorithm: 'zstd',
+        bandwidthLimitMbps: 2500,
+        retention: {
+          latest: 14,
+          hourly: 0,
+          daily: 14,
+          weekly: 8,
+          monthly: 12,
+          annual: 7
+        },
+        immutableLockDays: 30,
+        autoVerifyWeekly: true,
+        assignedDeviceIds: ['dev-win-01', 'dev-muni-cad-01', 'dev-tbi-pos-srv'],
+        updatedAt: iso(-3600000 * 2)
+      }
+    ];
+
+    for (const p of policies) {
+      this.backupPolicies.set(p.id, p);
+    }
+
+    // 3. Seed 6 Realistic Snapshots across the seeded devices covering all 3 modes
+    const immutableDate = iso(86400000 * 30);
+    const snapshots: BackupSnapshot[] = [
+      {
+        id: 'snap-win01-baremetal-001',
+        manifestId: 'k8f92a10c4b3e7d1902a5f6c8d1e4b3a',
+        orgId,
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        siteId: 'Primary',
+        deviceId: 'dev-win-01',
+        deviceName: 'ACME-EXEC-PC',
+        os: 'windows',
+        policyId: 'pol-backup-baremetal',
+        policyName: 'Critical Server & Executive Bare-Metal Image (VHDX + EFI/GPT)',
+        vaultId: 'vault-unifi-nas-01',
+        vaultName: vaultUnifi.name,
+        mode: 'bare_metal_image',
+        status: 'verified',
+        logicalBytes: Math.round(482 * GB),
+        storedDeduplicatedBytes: Math.round(112.4 * GB),
+        dedupSavingsPct: 76.7,
+        fileCount: 314820,
+        dirCount: 41205,
+        vssShadowCopyUsed: true,
+        vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy14',
+        partitionLayoutCaptured: true,
+        bootEfiCaptured: true,
+        replicatedToB2: true,
+        immutableUntil: immutableDate,
+        verificationStatus: 'verified_ok',
+        sha256RootHash: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        startedAt: iso(-3600000 * 5),
+        completedAt: iso(-3600000 * 5 + 412000),
+        durationMs: 412000,
+        filesPreview: [
+          { path: '/efi-system-partition/EFI/Microsoft/Boot/bootmgfw.efi', sizeBytes: 1642496, modTime: iso(-86400000 * 12), type: 'file', sha256: '4a8b9c112233445566778899aabbccddeeff00112233445566778899aabbccdd', chunksCount: 1 },
+          { path: '/partition-table-gpt.json', sizeBytes: 18432, modTime: iso(-3600000 * 5), type: 'partition_table', sha256: '7c9d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d', chunksCount: 1 },
+          { path: '/volumes/C_OS_NVMe0n1p3.vhdx.kopia-blocks', sizeBytes: Math.round(468 * GB), modTime: iso(-3600000 * 5), type: 'vhdx_block', sha256: 'e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70', chunksCount: 119808 },
+          { path: 'C:/Users/brandon/Documents/Q4-Board-Financial-Model.xlsx', sizeBytes: 14829104, modTime: iso(-3600000 * 7), type: 'file', sha256: '3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a', chunksCount: 4 },
+          { path: 'C:/Users/brandon/Desktop/ApexMSP-Master-Architecture.pdf', sizeBytes: 8421376, modTime: iso(-3600000 * 12), type: 'file', sha256: '6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e', chunksCount: 3 }
+        ]
+      },
+      {
+        id: 'snap-mac01-apfs-002',
+        manifestId: 'k3c71b88e2a9f40156d8c3a2b1e0f9d4',
+        orgId,
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        siteId: 'Primary',
+        deviceId: 'dev-mac-7c8a43',
+        deviceName: 'Brandons-MacBook-Pro.local',
+        os: 'macos',
+        policyId: 'pol-backup-vss-snapshot',
+        policyName: 'Executive & POS Atomic Volume Snapshot (VSS / APFS)',
+        vaultId: 'vault-unifi-nas-01',
+        vaultName: vaultUnifi.name,
+        mode: 'volume_snapshot_vss',
+        status: 'verified',
+        logicalBytes: Math.round(318 * GB),
+        storedDeduplicatedBytes: Math.round(78.2 * GB),
+        dedupSavingsPct: 75.4,
+        fileCount: 482910,
+        dirCount: 64110,
+        vssShadowCopyUsed: true,
+        vssShadowCopyPath: 'com.apple.TimeMachine.2026-10-30-160001.local@/dev/disk3s5',
+        partitionLayoutCaptured: true,
+        bootEfiCaptured: false,
+        replicatedToB2: true,
+        immutableUntil: immutableDate,
+        verificationStatus: 'verified_ok',
+        sha256RootHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
+        startedAt: iso(-3600000 * 3),
+        completedAt: iso(-3600000 * 3 + 168000),
+        durationMs: 168000,
+        filesPreview: [
+          { path: '/Users/dev/Development/openmsp-workspace', sizeBytes: 184549376, modTime: iso(-3600000 * 3), type: 'dir', chunksCount: 48 },
+          { path: '/Users/dev/.ssh/config', sizeBytes: 2048, modTime: iso(-86400000 * 10), type: 'file', sha256: '11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff', chunksCount: 1 },
+          { path: '/Users/dev/Documents/ApexMSP-Contracts-2026.pdf', sizeBytes: 6291456, modTime: iso(-86400000 * 2), type: 'file', sha256: 'ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211', chunksCount: 2 }
+        ]
+      },
+      {
+        id: 'snap-gambinos-pos-003',
+        manifestId: 'k9d44e12a7c8b3091f2e5d6c7b8a9012',
+        orgId,
+        clientId: 'c-gambinos',
+        clientName: 'Gambinos',
+        siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
+        deviceId: 'dev-gambinos-pos-ctrl',
+        deviceName: 'GAMBINOS-KWICKPOS-C1',
+        os: 'linux',
+        policyId: 'pol-backup-vss-snapshot',
+        policyName: 'Executive & POS Atomic Volume Snapshot (VSS / APFS)',
+        vaultId: 'vault-unifi-nas-01',
+        vaultName: vaultUnifi.name,
+        mode: 'volume_snapshot_vss',
+        status: 'verified',
+        logicalBytes: Math.round(145 * GB),
+        storedDeduplicatedBytes: Math.round(34.8 * GB),
+        dedupSavingsPct: 76.0,
+        fileCount: 192400,
+        dirCount: 18920,
+        vssShadowCopyUsed: true,
+        vssShadowCopyPath: '/dev/mapper/vg_kwickpos-lv_root_snap_20261030',
+        partitionLayoutCaptured: true,
+        bootEfiCaptured: true,
+        replicatedToB2: true,
+        immutableUntil: immutableDate,
+        verificationStatus: 'verified_ok',
+        sha256RootHash: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',
+        startedAt: iso(-3600000 * 2),
+        completedAt: iso(-3600000 * 2 + 94000),
+        durationMs: 94000,
+        filesPreview: [
+          { path: '/var/lib/kwickpos/orders_2026_10.ibd', sizeBytes: 4294967296, modTime: iso(-3600000 * 2), type: 'file', sha256: 'aa11bb22cc33dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900', chunksCount: 1024 },
+          { path: '/etc/kwickpos/pax_terminals_sitemanager.json', sizeBytes: 16384, modTime: iso(-86400000 * 5), type: 'file', sha256: 'bb22cc33dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900aa11', chunksCount: 1 },
+          { path: '/partition-table-lvm.json', sizeBytes: 12288, modTime: iso(-3600000 * 2), type: 'partition_table', chunksCount: 1 }
+        ]
+      },
+      {
+        id: 'snap-gambinos-bopc-004',
+        manifestId: 'k7b19c04d5e6f8123a4b5c6d7e8f901a',
+        orgId,
+        clientId: 'c-gambinos',
+        clientName: 'Gambinos',
+        siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
+        deviceId: 'dev-gambinos-bo-pc',
+        deviceName: 'GAMBINOS-BACKOFFICE-PC',
+        os: 'windows',
+        policyId: 'pol-backup-files-dedup',
+        policyName: 'Workstation File & Object Dedup (Hourly -> UniFi NAS + B2)',
+        vaultId: 'vault-unifi-nas-01',
+        vaultName: vaultUnifi.name,
+        mode: 'file_object_dedup',
+        status: 'verified',
+        logicalBytes: Math.round(92.5 * GB),
+        storedDeduplicatedBytes: Math.round(28.1 * GB),
+        dedupSavingsPct: 69.6,
+        fileCount: 84310,
+        dirCount: 9120,
+        vssShadowCopyUsed: true,
+        vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy9',
+        partitionLayoutCaptured: false,
+        bootEfiCaptured: false,
+        replicatedToB2: true,
+        immutableUntil: immutableDate,
+        verificationStatus: 'verified_ok',
+        sha256RootHash: 'cd2eb0837c9b4c962c22d2ff8b5441b7b45805887f051d39bf133b583baf6860',
+        startedAt: iso(-3600000 * 1),
+        completedAt: iso(-3600000 * 1 + 52000),
+        durationMs: 52000,
+        filesPreview: [
+          { path: 'C:/QuickBooksData/Gambinos_Store1_2026.QBW', sizeBytes: 854589440, modTime: iso(-3600000 * 1), type: 'file', sha256: 'cc33dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900aa11bb22', chunksCount: 204 },
+          { path: 'C:/Users/store_mgr/Documents/Weekly_Payroll_Oct2026.xlsx', sizeBytes: 4194304, modTime: iso(-3600000 * 4), type: 'file', sha256: 'dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900aa11bb22cc33', chunksCount: 1 }
+        ]
+      },
+      {
+        id: 'snap-muni-cad-005',
+        manifestId: 'k5a88f31c9d0e2471b3c4d5e6f7a8b9c',
+        orgId,
+        clientId: 'c-municipality',
+        clientName: 'Municipal Client (City Hall & Public Safety)',
+        siteId: 'muni-city-hall',
+        deviceId: 'dev-muni-cad-01',
+        deviceName: 'MUNI-DISPATCH-CAD-01',
+        os: 'windows',
+        policyId: 'pol-backup-baremetal',
+        policyName: 'Critical Server & Executive Bare-Metal Image (VHDX + EFI/GPT)',
+        vaultId: 'vault-unifi-nas-01',
+        vaultName: vaultUnifi.name,
+        mode: 'bare_metal_image',
+        status: 'verified',
+        logicalBytes: Math.round(1.24 * TB),
+        storedDeduplicatedBytes: Math.round(284 * GB),
+        dedupSavingsPct: 77.6,
+        fileCount: 612900,
+        dirCount: 58400,
+        vssShadowCopyUsed: true,
+        vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy22',
+        partitionLayoutCaptured: true,
+        bootEfiCaptured: true,
+        replicatedToB2: true,
+        immutableUntil: immutableDate,
+        verificationStatus: 'verified_ok',
+        sha256RootHash: 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f',
+        startedAt: iso(-3600000 * 6),
+        completedAt: iso(-3600000 * 6 + 685000),
+        durationMs: 685000,
+        filesPreview: [
+          { path: '/efi-system-partition/EFI/Microsoft/Boot/BCD', sizeBytes: 65536, modTime: iso(-86400000 * 30), type: 'file', chunksCount: 1 },
+          { path: '/partition-table-gpt.json', sizeBytes: 24576, modTime: iso(-3600000 * 6), type: 'partition_table', chunksCount: 1 },
+          { path: '/volumes/C_Server2022_Datacenter.vhdx.kopia-blocks', sizeBytes: Math.round(420 * GB), modTime: iso(-3600000 * 6), type: 'vhdx_block', chunksCount: 107520 },
+          { path: '/volumes/D_CAD_Database_CJIS.vhdx.kopia-blocks', sizeBytes: Math.round(820 * GB), modTime: iso(-3600000 * 6), type: 'vhdx_block', chunksCount: 209920 }
+        ]
+      },
+      {
+        id: 'snap-tbi-pos-006',
+        manifestId: 'k2e61d90f4a8c7231e5f6a7b8c9d0e1f',
+        orgId,
+        clientId: 'c-tbi',
+        clientName: 'TBI',
+        siteId: 'TBI-Main',
+        deviceId: 'dev-tbi-pos-srv',
+        deviceName: 'TBI-POS-MASTER',
+        os: 'windows',
+        policyId: 'pol-backup-baremetal',
+        policyName: 'Critical Server & Executive Bare-Metal Image (VHDX + EFI/GPT)',
+        vaultId: 'vault-unifi-nas-01',
+        vaultName: vaultUnifi.name,
+        mode: 'bare_metal_image',
+        status: 'verified',
+        logicalBytes: Math.round(380 * GB),
+        storedDeduplicatedBytes: Math.round(98.5 * GB),
+        dedupSavingsPct: 74.1,
+        fileCount: 245100,
+        dirCount: 29400,
+        vssShadowCopyUsed: true,
+        vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy11',
+        partitionLayoutCaptured: true,
+        bootEfiCaptured: true,
+        replicatedToB2: true,
+        immutableUntil: immutableDate,
+        verificationStatus: 'verified_ok',
+        sha256RootHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',
+        startedAt: iso(-3600000 * 4),
+        completedAt: iso(-3600000 * 4 + 310000),
+        durationMs: 310000,
+        filesPreview: [
+          { path: '/partition-table-gpt.json', sizeBytes: 16384, modTime: iso(-3600000 * 4), type: 'partition_table', chunksCount: 1 },
+          { path: '/volumes/C_TBI_POS_Master.vhdx.kopia-blocks', sizeBytes: Math.round(380 * GB), modTime: iso(-3600000 * 4), type: 'vhdx_block', chunksCount: 97280 },
+          { path: 'C:/POS/Database/TBI_Transactions_2026.mdf', sizeBytes: 12884901888, modTime: iso(-3600000 * 4), type: 'file', chunksCount: 3072 }
+        ]
+      }
+    ];
+
+    for (const s of snapshots) {
+      this.backupSnapshots.set(s.id, s);
+    }
+
+    // 4. Seed Backup Jobs
+    const jobs: BackupJob[] = [
+      {
+        id: 'job-bkp-1001',
+        jobNumber: 'BKP-1001',
+        orgId,
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        deviceId: 'dev-win-01',
+        deviceName: 'ACME-EXEC-PC',
+        vaultId: 'vault-unifi-nas-01',
+        vaultName: vaultUnifi.name,
+        policyId: 'pol-backup-baremetal',
+        jobType: 'backup_bare_metal',
+        mode: 'bare_metal_image',
+        status: 'completed',
+        progressPct: 100,
+        transferRateMbps: 1840,
+        logicalBytesProcessed: Math.round(482 * GB),
+        deduplicatedBytesWritten: Math.round(14.2 * GB),
+        snapshotId: 'snap-win01-baremetal-001',
+        details: 'VSS atomic freeze + wbadmin VHDX block stream + EFI/GPT partition table captured and deduplicated via Dynamic-4M Buzhash (76.7% savings).',
+        startedAt: iso(-3600000 * 5),
+        completedAt: iso(-3600000 * 5 + 412000)
+      },
+      {
+        id: 'job-bkp-1002',
+        jobNumber: 'BKP-1002',
+        orgId,
+        clientId: 'c-gambinos',
+        clientName: 'Gambinos',
+        deviceId: 'dev-gambinos-pos-ctrl',
+        deviceName: 'GAMBINOS-KWICKPOS-C1',
+        vaultId: 'vault-unifi-nas-01',
+        vaultName: vaultUnifi.name,
+        policyId: 'pol-backup-vss-snapshot',
+        jobType: 'backup_full_snapshot',
+        mode: 'volume_snapshot_vss',
+        status: 'completed',
+        progressPct: 100,
+        transferRateMbps: 1290,
+        logicalBytesProcessed: Math.round(145 * GB),
+        deduplicatedBytesWritten: Math.round(3.8 * GB),
+        snapshotId: 'snap-gambinos-pos-003',
+        details: 'LVM atomic snapshot freeze of KwickPOS database & PAX configuration completed with zero POS transaction pause.',
+        startedAt: iso(-3600000 * 2),
+        completedAt: iso(-3600000 * 2 + 94000)
+      },
+      {
+        id: 'job-bkp-1003',
+        jobNumber: 'BKP-1003',
+        orgId,
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        vaultId: 'vault-b2-cloud-01',
+        vaultName: vaultB2.name,
+        jobType: 'sync_unifi_to_b2',
+        mode: 'bare_metal_image',
+        status: 'completed',
+        progressPct: 100,
+        transferRateMbps: 920,
+        logicalBytesProcessed: Math.round(4.85 * TB),
+        deduplicatedBytesWritten: Math.round(18.6 * GB),
+        details: '3-2-1 replication from UniFi UNAS Pro (192.168.11.50) to Backblaze B2 (apexmsp-immutable-vault-prod) completed with COMPLIANCE Object Lock.',
+        startedAt: iso(-1920000),
+        completedAt: iso(-1800000)
+      }
+    ];
+    this.backupJobSeq = 1004;
+    for (const j of jobs) {
+      this.backupJobs.set(j.id, j);
+    }
+
+    // 5. Seed Bare-Metal Recovery Session (Ready for WinPE / Alpine Live ISO or Proxmox P2V instant boot)
+    const bmSession: BareMetalRecoverySession = {
+      id: 'bmr-session-001',
+      pairingCode: '849-204',
+      orgId,
+      clientId: 'c-brandon-ray',
+      clientName: 'Brandon Ray',
+      sourceDeviceId: 'dev-win-01',
+      sourceDeviceName: 'ACME-EXEC-PC',
+      sourceOs: 'windows',
+      snapshotId: 'snap-win01-baremetal-001',
+      manifestId: 'k8f92a10c4b3e7d1902a5f6c8d1e4b3a',
+      vaultId: 'vault-unifi-nas-01',
+      vaultEndpoint: 'https://backup-gw.apexmsp.app:51515',
+      targetHardwareProfile: 'proxmox_vm_p2v',
+      bootloaderType: 'uefi_gpt',
+      partitionLayoutSummary: 'GPT Disk 0 (512 GB NVMe): Partition 1 EFI System (260 MB FAT32) | Partition 2 MSR (16 MB) | Partition 3 Windows 11 Pro OS (510.8 GB NTFS) | Partition 4 WinRE (924 MB)',
+      injectVirtioDrivers: true,
+      status: 'awaiting_iso_boot',
+      progressPct: 0,
+      expiresAt: iso(3600000 * 12),
+      createdAt: iso(-1800000)
+    };
+    this.bareMetalSessions.set(bmSession.id, bmSession);
+
+    // 6. Seed BackupAgentReports for all seeded devices
+    for (const d of this.devices.values()) {
+      const devSnaps = snapshots.filter((s) => s.deviceId === d.id);
+      const latestSnap = devSnaps[0];
+      const isWin = d.os === 'windows';
+      const isMac = d.os === 'macos';
+      const isLin = d.os === 'linux';
+      const logical = latestSnap ? latestSnap.logicalBytes : Math.round(120 * GB);
+      const dedup = latestSnap ? latestSnap.storedDeduplicatedBytes : Math.round(31 * GB);
+
+      this.deviceBackupReports.set(d.id, {
+        kopiaInstalled: true,
+        kopiaVersion: '0.18.2',
+        kopiaBinaryPath: isWin
+          ? 'C:\\ProgramData\\ApexMSP\\bin\\kopia.exe'
+          : '/Library/Application Support/ApexMSP/bin/kopia',
+        kopiaSha256Verified: true,
+        repositoryConnected: true,
+        vaultEndpoint: 'https://backup-gw.apexmsp.app:51515',
+        appendOnlyMode: true,
+        vssAvailable: isWin,
+        apfsSnapshotAvailable: isMac,
+        lvmSnapshotAvailable: isLin,
+        lastSnapshotId: latestSnap?.id || 'snap-win01-baremetal-001',
+        lastSnapshotAt: latestSnap?.completedAt || iso(-3600000 * 2),
+        logicalBytesTotal: logical,
+        deduplicatedBytesTotal: dedup,
+        dedupRatio: Number((logical / Math.max(1, dedup)).toFixed(2)),
+        status: 'idle',
+        reportedAt: iso(-15000)
+      });
+    }
+
+    // 7. Ensure Vaultwarden BackBlaze B2 reference item is present in OpenMSP Vault
+    this.vaultItems.set('v-b2-apexbckup', {
+      id: 'v-b2-apexbckup',
+      clientId: 'c-brandon-ray',
+      clientName: 'Brandon Ray',
+      folder: 'Cloud Backup & Disaster Recovery',
+      type: 'server_credential',
+      title: 'BackBlaze B2 — APEXBckUp Master Application Key',
+      username: '005ce51e78f6ccc0000000002',
+      password: '••••••••••••',
+      url: 'https://s3.us-east-005.backblazeb2.com',
+      notes: 'Synced from Vaultwarden (vault.devguru.app item 580ad0cc-a06c-46b3-a720-63a78719f644). Bucket: apexmsp-immutable-vault-prod (5c5ee571eeb788efa61c0c1c) with S3 Object Lock enabled.',
+      favorite: true,
+      strengthScore: 98,
+      lastModified: iso(0)
+    });
   }
 
   public recordAudit(event: Omit<AuditEvent, 'id' | 'createdAt'>): AuditEvent {

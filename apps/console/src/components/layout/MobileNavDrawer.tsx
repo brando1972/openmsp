@@ -16,7 +16,9 @@ import {
   Building2,
   LogOut,
   ChevronRight,
-  UserCheck
+  UserCheck,
+  HardDrive,
+  Shield
 } from 'lucide-react';
 
 export const MobileNavDrawer: React.FC = () => {
@@ -206,6 +208,32 @@ export const MobileNavDrawer: React.FC = () => {
             <div className="px-2 pb-1 text-[10px] font-bold text-white/40 uppercase tracking-wider">
               Security &amp; Policies
             </div>
+
+            <button
+              onClick={() => navigateTo('security-soc', 'Security & UniFi SOC')}
+              className={`w-full flex items-center justify-between p-2.5 rounded-lg transition ${
+                activeTab === 'security-soc' ? 'bg-white/15 text-white font-bold' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Shield className="w-4 h-4 text-emerald-400" />
+                <span>Security &amp; UniFi SOC</span>
+              </div>
+              <ChevronRight className="w-3.5 h-3.5 text-white/30" />
+            </button>
+
+            <button
+              onClick={() => navigateTo('backups', 'ApexVault Backups & BMR')}
+              className={`w-full flex items-center justify-between p-2.5 rounded-lg transition ${
+                activeTab === 'backups' ? 'bg-white/15 text-white font-bold' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <HardDrive className="w-4 h-4 text-teal-400" />
+                <span>ApexVault Backups &amp; BMR</span>
+              </div>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-semibold">3-2-1</span>
+            </button>
 
             <button
               onClick={() => navigateTo('vault', 'Vault')}

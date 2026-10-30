@@ -208,7 +208,8 @@ router.post('/heartbeat', (req, res) => {
     agentVersion,
     arch,
     securityPosture,
-    securityDetections
+    securityDetections,
+    backupStatus
   } = req.body as AgentHeartbeatRequest;
 
   // Unknown devices are no longer auto-created: a lost record gets `device_unknown`
@@ -274,6 +275,13 @@ router.post('/heartbeat', (req, res) => {
         input: detInput
       });
     }
+  }
+
+  if (backupStatus && typeof backupStatus === 'object') {
+    store.deviceBackupReports.set(device.id, {
+      ...backupStatus,
+      reportedAt: backupStatus.reportedAt || new Date().toISOString()
+    });
   }
 
   wsManager.broadcastToOrg(orgId, 'device.heartbeat', {
@@ -517,6 +525,40 @@ router.post('/command-result', (req, res) => {
     if (status === 'completed') dep.lastInstalled = new Date().toISOString();
     if (error) dep.error = error;
     store.deviceStagedDeployments.set(deployKey, dep);
+  }
+
+  // Update matching BackupJob and BackupSnapshot when a backup command completes
+  if (['backup_run', 'backup_restore', 'backup_verify', 'backup_baremetal_capture'].includes(command.commandType)) {
+    const nowIso = new Date().toISOString();
+    const matchingJob = Array.from(store.backupJobs.values()).find((j) => j.commandId === command.id);
+    if (matchingJob) {
+      matchingJob.status = status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'running';
+      matchingJob.progressPct = status === 'completed' ? 100 : matchingJob.progressPct;
+      if (output) matchingJob.details = String(output).slice(0, 500);
+      if (error) matchingJob.error = String(error);
+      if (status === 'completed' || status === 'failed') {
+        matchingJob.completedAt = nowIso;
+      }
+      store.backupJobs.set(matchingJob.id, matchingJob);
+      wsManager.broadcastToOrg(command.orgId, 'backup.job', matchingJob);
+    }
+
+    const snapId = matchingJob?.snapshotId || command.payload?.snapshotId;
+    if (snapId) {
+      const snap = store.backupSnapshots.get(String(snapId));
+      if (snap) {
+        if (command.commandType === 'backup_verify') {
+          snap.verificationStatus = status === 'completed' ? 'verified_ok' : 'corrupted';
+          snap.status = status === 'completed' ? 'verified' : 'failed';
+        } else if (command.commandType === 'backup_run' || command.commandType === 'backup_baremetal_capture') {
+          snap.status = status === 'completed' ? 'verified' : 'failed';
+          snap.verificationStatus = status === 'completed' ? 'verified_ok' : snap.verificationStatus;
+        }
+        snap.completedAt = nowIso;
+        store.backupSnapshots.set(snap.id, snap);
+        wsManager.broadcastToOrg(command.orgId, 'backup.snapshot', snap);
+      }
+    }
   }
 
   // Broadcast command update

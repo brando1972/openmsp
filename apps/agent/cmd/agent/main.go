@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"openmsp/agent/internal/backup"
 	"openmsp/agent/internal/client"
 	"openmsp/agent/internal/collector"
 	"openmsp/agent/internal/config"
@@ -162,8 +163,20 @@ func main() {
 	runOnceFlag := flag.Bool("run-once", false, "Run a single heartbeat and exit")
 	intervalFlag := flag.Int("interval", 10, "Heartbeat interval in seconds")
 	installFlag := flag.Bool("install", false, "Install as persistent Windows Service")
+	recoveryCodeFlag := flag.String("recovery-code", "", "6-digit Bare-Metal Recovery ISO pairing code (WinPE/Alpine Live)")
 
 	flag.Parse()
+
+	if strings.TrimSpace(*recoveryCodeFlag) != "" {
+		log.Printf("[*] ApexVault Bare-Metal Recovery Mode activated (pairing code: %s)...", *recoveryCodeFlag)
+		recRes, err := backup.RunRecoveryMode(context.Background(), *serverFlag, *recoveryCodeFlag)
+		if err != nil {
+			log.Fatalf("[-] Bare-metal recovery pairing failed: %v", err)
+		}
+		raw, _ := json.MarshalIndent(recRes, "", "  ")
+		fmt.Println(string(raw))
+		return
+	}
 
 	// Complete any staged Windows self-update from a previous run before anything else.
 	updater.ApplyPendingWindows()
@@ -307,6 +320,9 @@ func main() {
 		log.Printf("[+] ApexMSP Canary Tripwires active (%d files monitored)", len(canaryPaths))
 	}
 
+	// 2.7 Initialize Backup Engine & reap any stale child PIDs from prior runs
+	_ = backup.Global()
+
 	// Bring up the on-LAN reach-through supervisor. It idles until this agent is
 	// elected collector (manageCollector flips it on), then holds a persistent
 	// channel to the control plane for SSH/web sessions into discovered devices.
@@ -331,6 +347,7 @@ func main() {
 		services := collector.CollectServices()
 		secPosture := security.CollectPosture()
 		secDetections := security.DrainDetections()
+		backupReport := backup.Global().GetReport()
 
 		hbReq := client.AgentHeartbeatRequest{
 			DeviceId:      cfg.DeviceId,
@@ -351,6 +368,7 @@ func main() {
 			Arch:               runtime.GOARCH,
 			SecurityPosture:    secPosture,
 			SecurityDetections: secDetections,
+			BackupStatus:       &backupReport,
 		}
 
 		hbResp, err := apiClient.Heartbeat(ctx, hbReq)
