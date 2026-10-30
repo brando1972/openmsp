@@ -6,6 +6,7 @@ import { electCollector, scanConfigFor, ingestScan } from '../net/discovery.js';
 import { updateDirectiveFor, artifactPath } from '../releases/manifest.js';
 import { meshClient } from '../mesh/meshClient.js';
 import { upsertDeviceSecurityPosture, ingestSecurityDetection } from './security.js';
+import { uploadSnapshotManifestToB2 } from './backups.js';
 import { createReadStream } from 'fs';
 import { authenticateDevice, deviceOrgId } from '../middleware/deviceAuth.js';
 import type {
@@ -528,13 +529,28 @@ router.post('/command-result', (req, res) => {
   }
 
   // Update matching BackupJob and BackupSnapshot when a backup command completes
-  if (['backup_run', 'backup_restore', 'backup_verify', 'backup_baremetal_capture'].includes(command.commandType)) {
+  if (['backup_configure', 'backup_run', 'backup_restore', 'backup_verify', 'backup_baremetal_capture'].includes(command.commandType)) {
     const nowIso = new Date().toISOString();
+    let parsedOutput: any = null;
+    if (typeof output === 'string' && output.trim().startsWith('{')) {
+      try {
+        parsedOutput = JSON.parse(output);
+      } catch {
+        // ignore non-JSON output
+      }
+    }
+
     const matchingJob = Array.from(store.backupJobs.values()).find((j) => j.commandId === command.id);
     if (matchingJob) {
       matchingJob.status = status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'running';
       matchingJob.progressPct = status === 'completed' ? 100 : matchingJob.progressPct;
-      if (output) matchingJob.details = String(output).slice(0, 500);
+      if (parsedOutput && typeof parsedOutput.logicalBytes === 'number') {
+        matchingJob.logicalBytesProcessed = parsedOutput.logicalBytes;
+        matchingJob.deduplicatedBytesWritten = parsedOutput.storedDeduplicatedBytes ?? parsedOutput.logicalBytes;
+        matchingJob.details = `Endpoint backup completed: ${parsedOutput.fileCount ?? 0} files, ${parsedOutput.dirCount ?? 0} dirs (${parsedOutput.logicalBytes} bytes logical -> ${parsedOutput.storedDeduplicatedBytes} bytes deduplicated, root SHA-256 ${String(parsedOutput.sha256RootHash || '').slice(0, 12)}…)`;
+      } else if (output) {
+        matchingJob.details = String(output).slice(0, 500);
+      }
       if (error) matchingJob.error = String(error);
       if (status === 'completed' || status === 'failed') {
         matchingJob.completedAt = nowIso;
@@ -553,12 +569,37 @@ router.post('/command-result', (req, res) => {
         } else if (command.commandType === 'backup_run' || command.commandType === 'backup_baremetal_capture') {
           snap.status = status === 'completed' ? 'verified' : 'failed';
           snap.verificationStatus = status === 'completed' ? 'verified_ok' : snap.verificationStatus;
+          if (parsedOutput && status === 'completed') {
+            if (typeof parsedOutput.manifestId === 'string' && parsedOutput.manifestId) snap.manifestId = parsedOutput.manifestId;
+            if (typeof parsedOutput.logicalBytes === 'number') snap.logicalBytes = parsedOutput.logicalBytes;
+            if (typeof parsedOutput.storedDeduplicatedBytes === 'number') snap.storedDeduplicatedBytes = parsedOutput.storedDeduplicatedBytes;
+            if (typeof parsedOutput.dedupSavingsPct === 'number') snap.dedupSavingsPct = parsedOutput.dedupSavingsPct;
+            if (typeof parsedOutput.fileCount === 'number') snap.fileCount = parsedOutput.fileCount;
+            if (typeof parsedOutput.dirCount === 'number') snap.dirCount = parsedOutput.dirCount;
+            if (typeof parsedOutput.vssShadowCopyUsed === 'boolean') snap.vssShadowCopyUsed = parsedOutput.vssShadowCopyUsed;
+            if (typeof parsedOutput.vssShadowCopyPath === 'string' && parsedOutput.vssShadowCopyPath) snap.vssShadowCopyPath = parsedOutput.vssShadowCopyPath;
+            if (typeof parsedOutput.sha256RootHash === 'string' && parsedOutput.sha256RootHash) snap.sha256RootHash = parsedOutput.sha256RootHash;
+            if (typeof parsedOutput.durationMs === 'number') snap.durationMs = parsedOutput.durationMs;
+            if (Array.isArray(parsedOutput.allEntries) && parsedOutput.allEntries.length > 0) {
+              snap.filesPreview = parsedOutput.allEntries.slice(0, 50);
+            } else if (Array.isArray(parsedOutput.filesPreview) && parsedOutput.filesPreview.length > 0) {
+              snap.filesPreview = parsedOutput.filesPreview;
+            }
+            void uploadSnapshotManifestToB2(snap, typeof output === 'string' ? output : undefined).then((uploaded) => {
+              if (uploaded) {
+                snap.replicatedToB2 = true;
+                store.backupSnapshots.set(snap.id, snap);
+                store.persist();
+              }
+            });
+          }
         }
         snap.completedAt = nowIso;
         store.backupSnapshots.set(snap.id, snap);
         wsManager.broadcastToOrg(command.orgId, 'backup.snapshot', snap);
       }
     }
+    store.persist();
   }
 
   // Broadcast command update

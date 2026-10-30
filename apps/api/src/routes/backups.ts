@@ -64,6 +64,69 @@ import type {
 const router = Router();
 
 /**
+ * Uploads a snapshot manifest JSON to the live Backblaze B2 immutable bucket
+ * (apexmsp-immutable-vault-prod) when B2 credentials are configured.
+ */
+export async function uploadSnapshotManifestToB2(snap: BackupSnapshot, rawAgentOutput?: string): Promise<boolean> {
+  const b2Env = loadB2VaultEnv();
+  const keyId = b2Env.B2_KEY_ID;
+  const appKey = b2Env.B2_APPLICATION_KEY;
+  const bucketId = b2Env.B2_BUCKET_ID || '5c5ee571eeb788efa61c0c1c';
+  if (!keyId || !appKey) return false;
+
+  try {
+    const basicAuth = Buffer.from(`${keyId}:${appKey}`).toString('base64');
+    const authRes = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
+      method: 'GET',
+      headers: { Authorization: `Basic ${basicAuth}` }
+    });
+    if (!authRes.ok) return false;
+    const authJson = (await authRes.json()) as { apiUrl: string; authorizationToken: string };
+
+    const upUrlRes = await fetch(`${authJson.apiUrl}/b2api/v2/b2_get_upload_url`, {
+      method: 'POST',
+      headers: {
+        Authorization: authJson.authorizationToken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ bucketId })
+    });
+    if (!upUrlRes.ok) return false;
+    const upUrlJson = (await upUrlRes.json()) as { uploadUrl: string; authorizationToken: string };
+
+    const payloadBuf = Buffer.from(
+      JSON.stringify(
+        {
+          snapshot: snap,
+          agentOutput: rawAgentOutput ? (() => { try { return JSON.parse(rawAgentOutput); } catch { return rawAgentOutput; } })() : undefined,
+          uploadedAt: new Date().toISOString()
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+    const sha1Hex = crypto.createHash('sha1').update(payloadBuf).digest('hex');
+    const fileName = encodeURIComponent(`snapshots/${snap.deviceId}/${snap.id}.json`).replace(/%2F/g, '/');
+
+    const uploadRes = await fetch(upUrlJson.uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: upUrlJson.authorizationToken,
+        'X-Bz-File-Name': fileName,
+        'Content-Type': 'application/json',
+        'Content-Length': String(payloadBuf.length),
+        'X-Bz-Content-Sha1': sha1Hex
+      },
+      body: payloadBuf
+    });
+    return uploadRes.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Flexible Backup authentication middleware:
  * - Validates Bearer JWT if present (also accepts dev-soc-operator-token for internal sync).
  * - Falls back to default MSP owner profile for local lab/CLI verification when no Authorization header is sent.
@@ -850,6 +913,7 @@ router.post(['/snapshots/trigger', '/trigger'], (req: AuthenticatedRequest, res)
   const manifestId = `k${sha256RootHash.slice(0, 31)}`;
 
   // 1. Queue real DeviceCommand for openmsp-agent
+  const snapshotId = `snap-${device.os.slice(0, 3)}-${uuidv4().substring(0, 8)}`;
   const commandId = `cmd-bkp-${uuidv4().substring(0, 8)}`;
   const command: DeviceCommand = {
     id: commandId,
@@ -857,6 +921,7 @@ router.post(['/snapshots/trigger', '/trigger'], (req: AuthenticatedRequest, res)
     orgId,
     commandType: 'backup_run',
     payload: {
+      snapshotId,
       mode,
       policyId: policy?.id || defaultPolicyId,
       vaultId: vault?.id || 'vault-unifi-nas-01',
@@ -912,7 +977,6 @@ router.post(['/snapshots/trigger', '/trigger'], (req: AuthenticatedRequest, res)
     });
   }
 
-  const snapshotId = `snap-${device.os.slice(0, 3)}-${uuidv4().substring(0, 8)}`;
   const vssShadowPath = vssUsed
     ? isWin
       ? `\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy${Math.floor(15 + Math.random() * 20)}`

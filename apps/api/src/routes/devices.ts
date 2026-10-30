@@ -133,10 +133,14 @@ router.patch('/:id', (req: AuthenticatedRequest, res) => {
     return;
   }
 
-  const { name, health, tags, encryptionStatus } = req.body;
+  const { name, health, tags, encryptionStatus, clientId, clientName } = req.body;
   const oldHealth = device.health;
 
   if (name !== undefined) device.name = name;
+  if (clientId !== undefined) {
+    device.clientId = clientId;
+    device.clientName = clientName || store.clients.get(clientId)?.name || device.clientName;
+  }
   if (tags !== undefined && Array.isArray(tags)) device.tags = tags;
   if (encryptionStatus !== undefined) device.encryptionStatus = encryptionStatus;
   if (health !== undefined) {
@@ -153,6 +157,7 @@ router.patch('/:id', (req: AuthenticatedRequest, res) => {
 
   device.updatedAt = new Date().toISOString();
   store.devices.set(device.id, device);
+  store.persist();
 
   store.recordAudit({
     orgId: req.user!.orgId,
