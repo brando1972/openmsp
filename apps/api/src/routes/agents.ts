@@ -7,6 +7,7 @@ import { updateDirectiveFor, artifactPath } from '../releases/manifest.js';
 import { meshClient } from '../mesh/meshClient.js';
 import { upsertDeviceSecurityPosture, ingestSecurityDetection } from './security.js';
 import { createReadStream } from 'fs';
+import { authenticateDevice, deviceOrgId } from '../middleware/deviceAuth.js';
 import type {
   AgentEnrollRequest,
   AgentEnrollResponse,
@@ -24,48 +25,35 @@ const router = Router();
 router.post('/enroll', (req, res) => {
   const { token, hostname, os, osVersion, serialNumber, macAddress, ipAddress } = req.body as AgentEnrollRequest;
 
-  const cleanToken = (token || 'apex-brandon-ray').trim();
+  const cleanToken = typeof token === 'string' ? token.trim() : '';
+  if (!cleanToken) {
+    res.status(401).json({ error: 'Enrollment token is required' });
+    return;
+  }
 
-  let enrollmentToken =
+  // Exact match only (the `t` prefix covers tokens whose leading character was clipped by CLI quoting).
+  // Unknown tokens are never auto-provisioned: installers and the console mint tokens before an agent enrolls.
+  const enrollmentToken =
     store.enrollmentTokens.get(cleanToken) ||
     store.enrollmentTokens.get(`t${cleanToken}`);
 
   if (!enrollmentToken) {
-    // Check if any stored token shares the suffix (e.g. clipped leading characters when editing CLI quotes)
-    for (const [, existingTok] of store.enrollmentTokens.entries()) {
-      if (cleanToken.length >= 6 && existingTok.token.endsWith(cleanToken)) {
-        enrollmentToken = existingTok;
-        break;
-      }
-    }
+    res.status(401).json({ error: 'Invalid enrollment token' });
+    return;
   }
-
-  if (!enrollmentToken) {
-    // Auto-provision token so agent enrollment never fails with 401 across restarts or environments
-    const defaultOrg = Array.from(store.orgs.values())[0];
-    const defaultClient = Array.from(store.clients.values())[0];
-    enrollmentToken = {
-      id: uuidv4(),
-      token: cleanToken,
-      orgId: defaultOrg ? defaultOrg.id : '00000000-0000-0000-0000-000000000001',
-      clientId: defaultClient ? defaultClient.id : 'c-brandon-ray',
-      siteId: 'HQ Site',
-      expiresAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
-      used: false,
-      createdAt: new Date().toISOString()
-    };
-    store.enrollmentTokens.set(cleanToken, enrollmentToken);
-  } else if (new Date(enrollmentToken.expiresAt) < new Date()) {
-    enrollmentToken.expiresAt = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
-    store.enrollmentTokens.set(enrollmentToken.token, enrollmentToken);
+  if (new Date(enrollmentToken.expiresAt) < new Date()) {
+    res.status(401).json({ error: 'Enrollment token has expired' });
+    return;
   }
 
   const client = store.clients.get(enrollmentToken.clientId);
   const clientName = client ? client.name : 'Unassigned Client';
 
-  // Deduplicate: check if a device with the same serialNumber, MAC, or hostname+os exists
+  // Deduplicate: check if a device with the same serialNumber, MAC, or hostname+os exists.
+  // Only devices in the token's own org and client match, so a token can't claim another tenant's device.
   let existingDevice: ManagedDevice | undefined;
   for (const d of store.devices.values()) {
+    if (d.clientId !== enrollmentToken.clientId || deviceOrgId(d) !== enrollmentToken.orgId) continue;
     const normSerial = (s?: string) => (s || '').trim().toLowerCase();
     const normMac = (m?: string) => (m || '').replace(/[:-]/g, '').trim().toLowerCase();
     const sameSerial = serialNumber && serialNumber !== 'WIN-SERIAL-UNKNOWN' && normSerial(d.serialNumber) === normSerial(serialNumber);
@@ -83,7 +71,8 @@ router.post('/enroll', (req, res) => {
 
   if (existingDevice) {
     deviceId = existingDevice.id;
-    deviceSecret = (existingDevice as any).deviceSecret || `sec-${uuidv4()}`;
+    // Re-enrollment always issues a fresh secret; the old one is never handed out again.
+    deviceSecret = `sec-${uuidv4()}`;
     existingDevice.hostname = hostname || existingDevice.hostname;
     existingDevice.name = hostname || existingDevice.name;
     existingDevice.os = os || existingDevice.os;
@@ -95,6 +84,7 @@ router.post('/enroll', (req, res) => {
     if (ipAddress) existingDevice.ipAddress = ipAddress;
     existingDevice.publicIp = req.ip || existingDevice.publicIp;
     (existingDevice as any).deviceSecret = deviceSecret;
+    (existingDevice as any).orgId = enrollmentToken.orgId;
     existingDevice.updatedAt = new Date().toISOString();
     store.devices.set(deviceId, existingDevice);
   } else {
@@ -137,6 +127,7 @@ router.post('/enroll', (req, res) => {
       updatedAt: new Date().toISOString()
     };
     (newDevice as any).deviceSecret = deviceSecret;
+    (newDevice as any).orgId = enrollmentToken.orgId;
     store.devices.set(deviceId, newDevice);
   }
 
@@ -198,7 +189,8 @@ router.post('/enroll', (req, res) => {
     rustDeskConfig: store.rustDeskConfig
   };
 
-  res.status(201).json(response);
+  // Sent without the app-wide secret filter: this is how the device receives its own secret.
+  res.status(201).type('application/json').send(JSON.stringify(response));
 });
 
 // POST /api/v1/agents/heartbeat
@@ -219,60 +211,14 @@ router.post('/heartbeat', (req, res) => {
     securityDetections
   } = req.body as AgentHeartbeatRequest;
 
-  if (!deviceId || !deviceSecret) {
-    res.status(401).json({ error: 'Device ID and secret are required' });
+  // Unknown devices are no longer auto-created: a lost record gets `device_unknown`
+  // and the agent re-enrolls with its saved enrollment token.
+  const auth = authenticateDevice(deviceId, deviceSecret);
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error, code: auth.code });
     return;
   }
-
-  let device = store.devices.get(deviceId);
-  if (!device) {
-    const client = Array.from(store.clients.values())[0];
-    const plat = (collector?.platform || arch || '').toLowerCase();
-    const isWin = plat.includes('win') || plat.includes('microsoft');
-    const isMac = plat.includes('darwin') || plat.includes('mac');
-    const osType = isWin ? 'windows' : (isMac ? 'macos' : 'linux');
-    const host = `desktop-${deviceId.slice(-6)}`;
-
-    device = {
-      id: deviceId,
-      name: isWin ? `Windows Desktop (${deviceId.slice(-6)})` : (isMac ? `MacBook (${deviceId.slice(-6)})` : `Server (${deviceId.slice(-6)})`),
-      hostname: host,
-      clientId: client ? client.id : 'c-brandon-ray',
-      clientName: client ? client.name : 'Brandon Ray',
-      siteName: 'Primary',
-      os: osType as any,
-      osVersion: isWin ? 'Windows 11' : (isMac ? 'macOS Sequoia' : 'Linux'),
-      serialNumber: '',
-      ipAddress: network?.ipAddress || (req.ip?.replace(/^::ffff:/, '') || '127.0.0.1'),
-      publicIp: req.ip?.replace(/^::ffff:/, '') || '',
-      macAddress: network?.macAddress || '',
-      health: 'healthy',
-      metrics: {
-        ...metrics,
-        lastSeen: new Date().toISOString()
-      },
-      rustDeskId: rustDeskId || '',
-      rustDeskOnline: false,
-      agentVersion: agentVersion || '1.0.0',
-      arch: arch || '',
-      mdmEnrolled: false,
-      encryptionStatus: 'encrypted',
-      patchCompliance: 100,
-      pendingPatchesCount: 0,
-      installedApps: installedApps || [],
-      services: services || [],
-      eventLogs: [],
-      tags: ['Live Agent'],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    (device as any).deviceSecret = deviceSecret;
-    store.devices.set(deviceId, device);
-    console.log(`[agents] Auto-restored active heartbeating device ${deviceId} (${device.os})`);
-  } else if ((device as any).deviceSecret && (device as any).deviceSecret !== deviceSecret) {
-    res.status(401).json({ error: 'Invalid device secret' });
-    return;
-  }
+  const device = auth.device;
 
   const previousHealth = device.health;
   device.metrics = {
@@ -510,16 +456,44 @@ router.post('/heartbeat', (req, res) => {
 
 // POST /api/v1/agents/command-result
 router.post('/command-result', (req, res) => {
-  const { commandId, status, output, error } = req.body;
+  const { commandId, status, output, error, deviceId, deviceSecret } = req.body || {};
   if (!commandId || !status) {
     res.status(400).json({ error: 'commandId and status are required' });
     return;
   }
+  if (status !== 'completed' && status !== 'failed') {
+    res.status(400).json({ error: "status must be 'completed' or 'failed'" });
+    return;
+  }
+
+  // Agents from 2.0.5 send their device credentials with every result. Older agents
+  // send none; they are accepted only while ALLOW_LEGACY_COMMAND_RESULTS=1 is set for
+  // the rollout window, until the fleet has self-updated.
+  let authedDeviceId: string | undefined;
+  if (deviceId || deviceSecret) {
+    const auth = authenticateDevice(deviceId, deviceSecret);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error, code: auth.code });
+      return;
+    }
+    authedDeviceId = auth.device.id;
+  } else if (process.env.ALLOW_LEGACY_COMMAND_RESULTS !== '1') {
+    res.status(401).json({ error: 'Device ID and secret are required', code: 'missing_credentials' });
+    return;
+  }
 
   const command = store.deviceCommands.get(commandId);
-  if (!command) {
+  // A device can only report on its own commands; don't reveal whether another device's command exists.
+  if (!command || (authedDeviceId && command.deviceId !== authedDeviceId)) {
     res.status(404).json({ error: 'Command not found' });
     return;
+  }
+  if (command.status !== 'dispatched' && command.status !== 'pending') {
+    res.status(409).json({ error: `Command already ${command.status}` });
+    return;
+  }
+  if (!authedDeviceId) {
+    console.warn(`[agents] legacy unauthenticated command result accepted for ${command.id} (device ${command.deviceId})`);
   }
 
   command.status = status;
@@ -564,15 +538,12 @@ router.post('/network-scan', (req, res) => {
     res.status(400).json({ error: 'deviceId, deviceSecret and scan are required' });
     return;
   }
-  const device = store.devices.get(deviceId);
-  if (!device) {
-    res.status(404).json({ error: 'Device not found' });
+  const auth = authenticateDevice(deviceId, deviceSecret);
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error, code: auth.code });
     return;
   }
-  if ((device as any).deviceSecret && (device as any).deviceSecret !== deviceSecret) {
-    res.status(401).json({ error: 'Invalid device secret' });
-    return;
-  }
+  const device = auth.device;
   try {
     ingestScan(deviceId, scan);
   } catch (e) {
@@ -600,12 +571,12 @@ router.post('/ticket', (req, res) => {
     res.status(400).json({ error: 'deviceId, deviceSecret and subject are required' });
     return;
   }
-  const device = store.devices.get(deviceId);
-  if (!device) { res.status(404).json({ error: 'Device not found' }); return; }
-  if ((device as any).deviceSecret && (device as any).deviceSecret !== deviceSecret) {
-    res.status(401).json({ error: 'Invalid device secret' });
+  const auth = authenticateDevice(deviceId, deviceSecret);
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error, code: auth.code });
     return;
   }
+  const device = auth.device;
   const client = device.clientId ? store.clients.get(device.clientId) : undefined;
   const pri = ['urgent', 'high', 'medium', 'low'].includes(priority) ? priority : 'medium';
   const slaHours = pri === 'urgent' ? 2 : pri === 'high' ? 8 : pri === 'low' ? 48 : 24;

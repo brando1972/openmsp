@@ -26,6 +26,7 @@ import unifiRouter from './routes/unifi.js';
 import { store } from './db/store.js';
 import { meshClient } from './mesh/meshClient.js';
 import { startWatchdog } from './mesh/heal.js';
+import { redactSecrets } from './lib/redact.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -35,6 +36,8 @@ wsManager.init(server);
 
 // Middleware
 app.set('trust proxy', true);
+// Strip device secrets from every res.json() body (the store itself still persists them).
+app.set('json replacer', redactSecrets);
 app.use(cors());
 app.use(express.json({ limit: '8mb' })); // network-scan payloads can be large
 

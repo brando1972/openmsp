@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -156,7 +157,7 @@ func main() {
 		serverDefault = s
 	}
 	serverFlag := flag.String("server", serverDefault, "API base URL")
-	tokenFlag := flag.String("token", "", "One-time enrollment token (e.g. apex-brandon-ray)")
+	tokenFlag := flag.String("token", "", "One-time enrollment token from the ApexMSP console or installer link")
 	configFlag := flag.String("config", "openmsp-agent.json", "Path to local config JSON")
 	runOnceFlag := flag.Bool("run-once", false, "Run a single heartbeat and exit")
 	intervalFlag := flag.Int("interval", 10, "Heartbeat interval in seconds")
@@ -245,42 +246,19 @@ func main() {
 			}
 
 			if cfg.Token == "" {
-				defaultToken := "apex-brandon-ray"
 				fmt.Println("==================================================")
 				fmt.Println("  ApexMSP Endpoint Agent Setup")
 				fmt.Println("==================================================")
 				fmt.Printf("Control Plane: %s\n", cfg.ServerURL)
-				fmt.Printf("Please paste your Enrollment Token [Press Enter for default: %s]: ", defaultToken)
+				fmt.Print("Please paste your Enrollment Token: ")
 
 				scanner := bufio.NewScanner(os.Stdin)
-				var userToken string
 				if scanner.Scan() {
-					userToken = strings.TrimSpace(scanner.Text())
+					cfg.Token = strings.TrimSpace(scanner.Text())
 				}
-				if userToken == "" {
-					userToken = defaultToken
-					fmt.Printf("Using default token: %s\n", defaultToken)
-				}
-				cfg.Token = userToken
 			}
 
-			sysInfo := collector.GetSystemInfo()
-			log.Printf("[*] Discovered host: %s (OS: %s %s, Serial: %s, IP: %s, MAC: %s)",
-				sysInfo.Hostname, sysInfo.OS, sysInfo.OSVersion, sysInfo.SerialNumber, sysInfo.IPAddress, sysInfo.MACAddress)
-
-			enrollReq := client.AgentEnrollRequest{
-				Token:        cfg.Token,
-				Hostname:     sysInfo.Hostname,
-				OS:           sysInfo.OS,
-				OSVersion:    sysInfo.OSVersion,
-				SerialNumber: sysInfo.SerialNumber,
-				MACAddress:   sysInfo.MACAddress,
-				IPAddress:    sysInfo.IPAddress,
-			}
-
-			enrollResp, err := apiClient.Enroll(ctx, enrollReq)
-			if err != nil {
-				log.Printf("[-] Enrollment error: %v", err)
+			exitEnrollFailure := func() {
 				if runtime.GOOS == "windows" && !*installFlag {
 					fmt.Println("\nPress Enter to exit...")
 					var dummy string
@@ -289,22 +267,15 @@ func main() {
 				os.Exit(1)
 			}
 
-			cfg.DeviceId = enrollResp.DeviceId
-			cfg.DeviceSecret = enrollResp.DeviceSecret
-			cfg.OrgId = enrollResp.OrgId
-			cfg.ClientId = enrollResp.ClientId
-			cfg.SiteId = enrollResp.SiteId
-			if enrollResp.HeartbeatIntervalSeconds > 0 {
-				cfg.HeartbeatIntervalSeconds = enrollResp.HeartbeatIntervalSeconds
-			}
-			cfg.RustDeskConfig = enrollResp.RustDeskConfig
-
-			if err := config.Save(resolvedConfigPath, cfg); err != nil {
-				log.Fatalf("[-] Failed to save config to %s: %v", resolvedConfigPath, err)
+			if cfg.Token == "" {
+				log.Println("[-] No enrollment token. Pass --token, set OPENMSP_TOKEN, or place token.txt next to the agent.")
+				exitEnrollFailure()
 			}
 
-			log.Printf("[+] Successfully enrolled! Device ID: %s, Org: %s, Client: %s",
-				cfg.DeviceId, cfg.OrgId, cfg.ClientId)
+			if err := enrollDevice(ctx, apiClient, cfg, resolvedConfigPath); err != nil {
+				log.Printf("[-] Enrollment error: %v", err)
+				exitEnrollFailure()
+			}
 
 			if runtime.GOOS == "windows" {
 				_ = installWindowsService(resolvedConfigPath)
@@ -384,6 +355,11 @@ func main() {
 
 		hbResp, err := apiClient.Heartbeat(ctx, hbReq)
 		if err != nil {
+			// The control plane lost this device's record: re-enroll with the saved token.
+			var apiErr *client.APIError
+			if errors.As(err, &apiErr) && apiErr.Code == "device_unknown" {
+				reenrollAfterUnknownDevice(ctx, apiClient, cfg, resolvedConfigPath)
+			}
 			return fmt.Errorf("heartbeat API error: %w", err)
 		}
 
@@ -409,6 +385,8 @@ func main() {
 			for _, cmd := range hbResp.PendingCommands {
 				log.Printf("[*] Executing command %s (Type: %s)", cmd.ID, cmd.CommandType)
 				result := execManager.Execute(ctx, cmd)
+				result.DeviceId = cfg.DeviceId
+				result.DeviceSecret = cfg.DeviceSecret
 				log.Printf("[+] Command %s result: status=%s", cmd.ID, result.Status)
 
 				if err := apiClient.ReportCommandResult(ctx, result); err != nil {
@@ -459,5 +437,71 @@ func main() {
 			return
 		}
 	}
+	})
+}
+
+// enrollDevice exchanges cfg.Token for device credentials and saves them to the config file.
+func enrollDevice(ctx context.Context, api *client.Client, cfg *config.Config, configPath string) error {
+	sysInfo := collector.GetSystemInfo()
+	log.Printf("[*] Discovered host: %s (OS: %s %s, Serial: %s, IP: %s, MAC: %s)",
+		sysInfo.Hostname, sysInfo.OS, sysInfo.OSVersion, sysInfo.SerialNumber, sysInfo.IPAddress, sysInfo.MACAddress)
+
+	enrollResp, err := api.Enroll(ctx, client.AgentEnrollRequest{
+		Token:        cfg.Token,
+		Hostname:     sysInfo.Hostname,
+		OS:           sysInfo.OS,
+		OSVersion:    sysInfo.OSVersion,
+		SerialNumber: sysInfo.SerialNumber,
+		MACAddress:   sysInfo.MACAddress,
+		IPAddress:    sysInfo.IPAddress,
+	})
+	if err != nil {
+		return err
+	}
+
+	cfg.DeviceId = enrollResp.DeviceId
+	cfg.DeviceSecret = enrollResp.DeviceSecret
+	cfg.OrgId = enrollResp.OrgId
+	cfg.ClientId = enrollResp.ClientId
+	cfg.SiteId = enrollResp.SiteId
+	if enrollResp.HeartbeatIntervalSeconds > 0 {
+		cfg.HeartbeatIntervalSeconds = enrollResp.HeartbeatIntervalSeconds
+	}
+	cfg.RustDeskConfig = enrollResp.RustDeskConfig
+
+	if err := config.Save(configPath, cfg); err != nil {
+		return fmt.Errorf("save config to %s: %w", configPath, err)
+	}
+	log.Printf("[+] Successfully enrolled! Device ID: %s, Org: %s, Client: %s",
+		cfg.DeviceId, cfg.OrgId, cfg.ClientId)
+	return nil
+}
+
+// reenrollMinGap keeps a revoked or expired token from re-enrolling on every heartbeat.
+const reenrollMinGap = 5 * time.Minute
+
+var lastReenroll time.Time
+
+// reenrollAfterUnknownDevice runs when the control plane answers device_unknown.
+func reenrollAfterUnknownDevice(ctx context.Context, api *client.Client, cfg *config.Config, configPath string) {
+	if cfg.Token == "" {
+		log.Printf("[!] Control plane no longer knows this device and no enrollment token is saved; reinstall with a token")
+		return
+	}
+	if !lastReenroll.IsZero() && time.Since(lastReenroll) < reenrollMinGap {
+		return
+	}
+	lastReenroll = time.Now()
+	log.Printf("[*] Control plane no longer knows device %s; re-enrolling with saved token...", cfg.DeviceId)
+	if err := enrollDevice(ctx, api, cfg, configPath); err != nil {
+		log.Printf("[-] Re-enrollment failed: %v", err)
+		return
+	}
+	tunnel.Global().Configure(tunnel.Config{
+		ServerURL:    cfg.ServerURL,
+		DeviceId:     cfg.DeviceId,
+		DeviceSecret: cfg.DeviceSecret,
+		SiteId:       cfg.SiteId,
+		OrgId:        cfg.OrgId,
 	})
 }

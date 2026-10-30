@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
-import { store } from '../db/store.js';
+import { authenticateDevice } from '../middleware/deviceAuth.js';
 import {
   registerCollectorChannel,
   unregisterCollectorChannel,
@@ -107,11 +107,12 @@ function onCollector(ws: CollectorWS, _req: IncomingMessage) {
 
     if (!authed) {
       if (m.t !== 'hello') return;
-      const device: any = store.devices.get(m.deviceId);
-      if (!device || (device.deviceSecret && device.deviceSecret !== m.secret)) {
+      const auth = authenticateDevice(m.deviceId, m.secret);
+      if (!auth.ok) {
         ws.close();
         return;
       }
+      const device: any = auth.device;
       const siteId = device.siteId || '_default';
       authed = true;
       clearTimeout(authTimeout);

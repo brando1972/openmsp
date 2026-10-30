@@ -253,8 +253,10 @@ type NetworkScanRequest struct {
 
 // CommandResultRequest payload for POST /api/v1/agents/command-result.
 type CommandResultRequest struct {
-	CommandID string `json:"commandId"`
-	Status    string `json:"status"` // "completed" | "failed"
-	Output    string `json:"output,omitempty"`
-	Error     string `json:"error,omitempty"`
+	DeviceId     string `json:"deviceId"`
+	DeviceSecret string `json:"deviceSecret"`
+	CommandID    string `json:"commandId"`
+	Status       string `json:"status"` // "completed" | "failed"
+	Output       string `json:"output,omitempty"`
+	Error        string `json:"error,omitempty"`
 }

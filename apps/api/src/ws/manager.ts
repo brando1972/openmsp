@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import type { WSEvent, WSMessageType } from '@openmsp/api-types';
 import { handleTunnelUpgrade } from '../net/tunnelWs.js';
+import { redactSecrets } from '../lib/redact.js';
 
 class WebSocketManager {
   private wss: WebSocketServer | null = null;
@@ -71,7 +72,7 @@ class WebSocketManager {
       payload
     };
 
-    const data = JSON.stringify(event);
+    const data = JSON.stringify(event, redactSecrets as (key: string, value: unknown) => unknown);
     for (const ws of clients) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(data);

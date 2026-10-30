@@ -4,6 +4,7 @@ import { store } from '../db/store.js';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
 import { wsManager } from '../ws/manager.js';
 import { meshClient } from '../mesh/meshClient.js';
+import { deviceOrgId } from '../middleware/deviceAuth.js';
 import type { ManagedDevice, DeviceCommand, CreateDeviceCommandRequest } from '@openmsp/api-types';
 
 const router = Router();
@@ -90,6 +91,13 @@ function getMdmManagedDevices(): ManagedDevice[] {
   return res;
 }
 
+/** A desktop device the caller's org owns. Other orgs' devices look like they don't exist. */
+function ownedDevice(req: AuthenticatedRequest, id: string): ManagedDevice | undefined {
+  const device = store.devices.get(id);
+  if (!device || !req.user || deviceOrgId(device) !== req.user.orgId) return undefined;
+  return device;
+}
+
 // GET /api/v1/devices
 router.get('/', (req: AuthenticatedRequest, res) => {
   const { clientId } = req.query;
@@ -162,7 +170,7 @@ router.patch('/:id', (req: AuthenticatedRequest, res) => {
 
 // POST /api/v1/devices/:id/commands
 router.post('/:id/commands', (req: AuthenticatedRequest, res) => {
-  const device = store.devices.get(req.params.id as string);
+  const device = ownedDevice(req, req.params.id as string);
   if (!device) {
     res.status(404).json({ error: 'Device not found' });
     return;
@@ -209,15 +217,21 @@ router.post('/:id/commands', (req: AuthenticatedRequest, res) => {
 });
 
 // GET /api/v1/devices/:id/commands
-router.get('/:id/commands', (req, res) => {
-  const commands = Array.from(store.deviceCommands.values()).filter((c) => c.deviceId === (req.params.id as string));
+router.get('/:id/commands', (req: AuthenticatedRequest, res) => {
+  const device = ownedDevice(req, req.params.id as string);
+  if (!device) {
+    res.status(404).json({ error: 'Device not found' });
+    return;
+  }
+  const commands = Array.from(store.deviceCommands.values()).filter((c) => c.deviceId === device.id);
   res.json(commands);
 });
 
 // GET /api/v1/devices/:id/commands/:cmdId
-router.get('/:id/commands/:cmdId', (req, res) => {
+router.get('/:id/commands/:cmdId', (req: AuthenticatedRequest, res) => {
+  const device = ownedDevice(req, req.params.id as string);
   const command = store.deviceCommands.get(req.params.cmdId as string);
-  if (!command || command.deviceId !== req.params.id) {
+  if (!device || !command || command.deviceId !== device.id) {
     res.status(404).json({ error: 'Command not found' });
     return;
   }
@@ -232,7 +246,7 @@ router.post('/:id/wipe', (req: AuthenticatedRequest, res) => {
     return;
   }
 
-  const device = store.devices.get(req.params.id as string);
+  const device = ownedDevice(req, req.params.id as string);
   if (!device) {
     res.status(404).json({ error: 'Device not found' });
     return;

@@ -91,7 +91,7 @@ func (c *Client) Heartbeat(ctx context.Context, req AgentHeartbeatRequest) (*Age
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("heartbeat failed (status %d): %s", resp.StatusCode, string(respBody))
+		return nil, newAPIError("heartbeat", resp.StatusCode, respBody)
 	}
 
 	var hbResp AgentHeartbeatResponse
@@ -158,4 +158,25 @@ func (c *Client) ReportCommandResult(ctx context.Context, req CommandResultReque
 	}
 
 	return nil
+}
+
+// APIError is a non-success response from the control plane. Code carries the
+// machine-readable `code` field when the API sends one (e.g. "device_unknown").
+type APIError struct {
+	Op     string
+	Status int
+	Code   string
+	Body   string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("%s failed (status %d): %s", e.Op, e.Status, e.Body)
+}
+
+func newAPIError(op string, status int, body []byte) *APIError {
+	var parsed struct {
+		Code string `json:"code"`
+	}
+	_ = json.Unmarshal(body, &parsed)
+	return &APIError{Op: op, Status: status, Code: parsed.Code, Body: string(body)}
 }
