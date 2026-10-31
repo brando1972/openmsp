@@ -328,66 +328,109 @@ function renderScript(os: string, token: string | undefined, req: any, res: any)
 
   if (os === 'macos') {
     const script = `#!/bin/bash
-set -e
-echo "[+] OpenMSP macOS Agent & Shark Fin Setup..."
 SERVER_URL="${serverUrl}"
 ENROLL_TOKEN="${effectiveToken}"
-INSTALL_DIR="/Library/Application Support/ApexMSP"
-mkdir -p "$INSTALL_DIR"
+
+# If invoked via 'sudo curl ... | bash' or 'curl ... | bash', bash itself is not root.
+# Automatically re-execute bash as root using /dev/tty (or macOS native password dialog)
+# so /Library/Application Support/ApexMSP, LaunchDaemon, and MeshAgent (Connect + Backstage) install cleanly.
+if [ "$(id -u)" -ne 0 ] && [ "\$APEXMSP_ELEVATED" != "1" ]; then
+  echo "[*] Elevating to Administrator (root) to install ApexMSP Service, Connect & Backstage..."
+  TMP_SELF="/tmp/apexmsp_macos_install_\$\$.sh"
+  curl -fsSL "\$SERVER_URL/api/v1/installers/macos/\$ENROLL_TOKEN" -o "\$TMP_SELF"
+  chmod +x "\$TMP_SELF"
+  if [ -e /dev/tty ]; then
+    APEXMSP_ELEVATED=1 sudo -E bash "\$TMP_SELF" </dev/tty
+    RC=\$?
+    rm -f "\$TMP_SELF"
+    exit \$RC
+  else
+    osascript -e "do shell script \\"APEXMSP_ELEVATED=1 bash '\$TMP_SELF'\\" with administrator privileges" && { rm -f "\$TMP_SELF"; exit 0; }
+  fi
+  rm -f "\$TMP_SELF"
+fi
+
+echo "[+] OpenMSP macOS Agent, Connect & Backstage Setup..."
+if [ "$(id -u)" -eq 0 ]; then
+  INSTALL_DIR="/Library/Application Support/ApexMSP"
+else
+  INSTALL_DIR="\$HOME/.apexmsp"
+fi
+mkdir -p "\$INSTALL_DIR"
+
+# Preserve existing device enrollment identity if previously enrolled in user-space (~/.apexmsp)
+REAL_USER="\${SUDO_USER:-\$(stat -f '%Su' /dev/console 2>/dev/null || whoami)}"
+if [ "\$REAL_USER" != "root" ] && [ -f "/Users/\$REAL_USER/.apexmsp/openmsp-agent.json" ] && [ ! -f "\$INSTALL_DIR/openmsp-agent.json" ]; then
+  cp "/Users/\$REAL_USER/.apexmsp/openmsp-agent.json" "\$INSTALL_DIR/openmsp-agent.json" 2>/dev/null || true
+fi
+
+# Stop any non-root user-space openmsp-agent so the root daemon takes over cleanly
+pkill -f "openmsp-agent" 2>/dev/null || true
 
 echo "[*] Downloading OpenMSP Universal macOS Agent binary..."
-curl -fsSL "$SERVER_URL/api/v1/installers/download?os=macos" -o "$INSTALL_DIR/openmsp-agent" 2>/dev/null || true
+curl -fsSL "\$SERVER_URL/api/v1/installers/download?os=macos" -o "\$INSTALL_DIR/openmsp-agent" 2>/dev/null || true
+xattr -c "\$INSTALL_DIR/openmsp-agent" 2>/dev/null || true
 
-if [ -f "$INSTALL_DIR/openmsp-agent" ]; then
-  chmod 755 "$INSTALL_DIR/openmsp-agent"
+if [ -f "\$INSTALL_DIR/openmsp-agent" ]; then
+  chmod 755 "\$INSTALL_DIR/openmsp-agent"
 
-  cat > "$INSTALL_DIR/openmsp-agent.json" <<EOF
+  if [ ! -f "\$INSTALL_DIR/openmsp-agent.json" ]; then
+    cat > "\$INSTALL_DIR/openmsp-agent.json" <<EOF
 {
-  "serverUrl": "$SERVER_URL",
-  "token": "$ENROLL_TOKEN",
+  "serverUrl": "\$SERVER_URL",
+  "token": "\$ENROLL_TOKEN",
   "heartbeatIntervalSeconds": 10
 }
 EOF
+  fi
 
-  "$INSTALL_DIR/openmsp-agent" --server="$SERVER_URL" --token="$ENROLL_TOKEN" --config="$INSTALL_DIR/openmsp-agent.json" --run-once || true
+  "\$INSTALL_DIR/openmsp-agent" --server="\$SERVER_URL" --token="\$ENROLL_TOKEN" --config="\$INSTALL_DIR/openmsp-agent.json" --run-once || true
 
-  cat > /Library/LaunchDaemons/app.apexmsp.agent.plist <<PLISTEOF
+  if [ "$(id -u)" -eq 0 ]; then
+    cat > /Library/LaunchDaemons/app.apexmsp.agent.plist <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>app.apexmsp.agent</string>
   <key>ProgramArguments</key><array>
-    <string>$INSTALL_DIR/openmsp-agent</string>
-    <string>--server</string><string>$SERVER_URL</string>
-    <string>--config</string><string>$INSTALL_DIR/openmsp-agent.json</string>
+    <string>\$INSTALL_DIR/openmsp-agent</string>
+    <string>--server</string><string>\$SERVER_URL</string>
+    <string>--config</string><string>\$INSTALL_DIR/openmsp-agent.json</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
 </dict></plist>
 PLISTEOF
-  chmod 644 /Library/LaunchDaemons/app.apexmsp.agent.plist
-  launchctl unload /Library/LaunchDaemons/app.apexmsp.agent.plist 2>/dev/null || true
-  launchctl load -w /Library/LaunchDaemons/app.apexmsp.agent.plist 2>/dev/null || true
-  echo "[+] Background daemon registered and running."
+    chmod 644 /Library/LaunchDaemons/app.apexmsp.agent.plist
+    launchctl unload /Library/LaunchDaemons/app.apexmsp.agent.plist 2>/dev/null || true
+    launchctl load -w /Library/LaunchDaemons/app.apexmsp.agent.plist 2>/dev/null || true
+    echo "[+] Root LaunchDaemon registered and running."
+  else
+    nohup "\$INSTALL_DIR/openmsp-agent" --server="\$SERVER_URL" --config="\$INSTALL_DIR/openmsp-agent.json" >/dev/null 2>&1 &
+  fi
 
-  echo "[*] Configuring ApexConnect Remote Desktop..."
-  TMP_MESH="/tmp/meshagent_$$\"
-  mkdir -p \"\$TMP_MESH\"
-  if curl -fsSL "https://mesh.apexmsp.app/meshosxagent?id=29&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib" -o \"\$TMP_MESH/MeshAgent.zip\"; then
-    unzip -qo \"\$TMP_MESH/MeshAgent.zip\" -d \"\$TMP_MESH\" 2>/dev/null || true
-    if [ -f \"\$TMP_MESH/MeshAgent.pkg\" ]; then
-      installer -pkg \"\$TMP_MESH/MeshAgent.pkg\" -target / 2>/dev/null || true
-      echo "[+] ApexConnect Remote Desktop engine installed."
+  echo "[*] Configuring ApexConnect Remote Desktop & Backstage..."
+  TMP_MESH="/tmp/meshagent_\$\$"
+  mkdir -p "\$TMP_MESH"
+  if curl -fsSL "https://mesh.apexmsp.app/meshosxagent?id=29&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib" -o "\$TMP_MESH/MeshAgent.zip"; then
+    unzip -qo "\$TMP_MESH/MeshAgent.zip" -d "\$TMP_MESH" 2>/dev/null || true
+    if [ -f "\$TMP_MESH/MeshAgent.pkg" ]; then
+      if [ "$(id -u)" -eq 0 ]; then
+        installer -pkg "\$TMP_MESH/MeshAgent.pkg" -target / 2>/dev/null || true
+      else
+        sudo installer -pkg "\$TMP_MESH/MeshAgent.pkg" -target / </dev/tty 2>/dev/null || true
+      fi
+      echo "[+] ApexConnect Remote Desktop & Backstage engine installed."
     fi
   fi
-  rm -rf \"\$TMP_MESH\"
+  rm -rf "\$TMP_MESH"
 
   echo "[*] Installing ApexMSP Shark Fin menu bar app..."
   APP_DIR="/Applications/ApexMSP.app/Contents/MacOS"
-  mkdir -p "$APP_DIR"
-  curl -fsSL "$SERVER_URL/api/v1/installers/download?os=macos&component=menubar" -o "$APP_DIR/ApexMSP" 2>/dev/null || true
-  if [ -f "$APP_DIR/ApexMSP" ]; then
-    chmod +x "$APP_DIR/ApexMSP"
+  mkdir -p "\$APP_DIR" 2>/dev/null || true
+  curl -fsSL "\$SERVER_URL/api/v1/installers/download?os=macos&component=menubar" -o "\$APP_DIR/ApexMSP" 2>/dev/null || true
+  if [ -f "\$APP_DIR/ApexMSP" ]; then
+    chmod +x "\$APP_DIR/ApexMSP"
     cat > "/Applications/ApexMSP.app/Contents/Info.plist" <<INFOEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -409,11 +452,11 @@ INFOEOF
   fi
 else
   echo "[*] Falling back to direct API device registration..."
-  curl -s -X POST "$SERVER_URL/api/v1/agents/enroll" \\
+  curl -s -X POST "\$SERVER_URL/api/v1/agents/enroll" \\
     -H "Content-Type: application/json" \\
-    -d "{\\"token\\":\\"$ENROLL_TOKEN\\",\\"hostname\\":\\"$(hostname)\\",\\"os\\":\\"macos\\",\\"osVersion\\":\\"$(sw_vers -productVersion)\\",\\"serialNumber\\":\\"$(system_profiler SPHardwareDataType | awk '/Serial/ {print $4}')\\",\\"macAddress\\":\\"$(ifconfig en0 | awk '/ether/{print $2}')\\",\\"ipAddress\\":\\"$(ipconfig getifaddr en0 || echo '127.0.0.1')\\"}"
+    -d "{\\"token\\":\\"\$ENROLL_TOKEN\\",\\"hostname\\":\\"\$(hostname)\\",\\"os\\":\\"macos\\",\\"osVersion\\":\\"\$(sw_vers -productVersion)\\",\\"serialNumber\\":\\"\$(system_profiler SPHardwareDataType | awk '/Serial/ {print \$4}')\\",\\"macAddress\\":\\"\$(ifconfig en0 | awk '/ether/{print \$2}')\\",\\"ipAddress\\":\\"\$(ipconfig getifaddr en0 || echo '127.0.0.1')\\"}"
 fi
-echo "[+] Enrollment completed successfully."
+echo "[+] Enrollment completed successfully! Connect & Backstage are now active."
 `;
     res.setHeader('Content-Type', 'text/plain');
     res.send(script);
@@ -929,8 +972,58 @@ chmod +x /tmp/apex-live-sync
 xattr -c /tmp/apex-live-sync 2>/dev/null || true
 
 pkill -f "/tmp/apex-live-sync" 2>/dev/null || true
-echo "🔌 Plug in the Ethernet cable (USB-C Ethernet <-> Thunderbolt 2 Ethernet)..."
+echo "🔌 Direct Ethernet Cable Receiver active on port 19443!"
+echo "👉 On the 2015 MacBook Pro (no apexmsp.app needed), run:"
+echo "   curl -sSL http://169.254.198.240:19443/run | bash"
 exec /tmp/apex-live-sync -mode receiver -listen 0.0.0.0:19443 -root "\$TARGET_HOME"
+`;
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.send(script);
+});
+
+// GET /api/v1/installers/mac-cable-pull.sh -> Run on M5 MacBook Pro to pull directly from a mounted 2015 MBP SMB share in /Volumes
+router.get('/mac-cable-pull.sh', (_req, res) => {
+  const script = `#!/bin/bash
+set -e
+REAL_USER="\${SUDO_USER:-\$(stat -f '%Su' /dev/console 2>/dev/null || whoami)}"
+if [ "\$REAL_USER" = "root" ] || [ -z "\$REAL_USER" ]; then
+  REAL_USER="\$(ls -1 /Users | grep -vE '^(Shared|Guest|\\.localized)\$' | head -n 1)"
+fi
+TARGET_HOME="/Users/\$REAL_USER"
+
+echo "=================================================================="
+echo " ⚡ ApexVault Direct Share Pull (2015 MBP Share -> M5 MacBook Pro)"
+echo " Target User Profile: \$TARGET_HOME (User: \$REAL_USER)"
+echo "=================================================================="
+
+curl -sSL -o /tmp/apex-live-sync "https://api.apexmsp.app/api/v1/installers/mac-cable-sync"
+chmod +x /tmp/apex-live-sync
+xattr -c /tmp/apex-live-sync 2>/dev/null || true
+
+pkill -f "/tmp/apex-live-sync" 2>/dev/null || true
+nohup /tmp/apex-live-sync -mode receiver -listen 0.0.0.0:19443 -root "\$TARGET_HOME" >/tmp/apex-receiver.log 2>&1 &
+sleep 1
+
+SHARE_PATH="\$1"
+if [ -z "\$SHARE_PATH" ]; then
+  for V in /Volumes/*; do
+    B="\$(basename "\$V")"
+    if [ "\$B" != "Macintosh HD" ] && [ "\$B" != "Macintosh HD - Data" ] && [ "\$B" != "Recovery" ] && [ "\$B" != "Preboot" ] && [ "\$B" != "VM" ] && [ "\$B" != "Update" ] && [ -d "\$V" ]; then
+      SHARE_PATH="\$V"
+      break
+    fi
+  done
+fi
+
+if [ -z "\$SHARE_PATH" ] || [ ! -d "\$SHARE_PATH" ]; then
+  echo "[-] No mounted share found in /Volumes. Mount the 2015 MacBook Pro share in Finder first, or run on the 2015 MacBook Pro:"
+  echo "    curl -sSL http://169.254.198.240:19443/run | bash"
+  exit 1
+fi
+
+echo "✅ Found mounted 2015 MacBook Pro share: \$SHARE_PATH"
+echo "🚀 Streaming files over Direct Gigabit Ethernet into \$TARGET_HOME..."
+exec /tmp/apex-live-sync -mode sender -source "\$SHARE_PATH" -url "http://127.0.0.1:19443/sync" -workers 6
 `;
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.send(script);

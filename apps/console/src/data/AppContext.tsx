@@ -81,6 +81,7 @@ interface AppContextType {
   setSelectedDeviceId: (id: string | null) => void;
   addDevice: (device: ManagedDevice) => void;
   updateDeviceHealth: (id: string, health: ManagedDevice['health']) => void;
+  updateDeviceDetails: (id: string, updates: { name?: string; clientId?: string; clientName?: string; siteName?: string }) => Promise<void>;
   runRemoteScriptOnDevice: (deviceId: string, script: string, shell?: 'powershell' | 'cmd' | 'bash') => Promise<string>;
   toggleDeviceEncryption: (deviceId: string) => void;
   remoteWipeDevice: (deviceId: string) => void;
@@ -773,6 +774,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const updateDeviceDetails = async (id: string, updates: { name?: string; clientId?: string; clientName?: string; siteName?: string }) => {
+    const resolvedClient = updates.clientId ? clients.find(c => c.id === updates.clientId) : undefined;
+    const nextClientName = updates.clientName || resolvedClient?.name;
+    setDevices(prev => prev.map(d => d.id === id ? {
+      ...d,
+      ...(updates.name ? { name: updates.name } : {}),
+      ...(updates.clientId ? { clientId: updates.clientId, clientName: nextClientName || d.clientName } : {}),
+      ...(updates.siteName ? { siteName: updates.siteName } : {})
+    } : d));
+    try {
+      await api.devices.updateDevice(id, {
+        ...updates,
+        ...(nextClientName ? { clientName: nextClientName } : {})
+      });
+    } catch (err) {
+      console.warn('[OpenMSP API] Failed to update device details on server:', err);
+    }
+  };
+
   const runRemoteScriptOnDevice = async (deviceId: string, script: string, shell: 'powershell' | 'cmd' | 'bash' = 'powershell'): Promise<string> => {
     try {
       const cmd = await api.devices.sendCommand(deviceId, {
@@ -1234,6 +1254,7 @@ rm -rf $(brew --cache)`;
       setSelectedDeviceId,
       addDevice,
       updateDeviceHealth,
+      updateDeviceDetails,
       runRemoteScriptOnDevice,
       toggleDeviceEncryption,
       remoteWipeDevice,

@@ -50,11 +50,10 @@ router.post('/enroll', (req, res) => {
   const client = store.clients.get(enrollmentToken.clientId);
   const clientName = client ? client.name : 'Unassigned Client';
 
-  // Deduplicate: check if a device with the same serialNumber, MAC, or hostname+os exists.
-  // Only devices in the token's own org and client match, so a token can't claim another tenant's device.
+  // Deduplicate: check if a device with the same serialNumber, MAC, or hostname+os exists in the org.
   let existingDevice: ManagedDevice | undefined;
   for (const d of store.devices.values()) {
-    if (d.clientId !== enrollmentToken.clientId || deviceOrgId(d) !== enrollmentToken.orgId) continue;
+    if (deviceOrgId(d) !== enrollmentToken.orgId) continue;
     const normSerial = (s?: string) => (s || '').trim().toLowerCase();
     const normMac = (m?: string) => (m || '').replace(/[:-]/g, '').trim().toLowerCase();
     const sameSerial = serialNumber && serialNumber !== 'WIN-SERIAL-UNKNOWN' && normSerial(d.serialNumber) === normSerial(serialNumber);
@@ -74,8 +73,18 @@ router.post('/enroll', (req, res) => {
     deviceId = existingDevice.id;
     // Re-enrollment always issues a fresh secret; the old one is never handed out again.
     deviceSecret = `sec-${uuidv4()}`;
+    const prevHostname = existingDevice.hostname;
     existingDevice.hostname = hostname || existingDevice.hostname;
-    existingDevice.name = hostname || existingDevice.name;
+    // Preserve custom Display Name if user renamed it (name !== hostname)
+    const hasCustomName = (existingDevice as any).customName || (existingDevice.name && prevHostname && existingDevice.name !== prevHostname);
+    if (!hasCustomName) {
+      existingDevice.name = hostname || existingDevice.name;
+    }
+    // Preserve custom Client assignment if user manually assigned it
+    if (!(existingDevice as any).customClient && enrollmentToken.clientId) {
+      existingDevice.clientId = enrollmentToken.clientId;
+      existingDevice.clientName = clientName;
+    }
     existingDevice.os = os || existingDevice.os;
     existingDevice.osVersion = osVersion || existingDevice.osVersion;
     if (serialNumber && serialNumber !== 'WIN-SERIAL-UNKNOWN') {

@@ -2429,11 +2429,38 @@ export const BackupDashboardView: React.FC = () => {
             </div>
 
             <div className="space-y-4 text-xs">
+              {/* Option A: Direct Share Pull on M5 MacBook Pro (No 2015 MBP Download Required) */}
+              <div className="bg-white/[0.04] border border-amber-400/35 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-amber-300 uppercase tracking-wider text-[11px]">
+                    Option A (Easiest) • Pull Directly from 2015 MBP Mounted Share on M5 MacBook Pro
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(
+                        'curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-pull.sh | bash'
+                      );
+                      showToastMsg('success', 'Copied M5 Direct Share Pull command');
+                    }}
+                    className="px-3 py-1 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/35 text-amber-200 font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy M5 Pull Command</span>
+                  </button>
+                </div>
+                <code className="block bg-black/40 border border-white/[0.1] rounded-xl p-3 font-mono text-amber-200 break-all">
+                  curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-pull.sh | bash
+                </code>
+                <p className="text-[11px] text-white/55">
+                  Run right on the M5 MacBook Pro when the 2015 MBP share is mounted in <code className="text-white/80">/Volumes</code>. Requires zero downloads or internet on the 2015 MacBook Pro!
+                </p>
+              </div>
+
               {/* Step 1: M5 MacBook Pro (Receiver) */}
               <div className="bg-white/[0.04] border border-sky-400/30 rounded-2xl p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-sky-300 uppercase tracking-wider text-[11px]">
-                    Step 1 • Run on New M5 MacBook Pro (USB-C to Ethernet Receiver)
+                    Option B (Step 1) • Run on New M5 MacBook Pro (USB-C to Ethernet Receiver)
                   </span>
                   <button
                     onClick={() => {
@@ -2452,34 +2479,34 @@ export const BackupDashboardView: React.FC = () => {
                   curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-receiver.sh | sudo bash
                 </code>
                 <p className="text-[11px] text-white/55">
-                  Auto-detects the USB-C Ethernet interface, assigns <code className="text-white/80">169.254.194.1</code> + UDP beacon <code className="text-white/80">:19444</code>, and writes incoming files directly into your M5 user folder with native macOS ownership.
+                  Listens on <code className="text-white/80">169.254.198.240:19443</code> over the Ethernet cable and also hosts the universal sender binary locally for the 2015 MacBook Pro.
                 </p>
               </div>
 
-              {/* Step 2: 2015 MacBook Pro (Sender) */}
+              {/* Step 2: 2015 MacBook Pro (Sender — Offline over Ethernet Cable) */}
               <div className="bg-white/[0.04] border border-emerald-400/30 rounded-2xl p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-emerald-300 uppercase tracking-wider text-[11px]">
-                    Step 2 • Run on 2015 MacBook Pro (Thunderbolt 2 to Ethernet Sender)
+                    Option B (Step 2) • Run on 2015 MacBook Pro (Pulls Directly Over Cable from M5 • No Internet Needed)
                   </span>
                   <button
                     onClick={() => {
                       navigator.clipboard?.writeText(
-                        'curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-sender.sh | sudo bash'
+                        'curl -sSL http://169.254.198.240:19443/run | bash'
                       );
-                      showToastMsg('success', 'Copied 2015 MacBook Pro Sender command');
+                      showToastMsg('success', 'Copied 2015 MacBook Pro Offline Cable command');
                     }}
                     className="px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/35 text-emerald-200 font-semibold flex items-center gap-1 cursor-pointer"
                   >
                     <Copy className="w-3 h-3" />
-                    <span>Copy 2015 MBP Command</span>
+                    <span>Copy 2015 Cable Command</span>
                   </button>
                 </div>
                 <code className="block bg-black/40 border border-white/[0.1] rounded-xl p-3 font-mono text-emerald-200 break-all">
-                  curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-sender.sh | sudo bash
+                  curl -sSL http://169.254.198.240:19443/run | bash
                 </code>
                 <p className="text-[11px] text-white/55">
-                  Watches the Thunderbolt 2 Ethernet adapter, automatically detects the Ethernet cable the moment it clicks in, and streams Desktop, Documents, Pictures, Movies, Music, Downloads, <code className="text-white/80">.ssh</code>, and Bookmarks at Gigabit line speed while updating this dashboard every 3 seconds.
+                  Downloads the universal binary directly from the M5 MacBook Pro (<code className="text-white/80">169.254.198.240:19443</code>) over the Ethernet cable — no <code className="text-white/80">apexmsp.app</code> or internet connection needed on the 2015 MacBook Pro!
                 </p>
               </div>
             </div>

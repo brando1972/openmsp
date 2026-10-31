@@ -53,6 +53,7 @@ export const RMMView: React.FC = () => {
     selectedClientId,
     setSelectedClientId,
     activeSubRailView,
+    updateDeviceDetails,
     runRemoteScriptOnDevice,
     toggleDeviceEncryption,
     remoteWipeDevice,
@@ -60,6 +61,11 @@ export const RMMView: React.FC = () => {
     triggerAutomationRuleDryRun,
     automations
   } = useApp();
+
+  const [isEditingDeviceMeta, setIsEditingDeviceMeta] = useState(false);
+  const [editDeviceName, setEditDeviceName] = useState('');
+  const [editDeviceClientId, setEditDeviceClientId] = useState('');
+  const [isSavingDeviceMeta, setIsSavingDeviceMeta] = useState(false);
 
   const findMatchingRule = (deviceId: string) => {
     const device = devices.find(d => d.id === deviceId);
@@ -211,7 +217,7 @@ export const RMMView: React.FC = () => {
   };
 
   const apiBase = API_BASE || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001');
-  const macOSCommand = `curl -fsSL "${apiBase}/api/v1/installers/macos/${enrollToken}" | bash`;
+  const macOSCommand = `curl -fsSL "${apiBase}/api/v1/installers/macos/${enrollToken}" | sudo bash`;
   const windowsCommand = `irm "${apiBase}/api/v1/installers/windows/${enrollToken}" | iex`;
   const binaryCommand = `./openmsp-agent --server="${apiBase}" --token="${enrollToken}"`;
 
@@ -520,30 +526,108 @@ export const RMMView: React.FC = () => {
               : 'md:w-[460px]'
           } md:inset-auto md:z-auto bg-white border-l border-slate-200 flex flex-col shrink-0 overflow-hidden shadow-2xl md:shadow-xl transition-all duration-200 animate-fadeIn`}>
             {/* Drawer Header */}
-            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <div className="flex items-center gap-2.5">
-                {getOsIcon(selectedDevice.os)}
-                <div>
-                  <h2 className="font-bold text-slate-900 text-sm">{selectedDevice.name}</h2>
-                  <p className="text-[11px] text-slate-500">{selectedDevice.hostname} • {selectedDevice.ipAddress}</p>
+            <div className="p-4 border-b border-slate-200 bg-slate-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {getOsIcon(selectedDevice.os)}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h2 className="font-bold text-slate-900 text-sm truncate">{selectedDevice.name}</h2>
+                      <button
+                        onClick={() => {
+                          setEditDeviceName(selectedDevice.name);
+                          setEditDeviceClientId(selectedDevice.clientId);
+                          setIsEditingDeviceMeta(prev => !prev);
+                        }}
+                        className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[10px] font-bold transition cursor-pointer shrink-0"
+                        title="Edit Display Name (keeps hostname unchanged) & Assigned Client"
+                      >
+                        Edit Name / Client
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {selectedDevice.clientName} • Host: <span className="font-mono">{selectedDevice.hostname}</span> • {selectedDevice.ipAddress}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => setIsDrawerExpanded(prev => !prev)}
+                    className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition hidden md:flex items-center gap-1"
+                    title={isDrawerExpanded ? 'Collapse drawer width' : 'Expand drawer width'}
+                  >
+                    {isDrawerExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsEditingDeviceMeta(false);
+                      setSelectedDeviceId(null);
+                    }}
+                    className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition flex items-center gap-1"
+                  >
+                    <span className="text-xs font-semibold md:hidden">Close</span>
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setIsDrawerExpanded(prev => !prev)}
-                  className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition hidden md:flex items-center gap-1"
-                  title={isDrawerExpanded ? 'Collapse drawer width' : 'Expand drawer width'}
-                >
-                  {isDrawerExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </button>
-                <button
-                  onClick={() => setSelectedDeviceId(null)}
-                  className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 transition flex items-center gap-1"
-                >
-                  <span className="text-xs font-semibold md:hidden">Close</span>
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+
+              {isEditingDeviceMeta && (
+                <div className="mt-3 p-3 rounded-lg bg-white border border-blue-200 shadow-xs space-y-2.5 text-xs">
+                  <div className="font-bold text-slate-800 flex items-center justify-between">
+                    <span>Edit Display Name & Client Assignment</span>
+                    <span className="text-[10px] font-mono text-slate-400">Hostname ({selectedDevice.hostname}) preserved</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Display Name</label>
+                      <input
+                        type="text"
+                        value={editDeviceName}
+                        onChange={(e) => setEditDeviceName(e.target.value)}
+                        placeholder="e.g. David's M5 MacBook Pro"
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 font-semibold text-xs outline-none focus:border-blue-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Client Organization</label>
+                      <select
+                        value={editDeviceClientId}
+                        onChange={(e) => setEditDeviceClientId(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded border border-slate-300 text-slate-900 font-semibold text-xs outline-none focus:border-blue-600 bg-white"
+                      >
+                        {clients.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      onClick={() => setIsEditingDeviceMeta(false)}
+                      className="px-2.5 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      disabled={isSavingDeviceMeta || !editDeviceName.trim()}
+                      onClick={async () => {
+                        setIsSavingDeviceMeta(true);
+                        const chosenClient = clients.find(c => c.id === editDeviceClientId);
+                        await updateDeviceDetails(selectedDevice.id, {
+                          name: editDeviceName.trim(),
+                          clientId: editDeviceClientId,
+                          clientName: chosenClient?.name
+                        });
+                        setIsSavingDeviceMeta(false);
+                        setIsEditingDeviceMeta(false);
+                      }}
+                      className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs cursor-pointer disabled:opacity-50"
+                    >
+                      {isSavingDeviceMeta ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Quick Actions Bar */}

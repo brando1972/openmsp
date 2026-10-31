@@ -133,14 +133,22 @@ router.patch('/:id', (req: AuthenticatedRequest, res) => {
     return;
   }
 
-  const { name, health, tags, encryptionStatus, clientId, clientName } = req.body;
+  const { name, health, tags, encryptionStatus, clientId, clientName, siteId, siteName } = req.body;
   const oldHealth = device.health;
+  const oldClientId = device.clientId;
 
-  if (name !== undefined) device.name = name;
-  if (clientId !== undefined) {
-    device.clientId = clientId;
-    device.clientName = clientName || store.clients.get(clientId)?.name || device.clientName;
+  if (name !== undefined && String(name).trim() !== '') {
+    device.name = String(name).trim();
+    (device as any).customName = true;
   }
+  if (clientId !== undefined && String(clientId).trim() !== '') {
+    const resolvedClient = store.clients.get(clientId);
+    device.clientId = clientId;
+    device.clientName = clientName || resolvedClient?.name || device.clientName;
+    (device as any).customClient = true;
+  }
+  if (siteId !== undefined) device.siteId = siteId;
+  if (siteName !== undefined) device.siteName = siteName;
   if (tags !== undefined && Array.isArray(tags)) device.tags = tags;
   if (encryptionStatus !== undefined) device.encryptionStatus = encryptionStatus;
   if (health !== undefined) {
@@ -157,6 +165,20 @@ router.patch('/:id', (req: AuthenticatedRequest, res) => {
 
   device.updatedAt = new Date().toISOString();
   store.devices.set(device.id, device);
+
+  if (oldClientId && oldClientId !== device.clientId) {
+    const prevClient = store.clients.get(oldClientId);
+    if (prevClient) {
+      prevClient.totalDevices = Array.from(store.devices.values()).filter((d) => d.clientId === prevClient.id).length;
+      store.clients.set(prevClient.id, prevClient);
+    }
+    const nextClient = store.clients.get(device.clientId);
+    if (nextClient) {
+      nextClient.totalDevices = Array.from(store.devices.values()).filter((d) => d.clientId === nextClient.id).length;
+      store.clients.set(nextClient.id, nextClient);
+    }
+  }
+
   store.persist();
 
   store.recordAudit({
