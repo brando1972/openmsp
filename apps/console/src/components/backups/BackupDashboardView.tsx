@@ -178,8 +178,8 @@ export const BackupDashboardView: React.FC = () => {
     }, 5500);
   };
 
-  const loadBackupData = useCallback(async () => {
-    setLoading(true);
+  const loadBackupData = useCallback(async (silent: boolean = false) => {
+    if (!silent) setLoading(true);
     try {
       const clientFilter = selectedClientId === 'all' ? undefined : selectedClientId;
       const res = await api.getBackupOverview(clientFilter);
@@ -188,14 +188,20 @@ export const BackupDashboardView: React.FC = () => {
         setSelectedSnapshotId(res.snapshots[0].id);
       }
     } catch (err: any) {
-      showToastMsg('error', `Failed to load backup overview: ${err?.message || 'Unknown error'}`);
+      if (!silent) {
+        showToastMsg('error', `Failed to load backup overview: ${err?.message || 'Unknown error'}`);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedClientId, selectedSnapshotId]);
 
   useEffect(() => {
-    loadBackupData();
+    loadBackupData(false);
+    const interval = setInterval(() => {
+      loadBackupData(true);
+    }, 3000);
+    return () => clearInterval(interval);
   }, [loadBackupData]);
 
   const vaults: BackupStorageVault[] = overview?.vaults || [];
@@ -628,6 +634,143 @@ export const BackupDashboardView: React.FC = () => {
       {/* ===================================================================== */}
       <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
         {/* ----------------------------------------------------------------- */}
+        {/* LIVE DESKTOP MIGRATION & FILE SYNC REAL-TIME TELEMETRY BANNER      */}
+        {/* ----------------------------------------------------------------- */}
+        {overview?.liveSync && (
+          <div className="bg-gradient-to-r from-emerald-950/60 via-[#111827] to-sky-950/60 border border-emerald-500/50 rounded-xl p-5 shadow-lg shadow-emerald-950/30 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[11px] font-black uppercase tracking-wider">
+                    <span className={`w-2 h-2 rounded-full ${overview.liveSync.completed ? 'bg-emerald-400' : 'bg-emerald-400 animate-ping'}`} />
+                    <span>
+                      {overview.liveSync.completed
+                        ? 'LIVE FILE SYNC COMPLETED'
+                        : 'LIVE FILE SYNC STREAMING (REAL-TIME 3S POLL)'}
+                    </span>
+                  </span>
+                  <span className="text-sm font-black text-white">
+                    {overview.liveSync.sourceDeviceName}
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="text-sm font-black text-sky-300">
+                    {overview.liveSync.targetDeviceName}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] font-mono text-slate-300">
+                    Tenant: Gambinos
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  Direct encrypted TLS tunnel (<code className="text-emerald-300 font-mono">{overview.liveSync.tunnelUrl}</code>) • Priority order: Favorites → Chrome Bookmarks → Desktop → Documents → Pictures/Videos → Downloads
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
+                    Last Telemetry Heartbeat
+                  </div>
+                  <div className="text-xs font-mono font-bold text-emerald-300">
+                    {formatRelativeTime(overview.liveSync.updatedAt)}
+                  </div>
+                </div>
+                <button
+                  onClick={() => loadBackupData(false)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600/25 hover:bg-emerald-600/40 border border-emerald-500/50 text-emerald-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                  <span>Refresh Now</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 4 Live Telemetry Stat Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="uppercase font-bold">Files Synced</span>
+                  <span className="font-mono font-bold text-emerald-400">{overview.liveSync.filesProgressPct}%</span>
+                </div>
+                <div className="text-xl font-black text-white font-mono mt-1">
+                  {overview.liveSync.filesSynced.toLocaleString()}{' '}
+                  <span className="text-xs font-normal text-slate-400">
+                    / {overview.liveSync.filesDiscovered.toLocaleString()} files
+                  </span>
+                </div>
+                <div className="mt-2 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-emerald-400 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.max(2, overview.liveSync.filesProgressPct)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="uppercase font-bold">Data Transferred</span>
+                  <span className="font-mono font-bold text-sky-400">{overview.liveSync.bytesProgressPct}%</span>
+                </div>
+                <div className="text-xl font-black text-sky-300 font-mono mt-1">
+                  {formatBytes(overview.liveSync.bytesSynced)}{' '}
+                  <span className="text-xs font-normal text-slate-400">
+                    / {formatBytes(overview.liveSync.bytesDiscovered)}
+                  </span>
+                </div>
+                <div className="mt-2 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-sky-400 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.max(2, overview.liveSync.bytesProgressPct)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="uppercase font-bold">Live Tunnel Speed</span>
+                  <span className="font-mono text-emerald-300">3 Workers • 2MB Chunks</span>
+                </div>
+                <div className="text-xl font-black text-emerald-400 font-mono mt-1">
+                  {overview.liveSync.averageSpeedMbps} Mbps
+                </div>
+                <div className="mt-1.5 text-[11px] text-slate-400 font-mono">
+                  Batches Committed: <strong className="text-white">{overview.liveSync.batchesReceived}</strong> • Errors: <strong className="text-emerald-300">{overview.liveSync.skippedOrLocked}</strong>
+                </div>
+              </div>
+
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="uppercase font-bold">Target Profile Path</span>
+                  <span className="font-mono text-amber-300">
+                    {Math.floor(overview.liveSync.durationSeconds / 60)}m {overview.liveSync.durationSeconds % 60}s elapsed
+                  </span>
+                </div>
+                <div className="text-sm font-black text-white font-mono mt-1.5 truncate">
+                  {overview.liveSync.targetPath}
+                </div>
+                <div className="mt-1.5 text-[11px] text-slate-400">
+                  Auto-Logon User: <strong className="text-emerald-300 font-mono">DESKTOP-QSHMDDK\BackOffice</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Currently Streaming File Ticker */}
+            <div className="bg-slate-950/90 border border-slate-800 rounded-lg px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold uppercase shrink-0">
+                  WRITING NOW
+                </span>
+                <span className="font-mono text-emerald-200 truncate" title={overview.liveSync.currentFile}>
+                  {overview.liveSync.currentFile}
+                </span>
+              </div>
+              <span className="text-[11px] font-mono text-slate-400 shrink-0">
+                SharkFin Tray HUD active on DESKTOP-QSHMDDK (Session 1)
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ----------------------------------------------------------------- */}
         {/* TAB 1: OVERVIEW & 3-2-1 PIPELINE                                  */}
         {/* ----------------------------------------------------------------- */}
         {currentTab === 'backups-overview' && (
@@ -639,27 +782,27 @@ export const BackupDashboardView: React.FC = () => {
                 <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                   <span className="font-semibold uppercase tracking-wider">Logical vs. Deduplicated Storage</span>
                   <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-mono font-bold text-[11px]">
-                    {overview?.kpis.dedupRatio || 4.1}x Dedup
+                    {overview?.kpis.dedupRatio ?? 1.0}x Dedup
                   </span>
                 </div>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span className="text-2xl font-black text-white">
-                    {formatBytes(overview?.kpis.logicalProtectedBytes || 18.45 * 1024 ** 4)}
+                    {formatBytes(overview?.kpis.logicalProtectedBytes ?? 0)}
                   </span>
                   <ArrowRight className="w-4 h-4 text-emerald-400" />
                   <span className="text-xl font-black text-emerald-400">
-                    {formatBytes(overview?.kpis.storedDeduplicatedBytes || 4.5 * 1024 ** 4)}
+                    {formatBytes(overview?.kpis.storedDeduplicatedBytes ?? 0)}
                   </span>
                 </div>
                 <div className="mt-2.5 w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                   <div
                     className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full"
-                    style={{ width: `${Math.min(95, 100 - (overview?.kpis.dedupSavingsPct || 75.6))}%` }}
+                    style={{ width: `${Math.min(95, Math.max(5, 100 - (overview?.kpis.dedupSavingsPct ?? 0)))}%` }}
                   />
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
                   <span>Buzhash 4M CDC + Zstd + AES-256-GCM</span>
-                  <strong className="text-emerald-300">{overview?.kpis.dedupSavingsPct || 75.6}% Space Saved</strong>
+                  <strong className="text-emerald-300">{overview?.kpis.dedupSavingsPct ?? 0}% Space Saved</strong>
                 </div>
               </div>
 
@@ -704,10 +847,10 @@ export const BackupDashboardView: React.FC = () => {
                     File Dedup: {overview?.kpis.fileDedupEndpoints ?? endpointAgents.length}
                   </span>
                   <span className="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                    VSS/APFS/LVM: {overview?.kpis.vssSnapshotEndpoints ?? endpointAgents.length}
+                    VSS/APFS/LVM: {overview?.kpis.vssSnapshotEndpoints ?? 0}
                   </span>
                   <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                    Bare-Metal Images: {overview?.kpis.bareMetalEndpoints ?? 2}
+                    Bare-Metal Images: {overview?.kpis.bareMetalEndpoints ?? 0}
                   </span>
                 </div>
               </div>
@@ -729,7 +872,7 @@ export const BackupDashboardView: React.FC = () => {
                 <div className="mt-2 text-[11px] text-slate-300">
                   Est. Cloud Spend:{' '}
                   <strong className="text-emerald-300 font-mono">
-                    ${overview?.kpis.estimatedMonthlyB2CostUsd ?? 31.28}/mo
+                    ${overview?.kpis.estimatedMonthlyB2CostUsd ?? 0}/mo
                   </strong>{' '}
                   (@ $6.95/TB)
                 </div>
@@ -781,7 +924,7 @@ export const BackupDashboardView: React.FC = () => {
                   </div>
                   <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[11px]">
                     <span className="text-slate-400">Client Dedup Hit:</span>
-                    <strong className="font-mono text-emerald-300">98.4% • 0 CLI Secrets</strong>
+                    <strong className="font-mono text-emerald-300">{overview?.kpis.dedupSavingsPct ?? 0}% • 0 CLI Secrets</strong>
                   </div>
                 </div>
 
@@ -803,7 +946,7 @@ export const BackupDashboardView: React.FC = () => {
                   </div>
                   <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[11px]">
                     <span className="text-slate-400">NVMe Index Cache:</span>
-                    <strong className="font-mono text-purple-300">99.7% Hit Rate</strong>
+                    <strong className="font-mono text-purple-300">Append-Only Enforced</strong>
                   </div>
                 </div>
 
@@ -814,18 +957,20 @@ export const BackupDashboardView: React.FC = () => {
                       <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px] font-bold">
                         STAGE 3 • TIER-1 LAN VAULT
                       </span>
-                      <span className="text-[10px] font-mono text-emerald-400">1.84 Gbps</span>
+                      <span className="text-[10px] font-mono text-emerald-400">10GbE NFS</span>
                     </div>
                     <div className="font-bold text-sm text-white">
                       UniFi NAS (UNAS Pro 10GbE NFS)
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      High-speed primary storage at <code className="text-indigo-300">192.168.11.25:/volume1/apexvault_kopia_repo</code>. Delivers instant LAN file restores &amp; Proxmox P2V VM boot in seconds.
+                      High-speed primary storage at <code className="text-indigo-300">192.168.4.161:/volume1/.srv/.unifi-drive/ApexVault-Backups/.data</code>. Delivers instant LAN file restores &amp; Proxmox P2V VM boot.
                     </p>
                   </div>
                   <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[11px]">
                     <span className="text-slate-400">Physical Used:</span>
-                    <strong className="font-mono text-indigo-300">4.50 TB / 64 TB (7%)</strong>
+                    <strong className="font-mono text-indigo-300">
+                      {formatBytes(vaults[0]?.storedDeduplicatedBytes ?? 0)} / {formatBytes(vaults[0]?.capacityBytes ?? 32 * 1024 ** 4)}
+                    </strong>
                   </div>
                 </div>
 
@@ -836,18 +981,18 @@ export const BackupDashboardView: React.FC = () => {
                       <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold">
                         STAGE 4 • TIER-2 OFFSITE WORM
                       </span>
-                      <span className="text-[10px] font-mono text-emerald-400">940 Mbps Sync</span>
+                      <span className="text-[10px] font-mono text-emerald-400">B2 WORM Active</span>
                     </div>
                     <div className="font-bold text-sm text-white">
                       Backblaze B2 (S3 Object Lock WORM)
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Offsite replication to <code className="text-amber-300">s3.us-west-004.backblazeb2.com</code> with 90-day <code className="text-emerald-300">COMPLIANCE</code> Object Lock &amp; scoped per-tenant keys via <code className="text-amber-200">b2_create_key</code>.
+                      Offsite replication to <code className="text-amber-300">s3.us-east-005.backblazeb2.com</code> with 30–90 day <code className="text-emerald-300">COMPLIANCE</code> Object Lock &amp; scoped per-tenant keys via <code className="text-amber-200">b2_create_key</code>.
                     </p>
                   </div>
                   <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[11px]">
-                    <span className="text-slate-400">Wholesale Rate:</span>
-                    <strong className="font-mono text-amber-300">$6.95/TB • 0 Delete API</strong>
+                    <span className="text-slate-400">Stored in B2:</span>
+                    <strong className="font-mono text-amber-300">{formatBytes(overview?.kpis.storedDeduplicatedBytes ?? 0)} • 0 Delete API</strong>
                   </div>
                 </div>
               </div>

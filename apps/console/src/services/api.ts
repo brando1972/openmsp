@@ -4821,9 +4821,36 @@ export interface BackupEndpointAgentEntry {
   report: BackupAgentReport;
 }
 
+export interface LiveFileSyncTelemetry {
+  active: boolean;
+  completed: boolean;
+  phase: string;
+  sourceDeviceId: string;
+  sourceDeviceName: string;
+  sourcePath: string;
+  targetDeviceId: string;
+  targetDeviceName: string;
+  targetPath: string;
+  tunnelUrl: string;
+  filesDiscovered: number;
+  bytesDiscovered: number;
+  filesSynced: number;
+  bytesSynced: number;
+  filesProgressPct: number;
+  bytesProgressPct: number;
+  batchesReceived: number;
+  skippedOrLocked: number;
+  currentFile: string;
+  averageSpeedMbps: number;
+  durationSeconds: number;
+  startedAt: string;
+  updatedAt: string;
+}
+
 export interface BackupOverviewResponse {
   dataSource: 'live_api' | 'fallback_preview';
   generatedAt: string;
+  liveSync?: LiveFileSyncTelemetry | null;
   engineStatus: {
     sidecarEngine: string;
     sidecarVersion: string;
@@ -5606,33 +5633,26 @@ let fallbackB2KeysState: B2TenantKeyRecord[] = [
   }
 ];
 
-function buildFallbackBackupOverview(clientId?: string): BackupOverviewResponse {
-  const filterByClient = <T extends { clientId?: string }>(items: T[]): T[] => {
-    if (!clientId || clientId === 'all') return items;
-    return items.filter(item => !item.clientId || item.clientId === 'all' || item.clientId === clientId);
-  };
-
-  const policies = filterByClient(fallbackBackupPoliciesState);
-  const snapshots = filterByClient(fallbackBackupSnapshotsState);
-  const jobs = filterByClient(fallbackBackupJobsState);
-  const bmrSessions = filterByClient(fallbackBmrSessionsState);
-  const endpointAgents = filterByClient(fallbackEndpointAgentsState);
-  const b2Keys = filterByClient(fallbackB2KeysState);
-
-  const logicalBytes = (!clientId || clientId === 'all')
-    ? fallbackBackupVaultsState[0]?.logicalProtectedBytes || 18.45 * 1024 ** 4
-    : snapshots.reduce((sum, s) => sum + s.logicalBytes, 0) || 860_000_000_000;
-  const storedBytes = (!clientId || clientId === 'all')
-    ? fallbackBackupVaultsState[0]?.storedDeduplicatedBytes || 4.5 * 1024 ** 4
-    : snapshots.reduce((sum, s) => sum + s.storedDeduplicatedBytes, 0) || 210_000_000_000;
-
-  const ratio = storedBytes > 0 ? Number((logicalBytes / storedBytes).toFixed(2)) : 4.1;
-  const savingsPct = logicalBytes > 0 ? Number((((logicalBytes - storedBytes) / logicalBytes) * 100).toFixed(1)) : 75.6;
-  const storedTb = storedBytes / (1024 ** 4);
+function buildFallbackBackupOverview(_clientId?: string): BackupOverviewResponse {
+  const policies: BackupPolicy[] = [];
+  const snapshots: BackupSnapshot[] = [];
+  const jobs: BackupJob[] = [];
+  const bmrSessions: BareMetalRecoverySession[] = [];
+  const endpointAgents: BackupEndpointAgentEntry[] = [];
+  const b2Keys: B2TenantKeyRecord[] = [];
+  const vaults: BackupStorageVault[] = fallbackBackupVaultsState.map(v => ({
+    ...v,
+    logicalProtectedBytes: 0,
+    storedDeduplicatedBytes: 0,
+    dedupRatio: 1.0,
+    connectedAgentsCount: 0,
+    totalSnapshotsCount: 0
+  }));
 
   return {
     dataSource: 'fallback_preview',
     generatedAt: new Date().toISOString(),
+    liveSync: null,
     engineStatus: {
       sidecarEngine: 'Kopia Sidecar',
       sidecarVersion: 'v0.18.2',
@@ -5645,27 +5665,25 @@ function buildFallbackBackupOverview(clientId?: string): BackupOverviewResponse 
       objectLockMode: 'COMPLIANCE'
     },
     kpis: {
-      logicalProtectedBytes: logicalBytes,
-      storedDeduplicatedBytes: storedBytes,
-      dedupRatio: ratio,
-      dedupSavingsPct: savingsPct,
-      totalSnapshots: snapshots.length,
-      immutableWormSnapshots: snapshots.filter(s => Boolean(s.immutableUntil)).length,
-      verifiedSnapshots: snapshots.filter(s => s.verificationStatus === 'verified_ok').length,
-      protectedEndpointsCount: endpointAgents.filter(a => a.report.repositoryConnected).length,
-      totalManagedEndpointsCount: endpointAgents.length,
-      fileDedupEndpoints: endpointAgents.length,
-      vssSnapshotEndpoints: endpointAgents.filter(a => a.report.vssAvailable || a.report.apfsSnapshotAvailable || a.report.lvmSnapshotAvailable).length,
-      bareMetalEndpoints: snapshots.filter(s => s.mode === 'bare_metal_image').length,
-      offsiteReplicatedSnapshots: snapshots.filter(s => s.replicatedToB2).length,
-      offsiteReplicationHealthPct: snapshots.length > 0
-        ? Math.round((snapshots.filter(s => s.replicatedToB2).length / snapshots.length) * 100)
-        : 100,
-      activeJobsCount: jobs.filter(j => j.status === 'running' || j.status === 'queued').length,
-      activeBmrSessionsCount: bmrSessions.filter(s => s.status !== 'completed' && s.status !== 'expired').length,
-      estimatedMonthlyB2CostUsd: Number((Math.max(0.1, storedTb) * 6.95).toFixed(2))
+      logicalProtectedBytes: 0,
+      storedDeduplicatedBytes: 0,
+      dedupRatio: 1.0,
+      dedupSavingsPct: 0,
+      totalSnapshots: 0,
+      immutableWormSnapshots: 0,
+      verifiedSnapshots: 0,
+      protectedEndpointsCount: 0,
+      totalManagedEndpointsCount: 0,
+      fileDedupEndpoints: 0,
+      vssSnapshotEndpoints: 0,
+      bareMetalEndpoints: 0,
+      offsiteReplicatedSnapshots: 0,
+      offsiteReplicationHealthPct: 100,
+      activeJobsCount: 0,
+      activeBmrSessionsCount: 0,
+      estimatedMonthlyB2CostUsd: 0
     },
-    vaults: fallbackBackupVaultsState,
+    vaults,
     policies,
     snapshots,
     jobs,
@@ -5680,31 +5698,28 @@ export const getBackupOverview = async (clientId?: string): Promise<BackupOvervi
   try {
     const raw = await request<any>(`/backups/overview${query}`);
     const fb = buildFallbackBackupOverview(clientId);
-    const vaults: BackupStorageVault[] = Array.isArray(raw.vaults) && raw.vaults.length > 0
+    const vaults: BackupStorageVault[] = Array.isArray(raw.vaults)
       ? raw.vaults
-      : Array.isArray(raw.storageVaults) && raw.storageVaults.length > 0
+      : Array.isArray(raw.storageVaults)
       ? raw.storageVaults
-      : fb.vaults;
-    const policies: BackupPolicy[] = Array.isArray(raw.policies) && raw.policies.length > 0
-      ? raw.policies
-      : fb.policies;
-    const snapshots: BackupSnapshot[] = Array.isArray(raw.snapshots) && raw.snapshots.length > 0
+      : [];
+    const policies: BackupPolicy[] = Array.isArray(raw.policies) ? raw.policies : [];
+    const snapshots: BackupSnapshot[] = Array.isArray(raw.snapshots)
       ? raw.snapshots
-      : Array.isArray(raw.recentSnapshots) && raw.recentSnapshots.length > 0
+      : Array.isArray(raw.recentSnapshots)
       ? raw.recentSnapshots
-      : fb.snapshots;
-    const jobs: BackupJob[] = Array.isArray(raw.jobs) && raw.jobs.length > 0
+      : [];
+    const jobs: BackupJob[] = Array.isArray(raw.jobs)
       ? raw.jobs
-      : Array.isArray(raw.recentJobs) && raw.recentJobs.length > 0
+      : Array.isArray(raw.recentJobs)
       ? raw.recentJobs
-      : fb.jobs;
-    const bareMetalSessions: BareMetalRecoverySession[] = Array.isArray(raw.bareMetalSessions) && raw.bareMetalSessions.length > 0
+      : [];
+    const bareMetalSessions: BareMetalRecoverySession[] = Array.isArray(raw.bareMetalSessions)
       ? raw.bareMetalSessions
-      : Array.isArray(raw.bmrSessions) && raw.bmrSessions.length > 0
+      : Array.isArray(raw.bmrSessions)
       ? raw.bmrSessions
-      : fb.bareMetalSessions;
+      : [];
 
-    let endpointAgents: BackupEndpointAgentEntry[] = fb.endpointAgents;
     const rawAgentList = Array.isArray(raw.endpointAgents) && raw.endpointAgents.length > 0
       ? raw.endpointAgents
       : Array.isArray(raw.deviceReports) && raw.deviceReports.length > 0
@@ -5713,58 +5728,57 @@ export const getBackupOverview = async (clientId?: string): Promise<BackupOvervi
       ? raw.agents
       : [];
 
-    if (rawAgentList.length > 0) {
-      endpointAgents = rawAgentList.map((a: any, idx: number) => ({
-        deviceId: a.deviceId || a.id || fb.endpointAgents[idx % fb.endpointAgents.length].deviceId,
-        hostname: a.hostname || a.deviceName || a.name || 'Managed Endpoint',
-        clientId: a.clientId || 'c-gambinos',
-        clientName: a.clientName || 'Gambinos',
-        os: a.os || 'windows',
-        osVersion: a.osVersion || (a.os === 'macos' ? 'macOS 15.1 Sequoia' : a.os === 'linux' ? 'Ubuntu 22.04 LTS' : 'Windows 11 Pro'),
-        ipAddress: a.ipAddress || '192.168.2.179',
-        report: a.report || a.backupReport || {
-          kopiaInstalled: a.kopiaInstalled ?? true,
-          kopiaVersion: a.kopiaVersion || 'v0.18.2',
-          kopiaBinaryPath: a.kopiaBinaryPath || '/usr/local/bin/kopia',
-          kopiaSha256Verified: a.kopiaSha256Verified ?? true,
-          repositoryConnected: a.repositoryConnected ?? true,
-          vaultEndpoint: a.vaultEndpoint || 'https://backup-gw.apexmsp.app:51515',
-          appendOnlyMode: a.appendOnlyMode ?? true,
-          vssAvailable: Boolean(a.vssAvailable),
-          apfsSnapshotAvailable: Boolean(a.apfsSnapshotAvailable),
-          lvmSnapshotAvailable: Boolean(a.lvmSnapshotAvailable),
-          lastSnapshotId: a.lastSnapshotId,
-          lastSnapshotAt: a.lastSnapshotAt,
-          logicalBytesTotal: a.logicalBytesTotal || 248_500_000_000,
-          deduplicatedBytesTotal: a.deduplicatedBytesTotal || 58_400_000_000,
-          dedupRatio: a.dedupRatio || 4.1,
-          status: a.status || 'idle',
-          reportedAt: a.reportedAt || new Date().toISOString()
-        }
-      }));
-    }
+    const endpointAgents: BackupEndpointAgentEntry[] = rawAgentList.map((a: any) => ({
+      deviceId: a.deviceId || a.id || 'unknown-device',
+      hostname: a.hostname || a.deviceName || a.name || 'Managed Endpoint',
+      clientId: a.clientId || 'c-gambinos',
+      clientName: a.clientName || 'Gambinos',
+      os: a.os || 'windows',
+      osVersion: a.osVersion || (a.os === 'macos' ? 'macOS 15.1 Sequoia' : a.os === 'linux' ? 'Ubuntu 22.04 LTS' : 'Windows 11 Pro'),
+      ipAddress: a.ipAddress || '',
+      report: a.report || a.backupReport || {
+        kopiaInstalled: a.kopiaInstalled ?? true,
+        kopiaVersion: a.kopiaVersion || 'v2.0.9',
+        kopiaBinaryPath: a.kopiaBinaryPath || 'C:\\ProgramData\\ApexMSP\\ApexMSPAgent.exe',
+        kopiaSha256Verified: a.kopiaSha256Verified ?? true,
+        repositoryConnected: a.repositoryConnected ?? true,
+        vaultEndpoint: a.vaultEndpoint || 'https://backup-gw.apexmsp.app:51515',
+        appendOnlyMode: a.appendOnlyMode ?? true,
+        vssAvailable: Boolean(a.vssAvailable),
+        apfsSnapshotAvailable: Boolean(a.apfsSnapshotAvailable),
+        lvmSnapshotAvailable: Boolean(a.lvmSnapshotAvailable),
+        lastSnapshotId: a.lastSnapshotId,
+        lastSnapshotAt: a.lastSnapshotAt,
+        logicalBytesTotal: a.logicalBytesTotal ?? 0,
+        deduplicatedBytesTotal: a.deduplicatedBytesTotal ?? 0,
+        dedupRatio: a.dedupRatio ?? 1.0,
+        status: a.status || 'idle',
+        reportedAt: a.reportedAt || new Date().toISOString()
+      }
+    }));
 
-    const b2ProvisionedKeys: B2TenantKeyRecord[] = Array.isArray(raw.b2ProvisionedKeys) && raw.b2ProvisionedKeys.length > 0
+    const b2ProvisionedKeys: B2TenantKeyRecord[] = Array.isArray(raw.b2ProvisionedKeys)
       ? raw.b2ProvisionedKeys
-      : Array.isArray(raw.b2Keys) && raw.b2Keys.length > 0
+      : Array.isArray(raw.b2Keys)
       ? raw.b2Keys
-      : fb.b2ProvisionedKeys;
+      : [];
 
     const logicalBytes =
       raw.kpis?.logicalProtectedBytes ??
       raw.kpis?.totalLogicalBytes ??
       raw.totalLogicalBytes ??
-      fb.kpis.logicalProtectedBytes;
+      0;
     const storedBytes =
       raw.kpis?.storedDeduplicatedBytes ??
       raw.kpis?.totalStoredDeduplicatedBytes ??
       raw.kpis?.totalDeduplicatedBytes ??
       raw.totalStoredDeduplicatedBytes ??
-      fb.kpis.storedDeduplicatedBytes;
+      0;
 
     return {
       dataSource: 'live_api',
       generatedAt: raw.generatedAt || new Date().toISOString(),
+      liveSync: raw.liveSync || null,
       engineStatus: {
         ...fb.engineStatus,
         ...(raw.engineStatus || {})
@@ -5774,16 +5788,21 @@ export const getBackupOverview = async (clientId?: string): Promise<BackupOvervi
         ...(raw.kpis || {}),
         logicalProtectedBytes: logicalBytes,
         storedDeduplicatedBytes: storedBytes,
-        dedupRatio: raw.kpis?.dedupRatio ?? raw.kpis?.globalDedupRatio ?? raw.globalDedupRatio ?? fb.kpis.dedupRatio,
-        dedupSavingsPct: raw.kpis?.dedupSavingsPct ?? raw.dedupSavingsPct ?? fb.kpis.dedupSavingsPct,
+        dedupRatio: raw.kpis?.dedupRatio ?? raw.kpis?.globalDedupRatio ?? raw.globalDedupRatio ?? 1.0,
+        dedupSavingsPct: raw.kpis?.dedupSavingsPct ?? raw.dedupSavingsPct ?? 0,
         totalSnapshots: raw.kpis?.totalSnapshots ?? snapshots.length,
-        immutableWormSnapshots: raw.kpis?.immutableWormSnapshots ?? raw.kpis?.immutableSnapshots ?? fb.kpis.immutableWormSnapshots,
-        verifiedSnapshots: raw.kpis?.verifiedSnapshots ?? fb.kpis.verifiedSnapshots,
+        immutableWormSnapshots: raw.kpis?.immutableWormSnapshots ?? raw.kpis?.immutableSnapshots ?? 0,
+        verifiedSnapshots: raw.kpis?.verifiedSnapshots ?? 0,
         protectedEndpointsCount: raw.kpis?.protectedEndpointsCount ?? raw.kpis?.protectedDevicesCount ?? endpointAgents.length,
         totalManagedEndpointsCount: raw.kpis?.totalManagedEndpointsCount ?? raw.kpis?.totalDevicesCount ?? endpointAgents.length,
-        bareMetalEndpoints: raw.kpis?.bareMetalEndpoints ?? raw.kpis?.bareMetalReadyCount ?? fb.kpis.bareMetalEndpoints,
-        offsiteReplicatedSnapshots: raw.kpis?.offsiteReplicatedSnapshots ?? raw.kpis?.replicatedToB2Snapshots ?? fb.kpis.offsiteReplicatedSnapshots,
-        estimatedMonthlyB2CostUsd: Number((Math.max(0.1, storedBytes / (1024 ** 4)) * 6.95).toFixed(2))
+        fileDedupEndpoints: raw.kpis?.fileDedupEndpoints ?? raw.kpis?.protectedDevicesCount ?? endpointAgents.length,
+        vssSnapshotEndpoints: raw.kpis?.vssSnapshotEndpoints ?? snapshots.filter(s => s.vssShadowCopyUsed).length,
+        bareMetalEndpoints: raw.kpis?.bareMetalEndpoints ?? raw.kpis?.bareMetalReadyCount ?? 0,
+        offsiteReplicatedSnapshots: raw.kpis?.offsiteReplicatedSnapshots ?? raw.kpis?.replicatedToB2Snapshots ?? 0,
+        offsiteReplicationHealthPct: raw.kpis?.offsiteReplicationHealthPct ?? (snapshots.length > 0 ? Math.round((snapshots.filter(s => s.replicatedToB2).length / snapshots.length) * 100) : 100),
+        activeJobsCount: raw.kpis?.activeJobsCount ?? jobs.filter(j => j.status === 'running' || j.status === 'queued').length,
+        activeBmrSessionsCount: raw.kpis?.activeBmrSessionsCount ?? bareMetalSessions.filter(s => s.status !== 'completed' && s.status !== 'expired').length,
+        estimatedMonthlyB2CostUsd: Number(((storedBytes / (1024 ** 4)) * 6.95).toFixed(2))
       },
       vaults,
       policies,
