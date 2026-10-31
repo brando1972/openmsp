@@ -393,6 +393,9 @@ function recomputeVaultMetrics(vaultId: string): BackupStorageVault | undefined 
 // GET /api/v1/backups/overview
 // ---------------------------------------------------------------------------
 router.get('/overview', async (req: AuthenticatedRequest, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   purgeMockBackupRecords();
   const liveSync = await pollLiveFileSyncStatus();
   recomputeVaultMetrics('vault-unifi-nas-01');

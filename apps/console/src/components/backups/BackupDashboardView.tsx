@@ -711,12 +711,15 @@ export const BackupDashboardView: React.FC = () => {
                   <span className="font-mono font-bold text-sky-400">{overview.liveSync.bytesProgressPct}%</span>
                 </div>
                 <div className="text-xl font-black text-sky-300 font-mono mt-1">
-                  {formatBytes(overview.liveSync.bytesSynced)}{' '}
+                  {(overview.liveSync.bytesSynced / (1024 * 1024)).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB{' '}
                   <span className="text-xs font-normal text-slate-400">
                     / {formatBytes(overview.liveSync.bytesDiscovered)}
                   </span>
                 </div>
-                <div className="mt-2 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div className="mt-1 text-[10px] font-mono text-slate-400">
+                  {overview.liveSync.bytesSynced.toLocaleString()} bytes written
+                </div>
+                <div className="mt-1.5 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
                   <div
                     className="bg-sky-400 h-full rounded-full transition-all duration-500"
                     style={{ width: `${Math.max(2, overview.liveSync.bytesProgressPct)}%` }}

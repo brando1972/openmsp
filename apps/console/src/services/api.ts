@@ -5694,7 +5694,10 @@ function buildFallbackBackupOverview(_clientId?: string): BackupOverviewResponse
 }
 
 export const getBackupOverview = async (clientId?: string): Promise<BackupOverviewResponse> => {
-  const query = clientId && clientId !== 'all' ? `?clientId=${encodeURIComponent(clientId)}` : '';
+  const params = new URLSearchParams();
+  if (clientId && clientId !== 'all') params.set('clientId', clientId);
+  params.set('_t', String(Date.now()));
+  const query = `?${params.toString()}`;
   try {
     const raw = await request<any>(`/backups/overview${query}`);
     const fb = buildFallbackBackupOverview(clientId);
