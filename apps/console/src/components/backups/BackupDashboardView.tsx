@@ -138,6 +138,7 @@ export const BackupDashboardView: React.FC = () => {
 
   // Modals / Drawers state
   const [showRunBackupModal, setShowRunBackupModal] = useState<boolean>(false);
+  const [showMacCableModal, setShowMacCableModal] = useState<boolean>(false);
   const [runBackupDeviceId, setRunBackupDeviceId] = useState<string>('dev-gambinos-c1');
   const [runBackupMode, setRunBackupMode] = useState<BackupMode>('bare_metal_image');
   const [runBackupIncludePath, setRunBackupIncludePath] = useState<string>('C:\\KwickPOS, C:\\Users');
@@ -560,6 +561,15 @@ export const BackupDashboardView: React.FC = () => {
                 title="Refresh Real-Time Telemetry"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-sky-400' : ''}`} />
+              </button>
+
+              {/* Secondary Glass Pill: Mac-to-Mac Direct Ethernet Cable Sync */}
+              <button
+                onClick={() => setShowMacCableModal(true)}
+                className="px-3.5 py-2 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-400/30 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-xl transition cursor-pointer shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+              >
+                <Zap className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Mac Cable Sync (TB2 ↔ USB-C)</span>
               </button>
 
               {/* Secondary Glass Pill 1: Sync UniFi NAS -> B2 */}
@@ -2390,6 +2400,102 @@ export const BackupDashboardView: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL 5: MAC-TO-MAC DIRECT ETHERNET CABLE SYNC (2015 MBP <-> M5 MBP)   */}
+      {/* ===================================================================== */}
+      {showMacCableModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-v18-shell rounded-3xl max-w-2xl w-full p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-400/35 flex items-center justify-center text-emerald-300">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    Direct Ethernet Cable Migration (2015 MacBook Pro ↔ M5 MacBook Pro)
+                  </h3>
+                  <p className="text-[11px] text-white/55">
+                    Thunderbolt 2 to Ethernet ↔ Cat6 Patch Cable ↔ USB-C to Ethernet • Auto-Link-Local (169.254.194.1) &amp; UDP Discovery
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowMacCableModal(false)} className="text-white/50 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* Step 1: M5 MacBook Pro (Receiver) */}
+              <div className="bg-white/[0.04] border border-sky-400/30 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-sky-300 uppercase tracking-wider text-[11px]">
+                    Step 1 • Run on New M5 MacBook Pro (USB-C to Ethernet Receiver)
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(
+                        'curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-receiver.sh | sudo bash'
+                      );
+                      showToastMsg('success', 'Copied M5 MacBook Pro Receiver command');
+                    }}
+                    className="px-3 py-1 rounded-full bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/35 text-sky-200 font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy M5 Command</span>
+                  </button>
+                </div>
+                <code className="block bg-black/40 border border-white/[0.1] rounded-xl p-3 font-mono text-sky-200 break-all">
+                  curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-receiver.sh | sudo bash
+                </code>
+                <p className="text-[11px] text-white/55">
+                  Auto-detects the USB-C Ethernet interface, assigns <code className="text-white/80">169.254.194.1</code> + UDP beacon <code className="text-white/80">:19444</code>, and writes incoming files directly into your M5 user folder with native macOS ownership.
+                </p>
+              </div>
+
+              {/* Step 2: 2015 MacBook Pro (Sender) */}
+              <div className="bg-white/[0.04] border border-emerald-400/30 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-emerald-300 uppercase tracking-wider text-[11px]">
+                    Step 2 • Run on 2015 MacBook Pro (Thunderbolt 2 to Ethernet Sender)
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard?.writeText(
+                        'curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-sender.sh | sudo bash'
+                      );
+                      showToastMsg('success', 'Copied 2015 MacBook Pro Sender command');
+                    }}
+                    className="px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/35 text-emerald-200 font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy 2015 MBP Command</span>
+                  </button>
+                </div>
+                <code className="block bg-black/40 border border-white/[0.1] rounded-xl p-3 font-mono text-emerald-200 break-all">
+                  curl -sSL https://api.apexmsp.app/api/v1/installers/mac-cable-sender.sh | sudo bash
+                </code>
+                <p className="text-[11px] text-white/55">
+                  Watches the Thunderbolt 2 Ethernet adapter, automatically detects the Ethernet cable the moment it clicks in, and streams Desktop, Documents, Pictures, Movies, Music, Downloads, <code className="text-white/80">.ssh</code>, and Bookmarks at Gigabit line speed while updating this dashboard every 3 seconds.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-white/[0.08]">
+              <span className="text-[11px] text-white/50 font-mono">
+                Universal Binary: x86_64 (2015 Intel MBP) + arm64 (M5 Apple Silicon)
+              </span>
+              <button
+                onClick={() => setShowMacCableModal(false)}
+                className="px-4 py-2 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 text-white text-xs font-semibold cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

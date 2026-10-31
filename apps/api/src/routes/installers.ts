@@ -871,4 +871,95 @@ pause
   res.send(provScript);
 });
 
+// ---------------------------------------------------------------------------
+// Direct Ethernet Cable Mac-to-Mac Migration (2015 MBP TB2 <-> M5 MBP USB-C)
+// ---------------------------------------------------------------------------
+
+// GET /api/v1/installers/mac-cable-sync -> Universal macOS Binary (x86_64 + arm64)
+router.get('/mac-cable-sync', (_req, res) => {
+  const candidates = [
+    '/builds/apex-live-sync-macos-universal',
+    path.join(process.cwd(), 'bin', 'apex-live-sync-macos-universal')
+  ];
+  const found = candidates.find(p => fs.existsSync(p));
+  if (!found) {
+    res.status(404).json({ error: 'Universal macOS cable-sync binary not found' });
+    return;
+  }
+  res.setHeader('Content-Disposition', 'attachment; filename="apex-live-sync"');
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.sendFile(path.resolve(found));
+});
+
+// POST /api/v1/installers/live-sync-report -> Receives live telemetry from 2015 MBP / M5 MBP
+router.post('/live-sync-report', (req, res) => {
+  const token = req.header('X-Apex-Sync-Token');
+  if (token !== 'apex-live-sync-gambinos-2026') {
+    res.status(401).json({ error: 'Unauthorized sync token' });
+    return;
+  }
+  const body = req.body || {};
+  const prev = (globalThis as any).__apexMacCableSyncStatus || {};
+  (globalThis as any).__apexMacCableSyncStatus = {
+    ...prev,
+    ...body,
+    receivedAtMs: Date.now(),
+    updatedAt: new Date().toISOString()
+  };
+  res.json({ ok: true });
+});
+
+// GET /api/v1/installers/mac-cable-receiver.sh -> Run on M5 MacBook Pro (USB-C to Ethernet)
+router.get('/mac-cable-receiver.sh', (_req, res) => {
+  const script = `#!/bin/bash
+set -e
+REAL_USER="\${SUDO_USER:-\$(stat -f '%Su' /dev/console 2>/dev/null || whoami)}"
+if [ "\$REAL_USER" = "root" ] || [ -z "\$REAL_USER" ]; then
+  REAL_USER="\$(ls -1 /Users | grep -vE '^(Shared|Guest|\\.localized)\$' | head -n 1)"
+fi
+TARGET_HOME="/Users/\$REAL_USER"
+
+echo "=================================================================="
+echo " ⚡ ApexVault Direct Cable Receiver (M5 MacBook Pro • USB-C Eth)"
+echo " Target User Profile: \$TARGET_HOME (User: \$REAL_USER)"
+echo "=================================================================="
+
+curl -sSL -o /tmp/apex-live-sync "https://api.apexmsp.app/api/v1/installers/mac-cable-sync"
+chmod +x /tmp/apex-live-sync
+xattr -c /tmp/apex-live-sync 2>/dev/null || true
+
+pkill -f "/tmp/apex-live-sync" 2>/dev/null || true
+echo "🔌 Plug in the Ethernet cable (USB-C Ethernet <-> Thunderbolt 2 Ethernet)..."
+exec /tmp/apex-live-sync -mode receiver -listen 0.0.0.0:19443 -root "\$TARGET_HOME"
+`;
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.send(script);
+});
+
+// GET /api/v1/installers/mac-cable-sender.sh -> Run on 2015 MacBook Pro (Thunderbolt 2 to Ethernet)
+router.get('/mac-cable-sender.sh', (_req, res) => {
+  const script = `#!/bin/bash
+set -e
+REAL_USER="\${SUDO_USER:-\$(stat -f '%Su' /dev/console 2>/dev/null || whoami)}"
+if [ "\$REAL_USER" = "root" ] || [ -z "\$REAL_USER" ]; then
+  REAL_USER="\$(ls -1 /Users | grep -vE '^(Shared|Guest|\\.localized)\$' | head -n 1)"
+fi
+SOURCE_HOME="/Users/\$REAL_USER"
+
+echo "=================================================================="
+echo " ⚡ ApexVault Direct Cable Sender (2015 MacBook Pro • TB2 Eth)"
+echo " Source User Profile: \$SOURCE_HOME (User: \$REAL_USER)"
+echo "=================================================================="
+
+curl -sSL -o /tmp/apex-live-sync "https://api.apexmsp.app/api/v1/installers/mac-cable-sync"
+chmod +x /tmp/apex-live-sync
+xattr -c /tmp/apex-live-sync 2>/dev/null || true
+
+pkill -f "/tmp/apex-live-sync" 2>/dev/null || true
+exec /tmp/apex-live-sync -mode sender -source "\$SOURCE_HOME" -url auto -workers 6
+`;
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.send(script);
+});
+
 export default router;

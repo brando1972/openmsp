@@ -264,8 +264,76 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     // keep cachedLiveSyncStatus if tunnel request momentarily times out
   }
 
+  // Check if a Mac-to-Mac Direct Ethernet Cable Migration (2015 MBP TB2 <-> M5 MBP USB-C) is reporting live telemetry
+  const macSync = (globalThis as any).__apexMacCableSyncStatus;
+  let macResult: Record<string, any> | null = null;
+  if (macSync && typeof macSync.receivedAtMs === 'number' && Date.now() - macSync.receivedAtMs < 30 * 60 * 1000) {
+    const mFilesDisc = Math.max(1, Number(macSync.filesDiscovered) || 0, Number(macSync.filesSynced) || 0);
+    const mBytesDisc = Math.max(1, Number(macSync.bytesDiscovered) || 0, Number(macSync.bytesSynced) || 0);
+    const mFilesSynced = Number(macSync.filesSynced) || 0;
+    const mBytesSynced = Number(macSync.bytesSynced) || 0;
+    const mFilesPct = Number(Math.min(100, (mFilesSynced / mFilesDisc) * 100).toFixed(1));
+    const mBytesPct = Number(Math.min(100, (mBytesSynced / mBytesDisc) * 100).toFixed(2));
+    const mSpeed = Number((Number(macSync.averageSpeedMbps) || 0).toFixed(2));
+    const mCurFile =
+      macSync.currentFile ||
+      (macSync.phase === 'waiting_for_cable'
+        ? 'Waiting for Thunderbolt 2 ↔ USB-C Ethernet cable link...'
+        : 'Scanning macOS user profile...');
+
+    const macJobId = 'job-mac-cable-2015-to-m5';
+    store.backupJobs.set(macJobId, {
+      id: macJobId,
+      jobNumber: 'SYNC-MAC-CABLE-01',
+      orgId: '00000000-0000-0000-0000-000000000001',
+      clientId: 'c-brandon-ray',
+      clientName: 'Brandon Ray (Mac Direct Cable)',
+      deviceId: 'dev-mac-m5-mbp',
+      deviceName: `${macSync.targetDeviceName || 'M5 MacBook Pro'} (← ${macSync.sourceDeviceName || '2015 MacBook Pro'})`,
+      vaultId: 'vault-unifi-nas-01',
+      vaultName: macSync.tunnelUrl || 'Direct 1GbE Cable (TB2-Eth ↔ USB-C-Eth)',
+      jobType: 'restore_files',
+      mode: 'file_object_dedup',
+      status: macSync.completed ? 'completed' : 'running',
+      progressPct: macSync.completed ? 100 : Math.max(1, Math.round(mFilesPct)),
+      transferRateMbps: mSpeed,
+      logicalBytesProcessed: mBytesDisc,
+      deduplicatedBytesWritten: mBytesSynced,
+      targetRestorePath: macSync.targetPath || '/Users',
+      details: `Direct Ethernet Cable Migration (2015 MacBook Pro TB2-Eth → M5 MacBook Pro USB-C-Eth): ${mFilesSynced.toLocaleString()} / ${mFilesDisc.toLocaleString()} files (${(mBytesSynced / (1024 * 1024)).toFixed(1)} MB) • ${mCurFile}`,
+      startedAt: macSync.startedAt || new Date().toISOString(),
+      completedAt: macSync.completed ? macSync.updatedAt : undefined
+    });
+
+    macResult = {
+      active: !macSync.completed,
+      completed: Boolean(macSync.completed),
+      phase: macSync.phase || 'streaming',
+      sourceDeviceId: 'dev-mac-2015-mbp',
+      sourceDeviceName: macSync.sourceDeviceName || '2015 MacBook Pro (TB2 Ethernet)',
+      sourcePath: macSync.sourcePath || '/Users',
+      targetDeviceId: 'dev-mac-m5-mbp',
+      targetDeviceName: macSync.targetDeviceName || 'M5 MacBook Pro (USB-C Ethernet)',
+      targetPath: macSync.targetPath || '/Users',
+      tunnelUrl: macSync.tunnelUrl || 'Direct 1GbE Cable (TB2-Eth ↔ USB-C-Eth • 169.254.194.1)',
+      filesDiscovered: mFilesDisc,
+      bytesDiscovered: mBytesDisc,
+      filesSynced: mFilesSynced,
+      bytesSynced: mBytesSynced,
+      filesProgressPct: mFilesPct,
+      bytesProgressPct: mBytesPct,
+      batchesReceived: Number(macSync.batchesReceived) || 0,
+      skippedOrLocked: Number(macSync.skippedOrLocked) || 0,
+      currentFile: mCurFile,
+      averageSpeedMbps: mSpeed,
+      durationSeconds: Math.round(Number(macSync.durationSeconds) || 0),
+      startedAt: macSync.startedAt,
+      updatedAt: macSync.updatedAt
+    };
+  }
+
   const sync = cachedLiveSyncStatus;
-  if (!sync) return null;
+  if (!sync) return macResult;
 
   const filesDiscovered = Math.max(9511, sync.filesDiscovered || 0, sync.filesSynced || 0);
   const bytesDiscovered = Math.max(14252512051, sync.bytesDiscovered || 0, sync.bytesSynced || 0);
@@ -341,6 +409,10 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     status: sync.completed ? 'idle' : 'running_restore',
     reportedAt: sync.updatedAt || new Date().toISOString()
   });
+
+  if (macResult) {
+    return macResult;
+  }
 
   return {
     active: !sync.completed,
