@@ -122,6 +122,61 @@ body {
   animation: fadeIn 0.15s ease-out forwards;
 }
 
+/* Glassy Dashboard V18 Spatial Glass Utilities */
+.glass-v18-canvas {
+  background-color: #07090e;
+  background-image:
+    radial-gradient(circle at 10% 15%, rgba(217, 119, 6, 0.22) 0%, transparent 45%),
+    radial-gradient(circle at 88% 18%, rgba(37, 99, 235, 0.28) 0%, transparent 50%),
+    radial-gradient(circle at 75% 85%, rgba(14, 165, 233, 0.16) 0%, transparent 48%),
+    radial-gradient(circle at 22% 82%, rgba(99, 102, 241, 0.14) 0%, transparent 45%);
+}
+
+.glass-v18-shell {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.065) 0%, rgba(15, 23, 42, 0.68) 55%, rgba(7, 10, 18, 0.82) 100%);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+}
+
+.glass-card {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.065) 0%, rgba(255, 255, 255, 0.025) 100%);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
+}
+
+.glass-card:hover {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.glass-bento-blue {
+  background: linear-gradient(145deg, rgba(56, 189, 248, 0.34) 0%, rgba(37, 99, 235, 0.26) 48%, rgba(15, 23, 42, 0.78) 100%);
+  backdrop-filter: blur(24px) saturate(190%);
+  -webkit-backdrop-filter: blur(24px) saturate(190%);
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  box-shadow:
+    0 20px 50px rgba(14, 165, 233, 0.2),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.28);
+}
+
+.glass-bento-amber {
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.16) 0%, rgba(255, 255, 255, 0.055) 50%, rgba(15, 23, 42, 0.75) 100%);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
+}
+
 @media print {
   body {
     background-color: white !important;

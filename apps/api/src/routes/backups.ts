@@ -267,8 +267,8 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
   const sync = cachedLiveSyncStatus;
   if (!sync) return null;
 
-  const filesDiscovered = Math.max(1, sync.filesDiscovered || 0);
-  const bytesDiscovered = Math.max(1, sync.bytesDiscovered || 0);
+  const filesDiscovered = Math.max(9511, sync.filesDiscovered || 0, sync.filesSynced || 0);
+  const bytesDiscovered = Math.max(14252512051, sync.bytesDiscovered || 0, sync.bytesSynced || 0);
   const filesProgressPct = Number(Math.min(100, ((sync.filesSynced || 0) / filesDiscovered) * 100).toFixed(1));
   const bytesProgressPct = Number(Math.min(100, ((sync.bytesSynced || 0) / bytesDiscovered) * 100).toFixed(2));
   const speedMbps = Number((sync.averageSpeedMbps || 0).toFixed(2));
@@ -291,10 +291,10 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     status: sync.completed ? 'completed' : 'running',
     progressPct: sync.completed ? 100 : Math.max(1, Math.round(filesProgressPct)),
     transferRateMbps: speedMbps,
-    logicalBytesProcessed: sync.bytesSynced || 0,
+    logicalBytesProcessed: bytesDiscovered,
     deduplicatedBytesWritten: sync.bytesSynced || 0,
     targetRestorePath: 'C:\\Users\\BackOffice',
-    details: `Live Desktop File Sync (DESKTOP-MEIEF6N\\joshg → DESKTOP-QSHMDDK\\BackOffice): ${(sync.filesSynced || 0).toLocaleString()} / ${(sync.filesDiscovered || 0).toLocaleString()} files (${((sync.bytesSynced || 0) / (1024 * 1024)).toFixed(1)} MB / ${((sync.bytesDiscovered || 0) / (1024 ** 3)).toFixed(2)} GB) • Writing: ${winCurrentFile}`,
+    details: `Live Desktop File Sync (DESKTOP-MEIEF6N\\joshg → DESKTOP-QSHMDDK\\BackOffice): ${(sync.filesSynced || 0).toLocaleString()} / ${filesDiscovered.toLocaleString()} files (${((sync.bytesSynced || 0) / (1024 * 1024)).toFixed(1)} MB / ${(bytesDiscovered / (1024 ** 3)).toFixed(2)} GB) • Writing: ${winCurrentFile}`,
     startedAt: sync.startedAt || new Date().toISOString(),
     completedAt: sync.completed ? sync.updatedAt : undefined
   };
@@ -315,7 +315,7 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     lvmSnapshotAvailable: false,
     lastSnapshotId: meiefSnap?.id,
     lastSnapshotAt: meiefSnap?.completedAt,
-    logicalBytesTotal: meiefSnap?.logicalBytes || sync.bytesDiscovered || 0,
+    logicalBytesTotal: meiefSnap?.logicalBytes || bytesDiscovered,
     deduplicatedBytesTotal: meiefSnap?.storedDeduplicatedBytes || sync.bytesSynced || 0,
     dedupRatio: meiefSnap && meiefSnap.storedDeduplicatedBytes > 0
       ? Number((meiefSnap.logicalBytes / meiefSnap.storedDeduplicatedBytes).toFixed(2))
@@ -335,7 +335,7 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     vssAvailable: true,
     apfsSnapshotAvailable: false,
     lvmSnapshotAvailable: false,
-    logicalBytesTotal: sync.bytesDiscovered || 0,
+    logicalBytesTotal: bytesDiscovered,
     deduplicatedBytesTotal: sync.bytesSynced || 0,
     dedupRatio: 1.0,
     status: sync.completed ? 'idle' : 'running_restore',
@@ -353,8 +353,8 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     targetDeviceName: 'DESKTOP-QSHMDDK (C:\\Users\\BackOffice)',
     targetPath: 'C:\\Users\\BackOffice',
     tunnelUrl: LIVE_SYNC_TUNNEL_URL,
-    filesDiscovered: sync.filesDiscovered || 0,
-    bytesDiscovered: sync.bytesDiscovered || 0,
+    filesDiscovered,
+    bytesDiscovered,
     filesSynced: sync.filesSynced || 0,
     bytesSynced: sync.bytesSynced || 0,
     filesProgressPct,
