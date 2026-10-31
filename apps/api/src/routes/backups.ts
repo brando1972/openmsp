@@ -169,6 +169,63 @@ function generatePairingCode(): string {
   return `${part1}-${part2}`;
 }
 
+function purgeMockBackupRecords(): void {
+  const mockSnapIds = [
+    'snap-win01-baremetal-001',
+    'snap-mac01-apfs-002',
+    'snap-gambinos-pos-003',
+    'snap-gambinos-bopc-004',
+    'snap-muni-cad-005',
+    'snap-tbi-pos-006'
+  ];
+  let changed = false;
+  for (const id of mockSnapIds) {
+    if (store.backupSnapshots.delete(id)) changed = true;
+  }
+  for (const [id, snap] of store.backupSnapshots.entries()) {
+    if (snap.fileCount === 124800 && snap.logicalBytes === 68719476736) {
+      store.backupSnapshots.delete(id);
+      changed = true;
+    }
+  }
+  const mockPolicyIds = ['pol-backup-files-dedup', 'pol-backup-vss-snapshot', 'pol-backup-baremetal'];
+  for (const id of mockPolicyIds) {
+    if (store.backupPolicies.delete(id)) changed = true;
+  }
+  const mockBmrIds = ['bmr-001', 'bmr-002', 'bmr-003'];
+  for (const id of mockBmrIds) {
+    if (store.bareMetalSessions.delete(id)) changed = true;
+  }
+  const mockJobIds = ['job-bkp-1001', 'job-bkp-1002', 'job-bkp-1003', 'job-bkp-1004', 'job-bkp-1005'];
+  for (const id of mockJobIds) {
+    if (store.backupJobs.delete(id)) changed = true;
+  }
+  for (const [id, job] of store.backupJobs.entries()) {
+    if (job.logicalBytesProcessed === 68719476736) {
+      store.backupJobs.delete(id);
+      changed = true;
+    }
+  }
+  const mockDeviceReportIds = [
+    'dev-mac-7c8a43',
+    'dev-win-f877f0',
+    'dev-gambinos-pos-ctrl',
+    'dev-gambinos-bo-pc',
+    'dev-muni-cad-01',
+    'dev-raytreat-clin-01',
+    'dev-tbi-pos-srv',
+    'dev-win-01'
+  ];
+  for (const id of mockDeviceReportIds) {
+    if (store.deviceBackupReports.delete(id)) changed = true;
+  }
+  recomputeVaultMetrics('vault-unifi-nas-01');
+  recomputeVaultMetrics('vault-b2-cloud-01');
+  if (changed) {
+    store.persist();
+  }
+}
+
 function recomputeVaultMetrics(vaultId: string): BackupStorageVault | undefined {
   const vault = store.backupVaults.get(vaultId);
   if (!vault) return undefined;
@@ -177,19 +234,13 @@ function recomputeVaultMetrics(vaultId: string): BackupStorageVault | undefined 
     (s) => s.vaultId === vaultId || (vault.backendType === 'backblaze_b2' && s.replicatedToB2)
   );
 
-  if (vaultSnaps.length > 0) {
-    const sumLogical = vaultSnaps.reduce((acc, s) => acc + (s.logicalBytes || 0), 0);
-    const sumDedup = vaultSnaps.reduce((acc, s) => acc + (s.storedDeduplicatedBytes || 0), 0);
-    // Keep at least the baseline multi-TB enterprise telemetry if snapshots are a sample subset
-    const baselineLogical = Math.round(4.85 * 1024 ** 4);
-    const baselineDedup = Math.round(1.18 * 1024 ** 4);
-    vault.logicalProtectedBytes = Math.max(baselineLogical, sumLogical);
-    vault.storedDeduplicatedBytes = Math.max(baselineDedup, sumDedup);
-    vault.dedupRatio = Number((vault.logicalProtectedBytes / Math.max(1, vault.storedDeduplicatedBytes)).toFixed(2));
-    vault.totalSnapshotsCount = vaultSnaps.length;
-  }
-
-  vault.connectedAgentsCount = Math.max(store.deviceBackupReports.size, store.devices.size);
+  const sumLogical = vaultSnaps.reduce((acc, s) => acc + (s.logicalBytes || 0), 0);
+  const sumDedup = vaultSnaps.reduce((acc, s) => acc + (s.storedDeduplicatedBytes || 0), 0);
+  vault.logicalProtectedBytes = sumLogical;
+  vault.storedDeduplicatedBytes = sumDedup;
+  vault.dedupRatio = sumDedup > 0 ? Number((sumLogical / sumDedup).toFixed(2)) : 1.0;
+  vault.totalSnapshotsCount = vaultSnaps.length;
+  vault.connectedAgentsCount = store.deviceBackupReports.size;
   vault.updatedAt = new Date().toISOString();
   store.backupVaults.set(vault.id, vault);
   return vault;
@@ -199,6 +250,7 @@ function recomputeVaultMetrics(vaultId: string): BackupStorageVault | undefined 
 // GET /api/v1/backups/overview
 // ---------------------------------------------------------------------------
 router.get('/overview', (req: AuthenticatedRequest, res) => {
+  purgeMockBackupRecords();
   const { clientId } = req.query;
   const filterClient = typeof clientId === 'string' && clientId !== 'all' ? clientId : undefined;
 
@@ -252,22 +304,18 @@ router.get('/overview', (req: AuthenticatedRequest, res) => {
   const sumSnapLogical = snapshots.reduce((acc, s) => acc + (s.logicalBytes || 0), 0);
   const sumSnapDedup = snapshots.reduce((acc, s) => acc + (s.storedDeduplicatedBytes || 0), 0);
 
-  const totalLogicalBytes = filterClient
-    ? sumSnapLogical
-    : Math.max(unifiVault?.logicalProtectedBytes || 0, sumSnapLogical);
-  const totalStoredDeduplicatedBytes = filterClient
-    ? sumSnapDedup
-    : Math.max(unifiVault?.storedDeduplicatedBytes || 0, sumSnapDedup);
+  const totalLogicalBytes = sumSnapLogical;
+  const totalStoredDeduplicatedBytes = sumSnapDedup;
 
   const globalDedupRatio =
     totalStoredDeduplicatedBytes > 0
       ? Number((totalLogicalBytes / totalStoredDeduplicatedBytes).toFixed(2))
-      : 4.11;
+      : 1.0;
   const totalSavingsBytes = Math.max(0, totalLogicalBytes - totalStoredDeduplicatedBytes);
   const dedupSavingsPct =
     totalLogicalBytes > 0
       ? Number(((totalSavingsBytes / totalLogicalBytes) * 100).toFixed(1))
-      : 75.7;
+      : 0;
 
   const totalSnapshots = snapshots.length;
   const verifiedSnapshots = snapshots.filter((s) => s.verificationStatus === 'verified_ok' || s.status === 'verified').length;
@@ -302,9 +350,9 @@ router.get('/overview', (req: AuthenticatedRequest, res) => {
     nfsExport: unifiVault?.unifiNfsExport || '/volume1/.srv/.unifi-drive/ApexVault-Backups/.data',
     endpointUrl: unifiVault?.endpointUrl || 'https://backup-gw.apexmsp.app:51515',
     capacityBytes: unifiVault?.capacityBytes || Math.round(32 * 1024 ** 4),
-    logicalProtectedBytes: unifiVault?.logicalProtectedBytes || totalLogicalBytes,
-    storedDeduplicatedBytes: unifiVault?.storedDeduplicatedBytes || totalStoredDeduplicatedBytes,
-    dedupRatio: unifiVault?.dedupRatio || globalDedupRatio,
+    logicalProtectedBytes: unifiVault?.logicalProtectedBytes ?? 0,
+    storedDeduplicatedBytes: unifiVault?.storedDeduplicatedBytes ?? 0,
+    dedupRatio: unifiVault?.dedupRatio ?? 1.0,
     appendOnlyEnforced: unifiVault?.appendOnlyEnforced ?? true,
     encryptionAlgorithm: unifiVault?.encryptionAlgorithm || 'AES256-GCM-HMAC-SHA256',
     chunkSplitter: unifiVault?.chunkSplitter || 'DYNAMIC-4M-BUZHASH',
@@ -326,9 +374,9 @@ router.get('/overview', (req: AuthenticatedRequest, res) => {
     retentionDays: b2Vault?.immutableRetentionDays || 30,
     appendOnlyEnforced: b2Vault?.appendOnlyEnforced ?? true,
     capacityBytes: b2Vault?.capacityBytes || Math.round(100 * 1024 ** 4),
-    logicalProtectedBytes: b2Vault?.logicalProtectedBytes || totalLogicalBytes,
-    storedDeduplicatedBytes: b2Vault?.storedDeduplicatedBytes || totalStoredDeduplicatedBytes,
-    dedupRatio: b2Vault?.dedupRatio || globalDedupRatio,
+    logicalProtectedBytes: b2Vault?.logicalProtectedBytes ?? totalLogicalBytes,
+    storedDeduplicatedBytes: b2Vault?.storedDeduplicatedBytes ?? totalStoredDeduplicatedBytes,
+    dedupRatio: b2Vault?.dedupRatio ?? globalDedupRatio,
     lastSyncToCloudAt: b2Vault?.lastSyncToCloudAt
   };
 
