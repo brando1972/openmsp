@@ -201,15 +201,19 @@ router.get(['/download/:os/:component', '/download/:os', '/download'], (req, res
     path.join('/app/bin', filename)
   ];
 
-  let foundPath = candidatePaths.find(p => fs.existsSync(p));
+  let foundPath: string | undefined;
 
-  if (!foundPath) {
+  if (component !== 'menubar') {
     const targetOs = os === 'macos' ? 'darwin' : os;
     const targetArch = arch || (os === 'windows' || os === 'linux' ? 'amd64' : 'arm64');
     const art = artifactPath(targetOs, targetArch);
     if (art && fs.existsSync(art.path)) {
       foundPath = art.path;
     }
+  }
+
+  if (!foundPath) {
+    foundPath = candidatePaths.find(p => fs.existsSync(p));
   }
 
   if (!foundPath) {

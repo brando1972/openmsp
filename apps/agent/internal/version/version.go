@@ -5,4 +5,4 @@
 package version
 
 // Version is the compiled agent version (semver: MAJOR.MINOR.PATCH).
-const Version = "2.0.6"
+const Version = "2.0.9"
