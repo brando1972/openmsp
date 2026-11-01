@@ -37,11 +37,19 @@ export const BackstageHub: React.FC<BackstageHubProps> = ({
   initialTab
 }) => {
   const isAndroid = device.os === 'android';
+  const isMac = device.os === 'macos';
+  const isLinux = device.os === 'linux';
   const defaultTab = initialTab || (isAndroid ? 'android' : 'terminal');
   const [activeTab, setActiveTab] = useState<'android' | 'terminal' | 'processes' | 'services' | 'files' | 'events'>(defaultTab);
   const [terminalShell, setTerminalShell] = useState<'powershell' | 'cmd' | 'bash'>(
     device.os === 'windows' ? 'powershell' : 'bash'
   );
+
+  const domainDisplay = isAndroid
+    ? device.domain || 'ApexMSP Mobile'
+    : isMac
+    ? device.domain && device.domain !== 'WORKGROUP' ? device.domain : 'Local (.local)'
+    : device.domain || 'WORKGROUP';
 
   const handleOpenTerminalWithCommand = (cmd: string) => {
     setActiveTab(isAndroid ? 'android' : 'terminal');
@@ -80,9 +88,9 @@ export const BackstageHub: React.FC<BackstageHubProps> = ({
 
           <div className="flex items-center gap-1.5 bg-slate-900 px-2 py-1 rounded border border-slate-800 text-[11px]">
             <Globe className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="text-slate-400">Domain:</span>
+            <span className="text-slate-400">{isMac ? 'Host Scope:' : 'Domain:'}</span>
             <span className="text-slate-200 font-mono">
-              {device.domain || (isAndroid ? 'ApexMSP Mobile' : 'WORKGROUP')}
+              {domainDisplay}
             </span>
           </div>
 
@@ -155,7 +163,7 @@ export const BackstageHub: React.FC<BackstageHubProps> = ({
           }`}
         >
           <Activity className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{isAndroid ? 'Running Packages' : device.os === 'macos' ? 'Activity Monitor' : 'Task Manager'}</span>
+          <span>{isAndroid ? 'Running Packages' : isMac ? 'Activity Monitor' : isLinux ? 'System Monitor' : 'Task Manager'}</span>
         </button>
 
         <button
@@ -167,7 +175,7 @@ export const BackstageHub: React.FC<BackstageHubProps> = ({
           }`}
         >
           <Cog className="w-3.5 h-3.5 text-indigo-400" />
-          <span>{isAndroid ? 'Services & Daemons' : 'Services'}</span>
+          <span>{isAndroid ? 'Services & Daemons' : isMac ? 'LaunchDaemons' : isLinux ? 'systemd Units' : 'Services'}</span>
         </button>
 
         {!isAndroid && (
@@ -180,7 +188,7 @@ export const BackstageHub: React.FC<BackstageHubProps> = ({
             }`}
           >
             <Folder className="w-3.5 h-3.5 text-amber-400" />
-            <span>File Explorer</span>
+            <span>{isMac ? 'Finder' : isLinux ? 'File Manager' : 'File Explorer'}</span>
           </button>
         )}
 
@@ -193,7 +201,7 @@ export const BackstageHub: React.FC<BackstageHubProps> = ({
           }`}
         >
           <FileText className="w-3.5 h-3.5 text-purple-400" />
-          <span>{isAndroid ? 'Device Logs' : 'Event Viewer'}</span>
+          <span>{isAndroid ? 'Device Logs' : isMac ? 'Console Logs' : isLinux ? 'System Logs' : 'Event Viewer'}</span>
         </button>
       </div>
 

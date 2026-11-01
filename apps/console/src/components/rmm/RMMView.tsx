@@ -648,7 +648,11 @@ export const RMMView: React.FC = () => {
                     ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-300'
                     : 'bg-amber-600 hover:bg-amber-500 text-slate-950'
                 }`}
-                title={`ScreenConnect Backstage (Silent ${selectedDevice.os === 'macos' ? 'Activity Monitor' : 'Task Manager'}, Services, Files, Terminal)`}
+                title={
+                  selectedDevice.os === 'macos'
+                    ? 'Backstage (Silent Activity Monitor, LaunchDaemons, Finder, Console Logs & Root Terminal)'
+                    : 'ScreenConnect Backstage (Silent Task Manager, Services, File Explorer, Event Viewer & Terminal)'
+                }
               >
                 <Zap className="w-3.5 h-3.5" /> Backstage
               </button>

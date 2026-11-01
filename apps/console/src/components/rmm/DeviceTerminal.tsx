@@ -44,6 +44,7 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
   onToggleExpand
 }) => {
   const isWindows = device.os === 'windows';
+  const isMac = device.os === 'macos';
   const defaultShell: 'powershell' | 'cmd' | 'bash' = initialShell
     ? initialShell
     : isWindows
@@ -453,6 +454,16 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
           { label: 'systeminfo', cmd: 'systeminfo' },
           { label: 'ping test', cmd: 'ping 8.8.8.8 -n 4' }
         ]
+    : isMac
+    ? [
+        { label: 'whoami', cmd: 'whoami && id' },
+        { label: 'macOS Version', cmd: 'sw_vers && uname -a' },
+        { label: 'Top CPU', cmd: 'ps -axo pid,pcpu,pmem,rss,user,comm | head -n 16' },
+        { label: 'Disk Space (df -h)', cmd: 'df -h' },
+        { label: 'LaunchDaemons', cmd: 'launchctl list | grep -v com.apple | head -n 25' },
+        { label: 'Network IPs', cmd: 'ifconfig | grep -E "^[a-z0-9]+:|inet "' },
+        { label: 'Uptime', cmd: 'uptime' }
+      ]
     : [
         { label: 'whoami', cmd: 'whoami' },
         { label: 'top (snapshot)', cmd: 'top -b -n 1 | head -n 15' },
@@ -509,7 +520,7 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
                 className="px-3 py-1 rounded text-xs font-semibold bg-emerald-600 text-white flex items-center gap-1.5"
               >
                 <TerminalIcon className="w-3.5 h-3.5" />
-                <span>Bash / Shell</span>
+                <span>{isMac ? 'zsh / bash (root)' : 'Bash / Shell'}</span>
               </button>
             )}
           </div>
@@ -588,18 +599,22 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
 
           <div className="flex items-center gap-1.5 text-slate-300">
             <Globe className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span className="text-slate-500 font-sans text-[10px] uppercase font-bold tracking-wider">Domain:</span>
+            <span className="text-slate-500 font-sans text-[10px] uppercase font-bold tracking-wider">{isMac ? 'Host Scope:' : 'Domain:'}</span>
             <span className="font-mono text-slate-300 bg-slate-800/80 px-1.5 py-0.5 rounded text-[10px] border border-slate-700">
-              {device.domain || 'WORKGROUP'}
+              {isMac ? (device.domain && device.domain !== 'WORKGROUP' ? device.domain : 'Local (.local)') : (device.domain || 'WORKGROUP')}
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-          <Shield className="w-3 h-3 text-amber-400" />
+          <Shield className={`w-3 h-3 ${isWindows ? 'text-amber-400' : 'text-sky-400'}`} />
           <span className="text-slate-500 font-sans uppercase font-bold">Shell Privilege:</span>
-          <span className="font-mono text-amber-300 font-bold">NT AUTHORITY\SYSTEM</span>
-          <span className="text-slate-500 hidden sm:inline">(Backstage Service Session)</span>
+          <span className={`font-mono font-bold ${isWindows ? 'text-amber-300' : 'text-sky-300'}`}>
+            {isWindows ? 'NT AUTHORITY\\SYSTEM' : 'root (uid=0)'}
+          </span>
+          <span className="text-slate-500 hidden sm:inline">
+            {isWindows ? '(Backstage Service Session)' : isMac ? '(LaunchDaemon Background Session)' : '(System Service Session)'}
+          </span>
         </div>
       </div>
 
@@ -674,7 +689,7 @@ export const DeviceTerminal: React.FC<DeviceTerminalProps> = ({
             disabled={status !== 'connected'}
             placeholder={
               status === 'connected'
-                ? `Execute command in ${activeShell === 'powershell' ? 'PowerShell' : 'CMD'} (or click above to type directly)...`
+                ? `Execute command in ${activeShell === 'powershell' ? 'PowerShell' : activeShell === 'cmd' ? 'CMD' : isMac ? 'macOS Root Shell' : 'Bash'} (or click above to type directly)...`
                 : 'Connecting to live terminal...'
             }
             className="flex-1 bg-transparent text-white font-mono text-xs outline-none placeholder:text-slate-600 disabled:opacity-40"

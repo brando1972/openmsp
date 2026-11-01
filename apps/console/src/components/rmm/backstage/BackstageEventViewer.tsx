@@ -47,6 +47,7 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
 
   const isWindows = device.os === 'windows';
+  const isMac = device.os === 'macos';
   const [logs, setLogs] = useState<EventLogItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -78,22 +79,28 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
           message: r.Message || '(No message text)'
         })).sort((x, y) => y.time.localeCompare(x.time)));
       } else {
+        const logCmd =
+          channelFilter === 'Application'
+            ? `ls -lt /Library/Logs/DiagnosticReports 2>/dev/null | head -n 40`
+            : channelFilter === 'Security'
+            ? `tail -n ${MAX_EVENTS} /var/log/install.log 2>/dev/null || tail -n ${MAX_EVENTS} /var/log/auth.log 2>/dev/null || tail -n ${MAX_EVENTS} /var/log/system.log 2>/dev/null`
+            : `tail -n ${MAX_EVENTS} /var/log/system.log 2>/dev/null || tail -n ${MAX_EVENTS} /var/log/syslog 2>/dev/null || dmesg | tail -n ${MAX_EVENTS}`;
         const out = await runRemoteChecked(
           runRemoteScriptOnDevice,
           device.id,
-          `tail -n ${MAX_EVENTS} /var/log/system.log 2>/dev/null || tail -n ${MAX_EVENTS} /var/log/syslog 2>/dev/null || dmesg | tail -n ${MAX_EVENTS}`,
+          logCmd,
           'bash'
         );
-        const lines = out.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        const lines = out.split(/\r?\n/).filter((l) => l.trim().length > 0 && !l.startsWith('total '));
         const parsed: EventLogItem[] = lines.map((line, idx) => {
           const m = line.match(/^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+\S+\s+([^:\[]+)(?:\[(\d+)\])?:\s*(.*)$/);
           const time = m ? m[1] : new Date().toISOString().slice(0, 19).replace('T', ' ');
-          const provider = m ? m[2].trim() : 'system';
+          const provider = m ? m[2].trim() : channelFilter === 'Application' ? 'DiagnosticReports' : 'system';
           const id = m && m[3] ? Number(m[3]) : idx + 1;
           const message = m ? m[4] : line;
           const lower = message.toLowerCase();
           const level: EventLogItem['level'] =
-            lower.includes('panic') || lower.includes('fatal') || lower.includes('crash')
+            lower.includes('panic') || lower.includes('fatal') || lower.includes('crash') || channelFilter === 'Application'
               ? 'Critical'
               : lower.includes('error') || lower.includes('fail')
               ? 'Error'
@@ -105,7 +112,7 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
             time,
             level,
             provider,
-            channel: 'System',
+            channel: channelFilter === 'All' ? 'System' : channelFilter,
             message,
           };
         });
@@ -161,7 +168,7 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search event logs by message or ID…"
+              placeholder={isMac ? 'Search Console logs by process, PID, or message…' : 'Search event logs by message or ID…'}
               className="w-full pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-700/80 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition font-mono"
             />
           </div>
@@ -173,12 +180,23 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
             value={channelFilter}
             onChange={(e) => setChannelFilter(e.target.value as typeof channelFilter)}
             className="px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-200 text-xs"
-            title="Which event log to read from the device"
+            title={isMac ? 'Which macOS Console log source to read' : 'Which event log to read from the device'}
           >
-            <option value="All">System + Application</option>
-            <option value="System">System</option>
-            <option value="Application">Application</option>
-            <option value="Security">Security</option>
+            {isMac ? (
+              <>
+                <option value="All">All Console Logs (system.log)</option>
+                <option value="System">system.log (/var/log/system.log)</option>
+                <option value="Application">Crash Reports (DiagnosticReports)</option>
+                <option value="Security">install.log (/var/log/install.log)</option>
+              </>
+            ) : (
+              <>
+                <option value="All">System + Application</option>
+                <option value="System">System</option>
+                <option value="Application">Application</option>
+                <option value="Security">Security</option>
+              </>
+            )}
           </select>
           <button
             onClick={fetchEvents}
@@ -212,11 +230,11 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
 
       {/* Table Header */}
       <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-[#0d111d] border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
-        <div className="col-span-2">Time Created</div>
-        <div className="col-span-2">Level</div>
-        <div className="col-span-1">Event ID</div>
-        <div className="col-span-3">Provider / Source</div>
-        <div className="col-span-4">Message</div>
+        <div className="col-span-2">{isMac ? 'Timestamp' : 'Time Created'}</div>
+        <div className="col-span-2">{isMac ? 'Severity' : 'Level'}</div>
+        <div className="col-span-1">{isMac ? 'PID' : 'Event ID'}</div>
+        <div className="col-span-3">{isMac ? 'Process / Subsystem' : 'Provider / Source'}</div>
+        <div className="col-span-4">{isMac ? 'Console Message' : 'Message'}</div>
       </div>
 
       {/* Rows */}
@@ -243,7 +261,11 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
 
               {isExpanded && (
                 <div className="mt-2.5 p-3 bg-slate-900/90 rounded border border-slate-800 text-xs text-slate-200 font-sans leading-relaxed space-y-1 animate-fadeIn">
-                  <div className="text-[11px] font-mono text-slate-500">Channel: {item.channel} • Event ID: {item.id} • Provider: {item.provider}</div>
+                  <div className="text-[11px] font-mono text-slate-500">
+                    {isMac
+                      ? `Log Source: ${item.channel === 'Application' ? 'DiagnosticReports' : item.channel === 'Security' ? 'install.log' : 'system.log'} • PID: ${item.id} • Process: ${item.provider}`
+                      : `Channel: ${item.channel} • Event ID: ${item.id} • Provider: ${item.provider}`}
+                  </div>
                   <div className="pt-1 text-slate-100">{item.message}</div>
                 </div>
               )}

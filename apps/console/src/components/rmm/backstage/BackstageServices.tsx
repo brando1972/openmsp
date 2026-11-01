@@ -49,6 +49,8 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
   const [actionMessage, setActionMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const isWindows = device.os === 'windows';
+  const isMac = device.os === 'macos';
+  const itemLabelPlural = isMac ? 'LaunchDaemons' : device.os === 'linux' ? 'systemd units' : 'services';
   const [servicesList, setServicesList] = useState<DeviceService[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -161,7 +163,7 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search services by display name or key…"
+              placeholder={isMac ? 'Search LaunchDaemons by label (e.g. com.apexmsp)…' : 'Search services by display name or key…'}
               className="w-full pl-8 pr-3 py-1.5 bg-slate-900/80 border border-slate-700/80 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition font-mono"
             />
           </div>
@@ -246,10 +248,10 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
 
       {/* Table Header */}
       <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-[#0d111d] border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
-        <div className="col-span-5">Service Display Name</div>
+        <div className="col-span-5">{isMac ? 'LaunchDaemon / Agent Label' : 'Service Display Name'}</div>
         <div className="col-span-2">Status</div>
-        <div className="col-span-2">Startup Type</div>
-        <div className="col-span-3 text-right">Backstage Actions</div>
+        <div className="col-span-2">{isMac ? 'Domain / Scope' : 'Startup Type'}</div>
+        <div className="col-span-3 text-right">{isMac ? 'launchctl Actions' : 'Backstage Actions'}</div>
       </div>
 
       {/* Table Rows */}
@@ -285,7 +287,7 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
               </div>
 
               <div className="col-span-2 text-slate-400 text-[11px] capitalize font-mono">
-                {svc.startupType || 'auto'}
+                {isMac ? (svc.name.startsWith('com.apple.') ? 'System (Apple)' : 'LaunchDaemon') : (svc.startupType || 'auto')}
               </div>
 
               <div className="col-span-3 text-right">
@@ -329,13 +331,13 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
         })}
 
         {servicesList.length === 0 && isLoading ? (
-          <BackstageLiveStatus state="loading" deviceName={device.name} what="services" />
+          <BackstageLiveStatus state="loading" deviceName={device.name} what={itemLabelPlural} />
         ) : servicesList.length === 0 && loadError ? (
-          <BackstageLiveStatus state="error" deviceName={device.name} what="services" error={loadError} onRetry={fetchServices} />
+          <BackstageLiveStatus state="error" deviceName={device.name} what={itemLabelPlural} error={loadError} onRetry={fetchServices} />
         ) : servicesList.length > 0 && filteredServices.length === 0 ? (
           <div className="py-12 text-center text-slate-500">
             <Cog className="w-8 h-8 mx-auto mb-2 text-slate-600" />
-            <div className="font-bold text-slate-400">No matching services found</div>
+            <div className="font-bold text-slate-400">No matching {itemLabelPlural} found</div>
             <div className="text-xs text-slate-600 mt-1">Try changing filter criteria</div>
           </div>
         ) : null}
@@ -343,11 +345,11 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
 
       {/* Footer */}
       <div className="px-3 py-2 bg-[#090c14] border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between shrink-0">
-        <span>Showing <strong className="text-slate-200">{filteredServices.length}</strong> of {servicesList.length} services</span>
+        <span>Showing <strong className="text-slate-200">{filteredServices.length}</strong> of {servicesList.length} {itemLabelPlural}</span>
 
         {onOpenTerminalWithCommand && (
           <button
-            onClick={() => onOpenTerminalWithCommand('Get-Service | Where-Object Status -eq "Running" | Format-Table -AutoSize')}
+            onClick={() => onOpenTerminalWithCommand(isWindows ? 'Get-Service | Where-Object Status -eq "Running" | Format-Table -AutoSize' : 'launchctl list | head -n 40')}
             className="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1"
           >
             <Play className="w-3 h-3" />
