@@ -682,7 +682,7 @@ export const RemoteSupportView: React.FC = () => {
                           onClick={() => setBackstageDevice(deviceForCard(c))}
                           disabled={!c.online && c.agents?.rmm?.state !== 'online'}
                           className="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
-                          title="ScreenConnect Backstage (Silent Task Manager, Services, Files, Terminal)"
+                          title={`ScreenConnect Backstage (Silent ${c.os === 'macos' ? 'Activity Monitor' : 'Task Manager'}, Services, Files, Terminal)`}
                         >
                           <Zap className="w-3.5 h-3.5" /> Backstage
                         </button>

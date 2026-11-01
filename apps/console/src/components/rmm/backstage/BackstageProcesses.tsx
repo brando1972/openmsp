@@ -65,6 +65,8 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const hasData = processes.length > 0;
   const isWindows = device.os === 'windows';
+  const isMac = device.os === 'macos';
+  const killLabel = isMac ? 'Force Quit' : 'End Task';
 
   const fetchProcesses = useCallback(async () => {
     setIsLoading(true);
@@ -328,10 +330,10 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
                 <button
                   onClick={() => setConfirmKill(proc)}
                   className="px-2 py-1 bg-rose-950/60 hover:bg-rose-900/90 text-rose-300 border border-rose-800/80 rounded text-[10px] font-sans font-bold flex items-center gap-1 ml-auto transition"
-                  title={`End Task ${proc.name} (PID: ${proc.id})`}
+                  title={`${killLabel} ${proc.name} (PID: ${proc.id})`}
                 >
                   <Trash2 className="w-3 h-3 text-rose-400" />
-                  <span>End Task</span>
+                  <span>{killLabel}</span>
                 </button>
               </div>
             </div>
@@ -364,7 +366,7 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
 
         {onOpenTerminalWithCommand && (
           <button
-            onClick={() => onOpenTerminalWithCommand('Get-Process | Sort-Object CPU -Descending | Select-Object -First 15')}
+            onClick={() => onOpenTerminalWithCommand(isWindows ? 'Get-Process | Sort-Object CPU -Descending | Select-Object -First 15' : 'ps -axo pid,pcpu,pmem,rss,user,comm | head -n 20')}
             className="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1"
           >
             <Play className="w-3 h-3" />
@@ -379,12 +381,12 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
           <div className="bg-[#111625] border border-rose-800/80 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-4 text-slate-200 animate-fadeIn">
             <div className="flex items-center gap-3 text-rose-400 font-bold text-base">
               <AlertTriangle className="w-6 h-6 shrink-0" />
-              <span>Terminate Process?</span>
+              <span>{isMac ? 'Force Quit Process?' : 'Terminate Process?'}</span>
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed font-sans">
-              Are you sure you want to kill <strong className="text-white font-mono">{confirmKill.name}</strong> (PID: <strong className="text-amber-400 font-mono">{confirmKill.id}</strong>)?
-              This will forcefully end the process in Session 0 immediately. Unsaved application data may be lost.
+              Are you sure you want to {isMac ? 'force quit' : 'kill'} <strong className="text-white font-mono">{confirmKill.name}</strong> (PID: <strong className="text-amber-400 font-mono">{confirmKill.id}</strong>)?
+              This will forcefully end the process {isWindows ? 'in Session 0 ' : ''}immediately. Unsaved application data may be lost.
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -401,7 +403,7 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
                 className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs"
               >
                 {isKilling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                <span>End Task Immediately</span>
+                <span>{killLabel} Immediately</span>
               </button>
             </div>
           </div>

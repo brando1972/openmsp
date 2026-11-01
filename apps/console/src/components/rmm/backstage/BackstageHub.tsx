@@ -155,7 +155,7 @@ export const BackstageHub: React.FC<BackstageHubProps> = ({
           }`}
         >
           <Activity className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{isAndroid ? 'Running Packages' : 'Task Manager'}</span>
+          <span>{isAndroid ? 'Running Packages' : device.os === 'macos' ? 'Activity Monitor' : 'Task Manager'}</span>
         </button>
 
         <button
