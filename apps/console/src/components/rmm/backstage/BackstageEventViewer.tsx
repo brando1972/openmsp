@@ -13,7 +13,7 @@ import {
   Play
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
-import { runDeviceScript, runRemotePsList } from './remoteExec';
+import { runDeviceScript, runRemoteChecked, runRemotePsList } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
 
 const MAX_EVENTS = 200;
@@ -53,30 +53,64 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
   const [hasLoaded, setHasLoaded] = useState(false);
 
   const fetchEvents = useCallback(async () => {
-    if (!isWindows) return;
     setIsLoading(true);
     setExpandedEventId(null);
     try {
-      // Security is only read when picked explicitly: it is large and mostly noise.
-      const logNames = channelFilter === 'All' ? ['System', 'Application'] : [channelFilter];
-      const names = logNames.map((n) => `'${n}'`).join(',');
-      const rows = await runRemotePsList<{ Id: number; Time: string; Level: number; Provider: string; LogName: string; Message: string | null }>(
-        runRemoteScriptOnDevice,
-        device.id,
-        `$(try { Get-WinEvent -FilterHashtable @{ LogName = @(${names}) } -MaxEvents ${MAX_EVENTS} -ErrorAction Stop } ` +
-          `catch { if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') { @() } else { throw } }) | ` +
-          `Select-Object Id, @{N='Time';E={$_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')}}, Level, ` +
-          `@{N='Provider';E={$_.ProviderName}}, LogName, ` +
-          `@{N='Message';E={ $m = $_.Message; if ($m -and $m.Length -gt 2000) { $m.Substring(0, 2000) + '...' } else { $m } }}`
-      );
-      setLogs(rows.map((r) => ({
-        id: Number(r.Id),
-        time: r.Time,
-        level: levelName(r.Level),
-        provider: r.Provider || '',
-        channel: (r.LogName as EventLogItem['channel']) || 'System',
-        message: r.Message || '(No message text)'
-      })).sort((x, y) => y.time.localeCompare(x.time)));
+      if (isWindows) {
+        // Security is only read when picked explicitly: it is large and mostly noise.
+        const logNames = channelFilter === 'All' ? ['System', 'Application'] : [channelFilter];
+        const names = logNames.map((n) => `'${n}'`).join(',');
+        const rows = await runRemotePsList<{ Id: number; Time: string; Level: number; Provider: string; LogName: string; Message: string | null }>(
+          runRemoteScriptOnDevice,
+          device.id,
+          `$(try { Get-WinEvent -FilterHashtable @{ LogName = @(${names}) } -MaxEvents ${MAX_EVENTS} -ErrorAction Stop } ` +
+            `catch { if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') { @() } else { throw } }) | ` +
+            `Select-Object Id, @{N='Time';E={$_.TimeCreated.ToString('yyyy-MM-dd HH:mm:ss')}}, Level, ` +
+            `@{N='Provider';E={$_.ProviderName}}, LogName, ` +
+            `@{N='Message';E={ $m = $_.Message; if ($m -and $m.Length -gt 2000) { $m.Substring(0, 2000) + '...' } else { $m } }}`
+        );
+        setLogs(rows.map((r) => ({
+          id: Number(r.Id),
+          time: r.Time,
+          level: levelName(r.Level),
+          provider: r.Provider || '',
+          channel: (r.LogName as EventLogItem['channel']) || 'System',
+          message: r.Message || '(No message text)'
+        })).sort((x, y) => y.time.localeCompare(x.time)));
+      } else {
+        const out = await runRemoteChecked(
+          runRemoteScriptOnDevice,
+          device.id,
+          `tail -n ${MAX_EVENTS} /var/log/system.log 2>/dev/null || tail -n ${MAX_EVENTS} /var/log/syslog 2>/dev/null || dmesg | tail -n ${MAX_EVENTS}`,
+          'bash'
+        );
+        const lines = out.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        const parsed: EventLogItem[] = lines.map((line, idx) => {
+          const m = line.match(/^([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+\S+\s+([^:\[]+)(?:\[(\d+)\])?:\s*(.*)$/);
+          const time = m ? m[1] : new Date().toISOString().slice(0, 19).replace('T', ' ');
+          const provider = m ? m[2].trim() : 'system';
+          const id = m && m[3] ? Number(m[3]) : idx + 1;
+          const message = m ? m[4] : line;
+          const lower = message.toLowerCase();
+          const level: EventLogItem['level'] =
+            lower.includes('panic') || lower.includes('fatal') || lower.includes('crash')
+              ? 'Critical'
+              : lower.includes('error') || lower.includes('fail')
+              ? 'Error'
+              : lower.includes('warn')
+              ? 'Warning'
+              : 'Information';
+          return {
+            id,
+            time,
+            level,
+            provider,
+            channel: 'System',
+            message,
+          };
+        });
+        setLogs(parsed.reverse());
+      }
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
@@ -148,7 +182,7 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
           </select>
           <button
             onClick={fetchEvents}
-            disabled={isLoading || !isWindows}
+            disabled={isLoading}
             title="Reload events from the device"
             className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded border border-slate-700 transition"
           >
@@ -217,9 +251,7 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
           );
         })}
 
-        {!isWindows ? (
-          <BackstageLiveStatus state="unsupported" deviceName={device.name} what="event logs" />
-        ) : isLoading && logs.length === 0 ? (
+        {isLoading && logs.length === 0 ? (
           <BackstageLiveStatus state="loading" deviceName={device.name} what="event logs" />
         ) : loadError && logs.length === 0 ? (
           <BackstageLiveStatus state="error" deviceName={device.name} what="event logs" error={loadError} onRetry={fetchEvents} />
@@ -238,7 +270,7 @@ export const BackstageEventViewer: React.FC<BackstageEventViewerProps> = ({
 
         {onOpenTerminalWithCommand && (
           <button
-            onClick={() => onOpenTerminalWithCommand('Get-WinEvent -FilterHashtable @{LogName="System"; Level=1,2,3} -MaxEvents 10 | Format-Table -AutoSize')}
+            onClick={() => onOpenTerminalWithCommand(isWindows ? 'Get-WinEvent -FilterHashtable @{LogName="System"; Level=1,2,3} -MaxEvents 10 | Format-Table -AutoSize' : 'tail -n 50 /var/log/system.log')}
             className="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1"
           >
             <span>Query via Terminal</span>

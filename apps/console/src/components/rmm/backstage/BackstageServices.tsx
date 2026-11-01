@@ -12,7 +12,7 @@ import {
   Filter
 } from 'lucide-react';
 import { ManagedDevice, DeviceService } from '../../../types';
-import { runDeviceScript, runRemotePsJson, runRemotePsList, psQuote } from './remoteExec';
+import { runDeviceScript, runRemoteChecked, runRemotePsJson, runRemotePsList, psQuote } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
 
 interface ServiceRow {
@@ -54,15 +54,38 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchServices = useCallback(async () => {
-    if (!isWindows) return;
     setIsLoading(true);
     try {
-      const rows = await runRemotePsList<ServiceRow>(
-        runRemoteScriptOnDevice,
-        device.id,
-        'Get-CimInstance Win32_Service | Select-Object Name, DisplayName, State, StartMode'
-      );
-      setServicesList(rows.map(toDeviceService).sort((x, y) => (x.displayName || x.name).localeCompare(y.displayName || y.name)));
+      if (isWindows) {
+        const rows = await runRemotePsList<ServiceRow>(
+          runRemoteScriptOnDevice,
+          device.id,
+          'Get-CimInstance Win32_Service | Select-Object Name, DisplayName, State, StartMode'
+        );
+        setServicesList(rows.map(toDeviceService).sort((x, y) => (x.displayName || x.name).localeCompare(y.displayName || y.name)));
+      } else {
+        const raw = await runRemoteChecked(
+          runRemoteScriptOnDevice,
+          device.id,
+          'launchctl list 2>/dev/null | tail -n +2',
+          'bash'
+        );
+        const list: DeviceService[] = [];
+        for (const line of raw.split(/\r?\n/)) {
+          const m = line.trim().match(/^(-|\d+)\s+(-?\d+)\s+(.+)$/);
+          if (!m) continue;
+          const pid = m[1];
+          const label = m[3].trim();
+          if (!label || label.startsWith('0x') || label.startsWith('application.')) continue;
+          list.push({
+            name: label,
+            displayName: label,
+            status: pid !== '-' ? 'running' : 'stopped',
+            startupType: 'auto'
+          });
+        }
+        setServicesList(list.sort((x, y) => (x.displayName || x.name).localeCompare(y.displayName || y.name)));
+      }
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
@@ -80,21 +103,36 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
     setActionMessage({ text: `${action.toUpperCase()}ing service "${serviceName}"…`, type: 'info' });
 
     try {
-      const verb = action === 'start' ? 'Start-Service' : action === 'stop' ? 'Stop-Service -Force' : 'Restart-Service -Force';
-      const name = psQuote(serviceName);
-      const after = await runRemotePsJson<ServiceRow>(
-        runRemoteScriptOnDevice,
-        device.id,
-        `& { ${verb} -Name ${name}; Get-CimInstance Win32_Service | Where-Object Name -eq ${name} | Select-Object Name, DisplayName, State, StartMode }`
-      );
-      const updated = after ? toDeviceService(after) : null;
-      if (updated) {
-        setServicesList(prev => prev.map(s => (s.name.toLowerCase() === serviceName.toLowerCase() ? updated : s)));
+      if (isWindows) {
+        const verb = action === 'start' ? 'Start-Service' : action === 'stop' ? 'Stop-Service -Force' : 'Restart-Service -Force';
+        const name = psQuote(serviceName);
+        const after = await runRemotePsJson<ServiceRow>(
+          runRemoteScriptOnDevice,
+          device.id,
+          `& { ${verb} -Name ${name}; Get-CimInstance Win32_Service | Where-Object Name -eq ${name} | Select-Object Name, DisplayName, State, StartMode }`
+        );
+        const updated = after ? toDeviceService(after) : null;
+        if (updated) {
+          setServicesList(prev => prev.map(s => (s.name.toLowerCase() === serviceName.toLowerCase() ? updated : s)));
+        }
+        setActionMessage({
+          text: `${action === 'start' ? 'Started' : action === 'stop' ? 'Stopped' : 'Restarted'} "${serviceName}"${updated ? ` (now ${updated.status})` : ''}.`,
+          type: 'success'
+        });
+      } else {
+        const safe = serviceName.replace(/[^A-Za-z0-9._-]/g, '');
+        const cmd = action === 'start'
+          ? `launchctl start "${safe}"`
+          : action === 'stop'
+          ? `launchctl stop "${safe}"`
+          : `launchctl stop "${safe}" 2>/dev/null; sleep 1; launchctl start "${safe}"`;
+        await runRemoteChecked(runRemoteScriptOnDevice, device.id, cmd, 'bash');
+        await fetchServices();
+        setActionMessage({
+          text: `${action === 'start' ? 'Started' : action === 'stop' ? 'Stopped' : 'Restarted'} "${serviceName}".`,
+          type: 'success'
+        });
       }
-      setActionMessage({
-        text: `${action === 'start' ? 'Started' : action === 'stop' ? 'Stopped' : 'Restarted'} "${serviceName}"${updated ? ` (now ${updated.status})` : ''}.`,
-        type: 'success'
-      });
     } catch (err) {
       setActionMessage({ text: `Failed to ${action} "${serviceName}": ${err instanceof Error ? err.message : err}`, type: 'error' });
     } finally {
@@ -141,7 +179,7 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
         <div className="flex items-center gap-1.5 shrink-0 text-xs">
           <button
             onClick={fetchServices}
-            disabled={isLoading || !isWindows}
+            disabled={isLoading}
             title="Refresh services from the device"
             className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded-lg border border-slate-700 transition"
           >
@@ -290,9 +328,7 @@ export const BackstageServices: React.FC<BackstageServicesProps> = ({
           );
         })}
 
-        {!isWindows ? (
-          <BackstageLiveStatus state="unsupported" deviceName={device.name} what="services" />
-        ) : servicesList.length === 0 && isLoading ? (
+        {servicesList.length === 0 && isLoading ? (
           <BackstageLiveStatus state="loading" deviceName={device.name} what="services" />
         ) : servicesList.length === 0 && loadError ? (
           <BackstageLiveStatus state="error" deviceName={device.name} what="services" error={loadError} onRetry={fetchServices} />

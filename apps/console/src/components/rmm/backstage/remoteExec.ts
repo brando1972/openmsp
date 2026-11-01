@@ -4,7 +4,7 @@
 // can show an error state instead of rendering something it made up.
 
 import { devices } from '../../../services/api';
-import { runMeshPowerShell } from './meshShell';
+import { runMeshPowerShell, runMeshBash } from './meshShell';
 
 type Shell = 'powershell' | 'cmd' | 'bash';
 export type RunRemote = (deviceId: string, script: string, shell?: Shell) => Promise<string>;
@@ -28,6 +28,12 @@ export const runDeviceScript: RunRemote = async (deviceId, script, shell = 'powe
       return await runMeshPowerShell(deviceId, script, () => { sessionOpened = true; });
     } catch (e) {
       if (sessionOpened) return `[Execution Failed]\n${e instanceof Error ? e.message : String(e)}`;
+    }
+  } else if (shell === 'bash') {
+    try {
+      return await runMeshBash(deviceId, script);
+    } catch {
+      // Fall back cleanly to ApexMSP RMM agent queue if Mesh session fails
     }
   }
   return runViaAgentQueue(deviceId, script, shell);

@@ -67,9 +67,32 @@ export function buildCommandLine(script: string): string {
   return line;
 }
 
+const toUtf8Base64 = (text: string): string => {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+};
+
+/** Builds a POSIX sh/bash line that runs `script` on macOS/Linux and prints base64 output between markers. */
+export function buildBashCommandLine(script: string): string {
+  const b64Script = toUtf8Base64(script);
+  return `stty -echo 2>/dev/null; _APX=$(echo '${b64Script}' | base64 -D 2>/dev/null || echo '${b64Script}' | base64 -d 2>/dev/null); _OUT=$(eval "$_APX" 2>&1 | base64 | tr -d '\\r\\n'); printf "APX""MRKS%sAPX""MRKE\\n" "$_OUT"`;
+}
+
+/** Runs `script` with Bash on macOS/Linux over MeshCentral protocol 1 and resolves with its combined output. */
+export async function runMeshBash(deviceId: string, script: string, onSessionOpened?: () => void): Promise<string> {
+  const cmdline = buildBashCommandLine(script);
+  return runMeshTerminalLine(deviceId, cmdline, onSessionOpened);
+}
+
 /** Runs `script` with PowerShell on the device and resolves with its combined output. */
 export async function runMeshPowerShell(deviceId: string, script: string, onSessionOpened?: () => void): Promise<string> {
   const cmdline = buildCommandLine(script);
+  return runMeshTerminalLine(deviceId, cmdline, onSessionOpened);
+}
+
+async function runMeshTerminalLine(deviceId: string, cmdline: string, onSessionOpened?: () => void): Promise<string> {
   const s = await mesh.startSession({ deviceId, protocol: PROTOCOL_TERMINAL });
   if (!s.online) throw new Error(`${s.deviceName} is offline in ApexConnect.`);
   onSessionOpened?.();

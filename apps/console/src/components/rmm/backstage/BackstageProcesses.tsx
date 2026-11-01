@@ -14,8 +14,23 @@ import {
   Play
 } from 'lucide-react';
 import { ManagedDevice } from '../../../types';
-import { runDeviceScript, runRemotePsJson, runRemotePsList } from './remoteExec';
+import { runDeviceScript, runRemoteChecked, runRemotePsJson, runRemotePsList } from './remoteExec';
 import { BackstageLiveStatus } from './BackstageLiveStatus';
+
+const parseElapsedSeconds = (raw: string): number => {
+  const clean = raw.trim();
+  let days = 0;
+  let rest = clean;
+  if (clean.includes('-')) {
+    const [d, r] = clean.split('-', 2);
+    days = parseInt(d, 10) || 0;
+    rest = r;
+  }
+  const parts = rest.split(':').map((x) => parseFloat(x) || 0);
+  if (parts.length === 3) return Math.round(days * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  if (parts.length === 2) return Math.round(days * 86400 + parts[0] * 60 + parts[1]);
+  return Math.round(parts[0] || 0);
+};
 
 export interface ProcessItem {
   id: number;
@@ -52,23 +67,51 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
   const isWindows = device.os === 'windows';
 
   const fetchProcesses = useCallback(async () => {
-    if (!isWindows) return;
     setIsLoading(true);
     try {
-      const rows = await runRemotePsList<{ Id: number; ProcessName: string; MemoryMB: number; CPU: number | null; Path: string | null; UserName: string | null }>(
-        runRemoteScriptOnDevice,
-        device.id,
-        `Get-Process -IncludeUserName | Select-Object Id, ProcessName, ` +
-          `@{N='MemoryMB';E={[math]::Round($_.WorkingSet64/1MB,1)}}, @{N='CPU';E={[math]::Round($_.CPU,1)}}, Path, UserName`
-      );
-      setProcesses(rows.map((item) => ({
-        id: Number(item.Id),
-        name: String(item.ProcessName || 'unknown'),
-        memoryMB: Number(item.MemoryMB || 0),
-        cpuSeconds: Number(item.CPU || 0),
-        path: item.Path || '',
-        user: item.UserName || undefined
-      })));
+      if (isWindows) {
+        const rows = await runRemotePsList<{ Id: number; ProcessName: string; MemoryMB: number; CPU: number | null; Path: string | null; UserName: string | null }>(
+          runRemoteScriptOnDevice,
+          device.id,
+          `Get-Process -IncludeUserName | Select-Object Id, ProcessName, ` +
+            `@{N='MemoryMB';E={[math]::Round($_.WorkingSet64/1MB,1)}}, @{N='CPU';E={[math]::Round($_.CPU,1)}}, Path, UserName`
+        );
+        setProcesses(rows.map((item) => ({
+          id: Number(item.Id),
+          name: String(item.ProcessName || 'unknown'),
+          memoryMB: Number(item.MemoryMB || 0),
+          cpuSeconds: Number(item.CPU || 0),
+          path: item.Path || '',
+          user: item.UserName || undefined
+        })));
+      } else {
+        const raw = await runRemoteChecked(
+          runRemoteScriptOnDevice,
+          device.id,
+          `ps -axo pid=,rss=,time=,user=,comm= 2>/dev/null`,
+          'bash'
+        );
+        const list: ProcessItem[] = [];
+        for (const line of raw.split(/\r?\n/)) {
+          const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+)$/);
+          if (!m) continue;
+          const pid = parseInt(m[1], 10);
+          const rssKb = parseInt(m[2], 10) || 0;
+          const cpuSec = parseElapsedSeconds(m[3]);
+          const user = m[4];
+          const fullPath = m[5].trim();
+          const baseName = fullPath.split('/').pop() || fullPath;
+          list.push({
+            id: pid,
+            name: baseName,
+            memoryMB: Math.round((rssKb / 1024) * 10) / 10,
+            cpuSeconds: cpuSec,
+            path: fullPath,
+            user
+          });
+        }
+        setProcesses(list);
+      }
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
@@ -94,11 +137,11 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
     setIsKilling(true);
     setActionMessage({ text: `Killing process ${proc.name} (PID: ${proc.id})…`, type: 'info' });
     try {
-      const killCmd = device.os === 'windows'
-        ? `Stop-Process -Id ${proc.id} -Force -ErrorAction Stop`
-        : `kill -9 ${proc.id}`;
-      
-      await runRemotePsJson(runRemoteScriptOnDevice, device.id, `${killCmd}; $true`);
+      if (isWindows) {
+        await runRemotePsJson(runRemoteScriptOnDevice, device.id, `Stop-Process -Id ${proc.id} -Force -ErrorAction Stop; $true`);
+      } else {
+        await runRemoteChecked(runRemoteScriptOnDevice, device.id, `kill -9 ${proc.id}`, 'bash');
+      }
 
       setProcesses(prev => prev.filter(p => p.id !== proc.id));
       setActionMessage({ text: `Terminated ${proc.name} (PID: ${proc.id}).`, type: 'success' });
@@ -295,9 +338,7 @@ export const BackstageProcesses: React.FC<BackstageProcessesProps> = ({
           );
         })}
 
-        {!isWindows ? (
-          <BackstageLiveStatus state="unsupported" deviceName={device.name} what="process list" />
-        ) : !hasData && isLoading ? (
+        {!hasData && isLoading ? (
           <BackstageLiveStatus state="loading" deviceName={device.name} what="processes" />
         ) : !hasData && loadError ? (
           <BackstageLiveStatus state="error" deviceName={device.name} what="processes" error={loadError} onRetry={fetchProcesses} />
