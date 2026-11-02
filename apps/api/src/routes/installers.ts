@@ -1207,11 +1207,7 @@ def cleanup_crashing_daemons():
     sh("rm -f /Library/LaunchAgents/meshagent-launchagent.plist /Library/LaunchAgents/connectwisecontrol-*.plist /Library/LaunchDaemons/connectwisecontrol-*.plist 2>/dev/null; "
        "launchctl bootout gui/501/meshagent-launchagent 2>/dev/null; "
        "launchctl remove meshagent-launchagent 2>/dev/null; "
-       "for u in $(ps aux | awk '/[l]oginwindow/{print $1}'); do "
-       "  uid=$(id -u \"$u\" 2>/dev/null); "
-       "  [ -n \"$uid\" ] && launchctl bootout \"gui/$uid/meshagent-launchagent\" 2>/dev/null; "
-       "  sudo -u \"$u\" launchctl remove meshagent-launchagent 2>/dev/null; "
-       "done; "
+       "sudo -u davidmarks launchctl remove meshagent-launchagent 2>/dev/null; "
        "pkill -9 -f 'meshagent -kvmagent' 2>/dev/null; "
        "killall -9 ScreenConnect 2>/dev/null; true", timeout_sec=8)
 
