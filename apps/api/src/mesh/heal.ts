@@ -51,13 +51,14 @@ function restartRmmScript(os: string): { cmds: string; shell: 'ps' | 'bash' } {
   if (/win/i.test(os)) {
     const list = RMM_WIN_SERVICES.map((s) => `'${s.replace(/'/g, "''")}'`).join(',');
     const ps = [
+      `$dir = "$env:ProgramData\\ApexMSP"`,
+      `if (Test-Path "$dir\\openmsp-agent.json") { $txt = Get-Content -Raw "$dir\\openmsp-agent.json"; [System.IO.File]::WriteAllText("$dir\\openmsp-agent.json", $txt, (New-Object System.Text.UTF8Encoding $false)) }`,
       `$started = $false`,
       `foreach ($n in @(${list})) { $s = Get-Service -Name $n -ErrorAction SilentlyContinue; if ($s) { Restart-Service -Name $n -Force -ErrorAction SilentlyContinue; $started = $true; break } }`,
       `if (!$started) {`,
-      `  $dir = "$env:ProgramData\\ApexMSP"`,
       `  New-Item -ItemType Directory -Force -Path $dir -ErrorAction SilentlyContinue | Out-Null`,
       `  if (!(Test-Path "$dir\\openmsp-agent.exe")) { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri "https://api.apexmsp.app/api/v1/installers/download?os=windows" -OutFile "$dir\\openmsp-agent.exe" -UseBasicParsing -ErrorAction SilentlyContinue }`,
-      `  if (!(Test-Path "$dir\\openmsp-agent.json")) { $cfg = @{ serverUrl = "https://api.apexmsp.app"; token = "apex-brandon-ray"; heartbeatIntervalSeconds = 10 } | ConvertTo-Json; Set-Content -Path "$dir\\openmsp-agent.json" -Value $cfg -Encoding UTF8 }`,
+      `  if (!(Test-Path "$dir\\openmsp-agent.json")) { $cfg = @{ serverUrl = "https://api.apexmsp.app"; token = "tok-de9f94f4-1394-4d"; heartbeatIntervalSeconds = 10 } | ConvertTo-Json; [System.IO.File]::WriteAllText("$dir\\openmsp-agent.json", $cfg, (New-Object System.Text.UTF8Encoding $false)) }`,
       `  & sc.exe create ApexMSPAgent binPath= "\"$dir\\openmsp-agent.exe\" --config \"$dir\\openmsp-agent.json\"" start= auto DisplayName= "ApexMSP Endpoint Agent" 2>$null`,
       `  & sc.exe failure ApexMSPAgent reset= 86400 actions= restart/5000/restart/10000/restart/60000 2>$null`,
       `  Start-Service -Name "ApexMSPAgent" -ErrorAction SilentlyContinue`,

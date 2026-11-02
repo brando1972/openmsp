@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -25,6 +26,8 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Strip UTF-8 BOM (0xEF 0xBB 0xBF) written by Windows PowerShell 5.1 Set-Content -Encoding UTF8
+	data = bytes.TrimPrefix(data, []byte{0xef, 0xbb, 0xbf})
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err

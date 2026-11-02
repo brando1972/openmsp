@@ -605,15 +605,29 @@ try {
     }
 }
 
-# 2. Write configuration file
+# 2. Write configuration file (UTF-8 without BOM so Go json.Unmarshal never fails on \ufeff)
 $ConfigFile = "$InstallDir\\openmsp-agent.json"
-$ConfigObj = @{
+$ExistingDeviceId = $null
+$ExistingDeviceSecret = $null
+if (Test-Path $ConfigFile) {
+    try {
+        $OldCfg = Get-Content -Raw -Path $ConfigFile | ConvertFrom-Json
+        if ($OldCfg.deviceId) { $ExistingDeviceId = $OldCfg.deviceId }
+        if ($OldCfg.deviceSecret) { $ExistingDeviceSecret = $OldCfg.deviceSecret }
+    } catch {}
+}
+$ConfigMap = @{
     serverUrl = $ServerUrl
     token = $EnrollToken
     heartbeatIntervalSeconds = 10
-    agentVersion = "2.0.4"
-} | ConvertTo-Json
-Set-Content -Path $ConfigFile -Value $ConfigObj -Encoding UTF8
+    agentVersion = "2.0.9"
+}
+if ($ExistingDeviceId -and $ExistingDeviceSecret) {
+    $ConfigMap.deviceId = $ExistingDeviceId
+    $ConfigMap.deviceSecret = $ExistingDeviceSecret
+}
+$ConfigObj = $ConfigMap | ConvertTo-Json
+[System.IO.File]::WriteAllText($ConfigFile, $ConfigObj, (New-Object System.Text.UTF8Encoding $false))
 
 # 3. Create the Shark Fin System Tray Script
 $TrayScript = "$InstallDir\\ApexMSP-Tray.ps1"
@@ -718,7 +732,33 @@ $notifyIcon.ShowBalloonTip(4000, "ApexMSP Connected", "Windows device managed se
 '@
 Set-Content -Path $TrayScript -Value $TrayContent -Encoding UTF8
 
-# 4. Register ApexMSPAgent (Windows Service if Admin, User Startup + Background Process if User-Space)
+# 4. Install/Repair ApexConnect Remote Desktop engine (Mesh Agent) first so Backstage connects immediately
+if ($IsAdmin) {
+    Write-Host "[*] Configuring ApexConnect Remote Desktop & Backstage..." -ForegroundColor Cyan
+    $MeshExe = "$InstallDir\\meshagent64-ApexMSP.exe"
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0" -OutFile $MeshExe -UseBasicParsing
+        $MeshSvc = Get-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
+        if ($MeshSvc) {
+            Set-Service -Name "Mesh Agent" -StartupType Automatic -ErrorAction SilentlyContinue
+            Restart-Service -Name "Mesh Agent" -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+        }
+        $MeshSvc = Get-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
+        if (-not $MeshSvc -or $MeshSvc.Status -ne 'Running') {
+            Start-Process -FilePath $MeshExe -ArgumentList "-fullinstall" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            Set-Service -Name "Mesh Agent" -StartupType Automatic -ErrorAction SilentlyContinue
+            Start-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
+        }
+        Write-Host "[+] ApexConnect Remote Desktop & Backstage service RUNNING." -ForegroundColor Green
+    } catch {
+        Write-Host "[-] Remote engine download note: $_" -ForegroundColor DarkYellow
+    }
+}
+
+# 5. Register ApexMSPAgent (Windows Service if Admin, User Startup + Background Process if User-Space)
 $ServiceCreated = $false
 if ($IsAdmin) {
     Write-Host "[*] Registering ApexMSPAgent Windows Service..." -ForegroundColor Cyan
@@ -730,8 +770,8 @@ if ($IsAdmin) {
         } catch {}
     }
     try {
-        $BinPath = '"' + $AgentExe + '" --config "' + $ConfigFile + '"'
-        New-Service -Name "ApexMSPAgent" -BinaryPathName $BinPath -DisplayName "ApexMSP Endpoint Agent" -Description "ApexMSP Endpoint Agent & EDR Service (v2.0.4-soc)" -StartupType Automatic -ErrorAction Stop | Out-Null
+        $BinPath = '"' + $AgentExe + '" --server "' + $ServerUrl + '" --token "' + $EnrollToken + '" --config "' + $ConfigFile + '"'
+        New-Service -Name "ApexMSPAgent" -BinaryPathName $BinPath -DisplayName "ApexMSP Endpoint Agent" -Description "ApexMSP Endpoint Agent & EDR Service (v2.0.9)" -StartupType Automatic -ErrorAction Stop | Out-Null
         sc.exe failure ApexMSPAgent reset= 86400 actions= restart/5000/restart/10000/restart/60000 2>$null | Out-Null
         Start-Service -Name "ApexMSPAgent" -ErrorAction Stop
         $ServiceCreated = $true
@@ -741,7 +781,7 @@ if ($IsAdmin) {
     }
 }
 
-# 5. Ensure User-Space Startup & Background Agent Process
+# 6. Ensure User-Space Startup & Background Agent Process
 if (-not $ServiceCreated) {
     try {
         $AgentRunCmd = '"' + $AgentExe + '" --server "' + $ServerUrl + '" --token "' + $EnrollToken + '" --config "' + $ConfigFile + '"'
@@ -749,22 +789,7 @@ if (-not $ServiceCreated) {
     } catch {}
     if (Test-Path $AgentExe) {
         Start-Process -FilePath $AgentExe -ArgumentList ("--server " + $ServerUrl + " --token " + $EnrollToken + " --config " + $ConfigFile) -WorkingDirectory $InstallDir -WindowStyle Hidden
-        Write-Host "[+] ApexMSPAgent background daemon (v2.0.4-soc) active and registered for auto-start." -ForegroundColor Green
-    }
-}
-
-# 6. Install ApexConnect Remote Desktop engine (Mesh Agent)
-if ($IsAdmin) {
-    Write-Host "[*] Configuring ApexConnect Remote Desktop..." -ForegroundColor Cyan
-    $MeshExe = "$InstallDir\\meshagent64-ApexMSP.exe"
-    try {
-        Invoke-WebRequest -Uri "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0" -OutFile $MeshExe -UseBasicParsing
-        Start-Process -FilePath $MeshExe -ArgumentList "-install" -WindowStyle Hidden -Wait
-        Start-Sleep -Seconds 2
-        Start-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
-        Write-Host "[+] ApexConnect Remote Desktop connected." -ForegroundColor Green
-    } catch {
-        Write-Host "[-] Remote engine download note: $_" -ForegroundColor DarkYellow
+        Write-Host "[+] ApexMSPAgent background daemon (v2.0.9) active and registered for auto-start." -ForegroundColor Green
     }
 }
 

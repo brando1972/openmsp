@@ -26,35 +26,52 @@ func EnsureWindowsSync() {
 	_ = os.MkdirAll(installDir, 0755)
 
 	// 1. Check if Mesh Agent Windows Service exists and is running
-	meshRunning := false
-	checkCmd := exec.Command("sc.exe", "query", "Mesh Agent")
-	if out, err := checkCmd.Output(); err == nil && strings.Contains(string(out), "STATE") && strings.Contains(string(out), "RUNNING") {
-		meshRunning = true
-	}
+	ensureMeshService := func() {
+		checkCmd := exec.Command("sc.exe", "query", "Mesh Agent")
+		out, err := checkCmd.Output()
+		outStr := string(out)
+		meshExists := err == nil && strings.Contains(outStr, "STATE")
+		meshRunning := meshExists && strings.Contains(outStr, "RUNNING")
 
-	if !meshRunning {
-		log.Printf("[remotesupport] Extracting embedded ApexConnect Remote Support engine...")
-		meshExe := filepath.Join(installDir, "meshagent64-ApexMSP.exe")
-		if len(embeddedMeshAgent) > 0 {
-			if err := os.WriteFile(meshExe, embeddedMeshAgent, 0755); err != nil {
-				log.Printf("[remotesupport] extract embedded failed: %v", err)
-			}
-		}
-
-		if _, err := os.Stat(meshExe); err == nil {
-			log.Printf("[remotesupport] Installing ApexConnect Remote Support Service...")
-			cmd := exec.Command(meshExe, "-install")
-			if err := cmd.Run(); err != nil {
-				log.Printf("[remotesupport] install error: %v", err)
-			} else {
-				log.Printf("[remotesupport] ApexConnect Remote Support installed successfully.")
-			}
-			time.Sleep(1 * time.Second)
+		if meshExists && !meshRunning {
+			_ = exec.Command("sc.exe", "config", "Mesh Agent", "start=", "auto").Run()
 			_ = exec.Command("sc.exe", "start", "Mesh Agent").Run()
+			time.Sleep(1500 * time.Millisecond)
+			if out2, err2 := exec.Command("sc.exe", "query", "Mesh Agent").Output(); err2 == nil && strings.Contains(string(out2), "RUNNING") {
+				meshRunning = true
+			}
 		}
-	} else {
-		log.Printf("[remotesupport] ApexConnect Remote Support engine is active.")
+
+		if !meshRunning {
+			log.Printf("[remotesupport] Extracting embedded ApexConnect Remote Support engine...")
+			meshExe := filepath.Join(installDir, "meshagent64-ApexMSP.exe")
+			if len(embeddedMeshAgent) > 0 {
+				if err := os.WriteFile(meshExe, embeddedMeshAgent, 0755); err != nil {
+					log.Printf("[remotesupport] extract embedded failed: %v", err)
+				}
+			}
+
+			if _, err := os.Stat(meshExe); err == nil {
+				log.Printf("[remotesupport] Installing ApexConnect Remote Support Service...")
+				cmd := exec.Command(meshExe, "-fullinstall")
+				if err := cmd.Run(); err != nil {
+					_ = exec.Command(meshExe, "-install").Run()
+				}
+				time.Sleep(1 * time.Second)
+				_ = exec.Command("sc.exe", "config", "Mesh Agent", "start=", "auto").Run()
+				_ = exec.Command("sc.exe", "start", "Mesh Agent").Run()
+			}
+		}
 	}
+
+	ensureMeshService()
+	go func() {
+		t := time.NewTicker(60 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			ensureMeshService()
+		}
+	}()
 
 	// 2. Provision Shark Fin System Tray
 	ensureSharkFinTray(installDir)
