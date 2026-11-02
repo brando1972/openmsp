@@ -1648,4 +1648,20 @@ exec /tmp/apex-live-sync -mode sender -source "\$SOURCE_HOME" -url auto -workers
   res.send(script);
 });
 
+// GET /api/v1/installers/windows.bat -> 1-click downloadable Windows batch installer
+router.get(['/windows.bat', '/windows-install.bat'], (req, res) => {
+  const token = (req.query.token as string) || 'tok-de9f94f4-1394-4d';
+  const bat = `@echo off
+title ApexMSP Windows Agent, Connect & Backstage Setup (v2.0.10)
+echo ==========================================================
+echo   ApexMSP Windows Agent, Connect ^& Backstage Setup
+echo ==========================================================
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm 'https://api.apexmsp.app/api/v1/installers/windows/${token}' | iex"
+pause
+`;
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', 'attachment; filename="Install-ApexMSP-Windows.bat"');
+  res.send(bat);
+});
+
 export default router;
