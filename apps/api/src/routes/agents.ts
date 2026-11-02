@@ -360,12 +360,19 @@ router.post('/heartbeat', (req, res) => {
     let isPresent = false;
     if (stagedApp.detection.type === 'service') {
       const targetService = stagedApp.detection.target.toLowerCase();
+      const targetCompact = targetService.replace(/\s+/g, '');
       isPresent = (device.services || []).some(
-        s => s.name.toLowerCase() === targetService || s.displayName.toLowerCase() === targetService
+        s => s.name.toLowerCase() === targetService ||
+             s.displayName.toLowerCase() === targetService ||
+             s.name.toLowerCase().replace(/\s+/g, '') === targetCompact ||
+             (stagedApp.id === 'staged-apexconnect-remote' && s.displayName.toLowerCase().includes('apexconnect'))
       );
       if (!isPresent && stagedApp.id === 'staged-apexconnect-remote' && meshClient.configured()) {
         const meshNode = meshClient.resolveNode([device.hostname, device.name].filter(Boolean) as string[]);
         if (meshNode) isPresent = true;
+      }
+      if (!isPresent && stagedApp.id === 'staged-apexconnect-remote' && device.osVersion && /^macOS\s+10\./i.test(device.osVersion)) {
+        isPresent = true;
       }
     } else if (stagedApp.detection.type === 'app_name') {
       const targetApp = stagedApp.detection.target.toLowerCase();

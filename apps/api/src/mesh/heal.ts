@@ -83,7 +83,7 @@ function restartMeshScript(os: string): { script: string; shell: 'ps' | 'bash'; 
   return {
     shell: 'bash',
     serviceName: MESH_MAC_LABEL,
-    script: `sudo launchctl kickstart -k system/${MESH_MAC_LABEL} 2>/dev/null || launchctl kickstart -k system/${MESH_MAC_LABEL} 2>/dev/null; true`
+    script: `launchctl kickstart -k system/${MESH_MAC_LABEL} >/dev/null 2>&1 || true`
   };
 }
 
@@ -99,6 +99,11 @@ export async function repairRmmViaMesh(nodeid: string, os: string): Promise<void
 export function repairMeshViaRmm(deviceId: string, os: string): DeviceCommand | null {
   const device = store.devices.get(deviceId);
   if (!device) return null;
+  // On macOS 10.x (e.g. 10.13 High Sierra), launchd already enforces KeepAlive=true on meshagent.plist,
+  // and running `launchctl kickstart -k` while ReportCrash holds the task port can wedge launchd.
+  if (device.osVersion && /^macOS\s+10\./i.test(device.osVersion)) {
+    return null;
+  }
   const { script, shell, serviceName } = restartMeshScript(os);
   const id = `cmd-heal-${uuidv4().substring(0, 8)}`;
   const cmd: DeviceCommand = {

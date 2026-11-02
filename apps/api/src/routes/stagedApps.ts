@@ -170,8 +170,11 @@ router.get('/devices/:deviceId', (req, res) => {
     let isPresent = false;
     if (app.detection.type === 'service') {
       const target = app.detection.target.toLowerCase();
+      const targetCompact = target.replace(/\s+/g, '');
       isPresent = (device.services || []).some(
         s => s.name.toLowerCase() === target || s.displayName.toLowerCase() === target ||
+             s.name.toLowerCase().replace(/\s+/g, '') === targetCompact ||
+             (app.id === 'staged-apexconnect-remote' && s.displayName.toLowerCase().includes('apexconnect')) ||
              (target.includes('droidvnc') && (s.name.toLowerCase().includes('droidvnc') || s.displayName.toLowerCase().includes('droidvnc')))
       );
       if (!isPresent && app.id === 'staged-apexconnect-remote' && meshClient.configured()) {

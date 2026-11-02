@@ -33,6 +33,8 @@ export interface MeshNode {
   online: boolean;
   users?: string[];
   domain?: string;
+  agentId?: number;
+  agentCore?: string;
 }
 
 interface AuthCookie {
@@ -327,7 +329,9 @@ class MeshClient {
           meshid: n.meshid || meshid,
           online: (n.conn || 0) !== 0,
           users: Array.isArray(n.users) ? n.users : (n.user ? [n.user] : undefined),
-          domain: n.domain || undefined
+          domain: n.domain || undefined,
+          agentId: n.agent?.id,
+          agentCore: n.agent?.core
         });
       }
     }
@@ -435,6 +439,17 @@ class MeshClient {
 
   /** Grab one desktop frame over KVM and store a JPEG thumbnail. Returns the cached buffer on failure. */
   public async captureThumbnail(nodeid: string, scaling = 256): Promise<{ buf: Buffer; ts: number } | null> {
+    const node = this.nodes.get(nodeid);
+    // Skip Protocol 2 KVM thumbnail probing on legacy macOS 10.13 High Sierra (2021 x86_64 agentId=16),
+    // where background KVM stream creation crashes mac_kvm.c / WindowServer.
+    if (
+      node &&
+      (node.agentId === 16 ||
+        (node.agentCore && node.agentCore.includes('2021')) ||
+        (node.name || '').toLowerCase().startsWith('davids-mbp'))
+    ) {
+      return this.thumbs.get(nodeid) || null;
+    }
     if (this.capturing.has(nodeid)) return this.thumbs.get(nodeid) || null;
     this.capturing.add(nodeid);
     try {
