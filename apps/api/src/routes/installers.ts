@@ -632,6 +632,10 @@ $ConfigObj = $ConfigMap | ConvertTo-Json
 # 3. Create the Shark Fin System Tray Script
 $TrayScript = "$InstallDir\\ApexMSP-Tray.ps1"
 $TrayContent = @'
+$ErrorActionPreference = 'SilentlyContinue'
+try {
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*ApexMSP-Tray.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+} catch {}
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -685,6 +689,25 @@ if ($notifyIcon.Icon -eq $null) {
 
 $notifyIcon.Text = "ApexMSP Shark Fin: Security & RMM Active (v2.0.4-soc)"
 $notifyIcon.Visible = $true
+
+function Promote-SharkFinTrayIcon {
+    try {
+        Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer' -Name 'EnableAutoTray' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Get-ChildItem 'HKCU:\\Control Panel\\NotifyIconSettings' -ErrorAction SilentlyContinue | ForEach-Object {
+            Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        }
+    } catch {}
+}
+Promote-SharkFinTrayIcon
+$promoteTimer = New-Object System.Windows.Forms.Timer
+$promoteTimer.Interval = 2000
+$promoteCount = 0
+$promoteTimer.add_Tick({
+    Promote-SharkFinTrayIcon
+    $script:promoteCount++
+    if ($script:promoteCount -ge 5) { $promoteTimer.Stop() }
+})
+$promoteTimer.Start()
 
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 $headerItem = $contextMenu.Items.Add("ApexMSP Shark Fin Security & RMM ($env:COMPUTERNAME)")
@@ -803,7 +826,7 @@ if (Test-Path $CommonStartup) {
         $WshShell = New-Object -ComObject WScript.Shell
         $Shortcut = $WshShell.CreateShortcut("$CommonStartup\\ApexMSP-Tray.lnk")
         $Shortcut.TargetPath = "powershell.exe"
-        $Shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'"
+        $Shortcut.Arguments = ('-Sta -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $TrayScript + '"')
         $Shortcut.WindowStyle = 7
         $Shortcut.Save()
     } catch {}
@@ -816,7 +839,7 @@ if (Test-Path $UserStartup) {
         $WshShell = New-Object -ComObject WScript.Shell
         $Shortcut = $WshShell.CreateShortcut("$UserStartup\\ApexMSP-Tray.lnk")
         $Shortcut.TargetPath = "powershell.exe"
-        $Shortcut.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'"
+        $Shortcut.Arguments = ('-Sta -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $TrayScript + '"')
         $Shortcut.WindowStyle = 7
         $Shortcut.Save()
     } catch {}
@@ -824,47 +847,58 @@ if (Test-Path $UserStartup) {
 
 # C. Registry Run key (launches for all interactive users on boot)
 try {
-    Set-ItemProperty -Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run" -Name "ApexMSPTray" -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run" -Name "ApexMSPTray" -Value ('powershell.exe -Sta -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $TrayScript + '"') -ErrorAction SilentlyContinue
 } catch {}
 
-# D. Scheduled Task to launch immediately into the interactive desktop session
+# D. Scheduled Task using S-1-5-32-545 (BUILTIN\\Users) so AzureAD/EntraID, Domain, and Local users all get the interactive tray icon immediately
 try {
-    $LoggedOnUser = (Get-CimInstance Win32_ComputerSystem).UserName
-    if ($LoggedOnUser) {
-        schtasks.exe /create /tn "ApexMSPTray" /tr "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" /sc ONLOGON /ru "$LoggedOnUser" /it /f 2>$null | Out-Null
-        schtasks.exe /run /tn "ApexMSPTray" 2>$null | Out-Null
-    } else {
-        schtasks.exe /create /tn "ApexMSPTray" /tr "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" /sc ONLOGON /f 2>$null | Out-Null
-        schtasks.exe /run /tn "ApexMSPTray" 2>$null | Out-Null
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'ApexMSP-Tray' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ('-Sta -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $TrayScript + '"')
+    $Trigger = New-ScheduledTaskTrigger -AtLogOn
+    $Principal = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited
+    Register-ScheduledTask -TaskName "ApexMSPTray" -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
+    Start-ScheduledTask -TaskName "ApexMSPTray" -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Get-ChildItem 'Registry::HKEY_USERS\*\Control Panel\NotifyIconSettings\*' -ErrorAction SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Type DWord -ErrorAction SilentlyContinue }
+} catch {}
+
+
+# 8. Wait briefly for ApexMSPAgent service to self-enroll, or enroll directly only if not yet enrolled
+Start-Sleep -Seconds 2
+$EnrolledId = $null
+if (Test-Path $ConfigFile) {
+    try {
+        $CurCfg = Get-Content -Raw -Path $ConfigFile | ConvertFrom-Json
+        if ($CurCfg.deviceId -and $CurCfg.deviceSecret) {
+            $EnrolledId = $CurCfg.deviceId
+        }
+    } catch {}
+}
+if ($EnrolledId) {
+    Write-Host "[+] Successfully registered endpoint:" $EnrolledId -ForegroundColor Green
+} else {
+    $Hostname = $env:COMPUTERNAME
+    $OSInfo = (Get-CimInstance Win32_OperatingSystem).Caption
+    $Serial = (Get-CimInstance Win32_BIOS).SerialNumber
+    $MAC = (Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1).MacAddress
+    $IP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress
+
+    $Body = @{
+        token = $EnrollToken
+        hostname = $Hostname
+        os = "windows"
+        osVersion = $OSInfo
+        serialNumber = $Serial
+        macAddress = $MAC
+        ipAddress = $IP
+    } | ConvertTo-Json
+
+    try {
+        $Response = Invoke-RestMethod -Uri "$ServerUrl/api/v1/agents/enroll" -Method Post -Body $Body -ContentType "application/json"
+        Write-Host "[+] Successfully registered endpoint:" $Response.deviceId -ForegroundColor Green
+    } catch {
+        Write-Host "[*] Direct enrollment status:" $_.Exception.Message
     }
-} catch {}
-
-# E. Direct process start
-Start-Process -FilePath "powershell.exe" -ArgumentList "-WindowStyle Hidden -ExecutionPolicy Bypass -File '$TrayScript'" -WindowStyle Hidden
-
-
-# 6. Direct API Device Registration
-$Hostname = $env:COMPUTERNAME
-$OSInfo = (Get-CimInstance Win32_OperatingSystem).Caption
-$Serial = (Get-CimInstance Win32_BIOS).SerialNumber
-$MAC = (Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1).MacAddress
-$IP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -ne '127.0.0.1' | Select-Object -First 1).IPAddress
-
-$Body = @{
-    token = $EnrollToken
-    hostname = $Hostname
-    os = "windows"
-    osVersion = $OSInfo
-    serialNumber = $Serial
-    macAddress = $MAC
-    ipAddress = $IP
-} | ConvertTo-Json
-
-try {
-    $Response = Invoke-RestMethod -Uri "$ServerUrl/api/v1/agents/enroll" -Method Post -Body $Body -ContentType "application/json"
-    Write-Host "[+] Successfully registered endpoint:" $Response.deviceId -ForegroundColor Green
-} catch {
-    Write-Host "[*] Direct enrollment status:" $_.Exception.Message
 }
 
 Write-Host "[+] Installation Complete! The shark fin is now active in your taskbar tray." -ForegroundColor Green

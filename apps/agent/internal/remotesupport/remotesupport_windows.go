@@ -80,6 +80,9 @@ func EnsureWindowsSync() {
 func ensureSharkFinTray(installDir string) {
 	trayScript := filepath.Join(installDir, "ApexMSP-Tray.ps1")
 	trayCode := `$ErrorActionPreference = 'SilentlyContinue'
+try {
+    Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*ApexMSP-Tray.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+} catch {}
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -172,6 +175,25 @@ if ($notifyIcon.Icon -eq $null) {
 
 $notifyIcon.Text = "ApexMSP Shark Fin: Security & RMM Active"
 $notifyIcon.Visible = $true
+
+function Promote-SharkFinTrayIcon {
+    try {
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer' -Name 'EnableAutoTray' -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue | ForEach-Object {
+            Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Type DWord -ErrorAction SilentlyContinue
+        }
+    } catch {}
+}
+Promote-SharkFinTrayIcon
+$promoteTimer = New-Object System.Windows.Forms.Timer
+$promoteTimer.Interval = 2000
+$promoteCount = 0
+$promoteTimer.add_Tick({
+    Promote-SharkFinTrayIcon
+    $script:promoteCount++
+    if ($script:promoteCount -ge 5) { $promoteTimer.Stop() }
+})
+$promoteTimer.Start()
 
 $pol = Get-SharkFinPolicy
 
@@ -303,19 +325,27 @@ $notifyIcon.ShowBalloonTip(4000, "ApexMSP Connected", "Windows device managed se
 `
 	_ = os.WriteFile(trayScript, []byte(trayCode), 0644)
 
-	// Restart tray if version marker changed, or launch if not running
+	// Restart tray if version marker changed, or launch in interactive user session if not running
 	verFile := filepath.Join(installDir, "tray-version.txt")
-	const targetTrayVer = "2.0.4-soc"
+	const targetTrayVer = "2.3.1-soc"
 	curVer, _ := os.ReadFile(verFile)
 	if string(curVer) != targetTrayVer {
 		_ = os.WriteFile(verFile, []byte(targetTrayVer), 0644)
-		_ = exec.Command("powershell.exe", "-NoProfile", "-Command", "Get-Process -Name powershell | Where-Object { $_.CommandLine -like '*ApexMSP-Tray.ps1*' } | Stop-Process -Force").Run()
+		_ = exec.Command("powershell.exe", "-NoProfile", "-Command",
+			"Get-CimInstance Win32_Process -Filter \"Name = 'powershell.exe'\" | Where-Object { $_.CommandLine -like '*ApexMSP-Tray.ps1*' -or $_.SessionId -eq 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }").Run()
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	// Launch tray in background if not already running
-	checkTray := exec.Command("powershell.exe", "-NoProfile", "-Command", "Get-Process -Name powershell | Where-Object { $_.CommandLine -like '*ApexMSP-Tray.ps1*' }")
-	if out, _ := checkTray.Output(); len(strings.TrimSpace(string(out))) == 0 {
-		_ = exec.Command("powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-File", trayScript).Start()
-	}
+	// Register interactive Scheduled Task (BUILTIN\Users S-1-5-32-545) so Session 0 service launches tray on user desktop
+	ensureCmd := `$ts = '` + trayScript + `'
+$act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-Sta -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $ts + '"')
+$trig = New-ScheduledTaskTrigger -AtLogOn
+$prin = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
+Register-ScheduledTask -TaskName 'ApexMSPTray' -Action $act -Trigger $trig -Principal $prin -Force -ErrorAction SilentlyContinue | Out-Null
+Get-ChildItem 'Registry::HKEY_USERS\*\Control Panel\NotifyIconSettings\*' -ErrorAction SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Type DWord -ErrorAction SilentlyContinue }
+$running = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" | Where-Object { $_.SessionId -gt 0 -and $_.CommandLine -like '*ApexMSP-Tray.ps1*' }
+if (-not $running) {
+    Start-ScheduledTask -TaskName 'ApexMSPTray' -ErrorAction SilentlyContinue
+}`
+	_ = exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ensureCmd).Run()
 }

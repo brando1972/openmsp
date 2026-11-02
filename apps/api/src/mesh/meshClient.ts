@@ -357,17 +357,21 @@ class MeshClient {
     }, 5000);
   }
 
-  /** Resolve a MeshCentral node by matching hostname/name candidates (case-insensitive). */
+  /** Resolve a MeshCentral node by matching hostname/name candidates (case-insensitive), preferring online nodes. */
   public resolveNode(candidates: string[]): MeshNode | null {
     const wants = candidates.map((c) => (c || '').trim().toLowerCase()).filter(Boolean);
     if (wants.length === 0) return null;
+    let fallback: MeshNode | null = null;
     for (const node of this.nodes.values()) {
       const names = [node.name, node.rname].map((s) => s.toLowerCase());
       // also compare against the bare hostname (strip .local etc.)
       const bare = names.map((s) => s.split('.')[0]);
-      if (wants.some((w) => names.includes(w) || bare.includes(w.split('.')[0]))) return node;
+      if (wants.some((w) => names.includes(w) || bare.includes(w.split('.')[0]))) {
+        if (node.online) return node;
+        if (!fallback) fallback = node;
+      }
     }
-    return null;
+    return fallback;
   }
 
   public getNode(nodeid: string): MeshNode | null {

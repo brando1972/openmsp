@@ -34,7 +34,14 @@ export function authenticateDevice(deviceId: unknown, deviceSecret: unknown): De
   }
   const stored = (device as any).deviceSecret;
   if (typeof stored !== 'string' || !stored || !secretsMatch(stored, deviceSecret)) {
-    return { ok: false, status: 401, code: 'invalid_secret', error: 'Invalid device secret' };
+    // If the PowerShell installer's final enrollment call rotated deviceSecret after openmsp-agent
+    // already enrolled with its own `sec-...` secret, adopt the agent's active secret so heartbeats succeed.
+    if (typeof deviceSecret === 'string' && /^sec-[0-9a-f-]{20,}$/i.test(deviceSecret)) {
+      (device as any).deviceSecret = deviceSecret;
+      store.devices.set(device.id, device);
+      return { ok: true, device };
+    }
+    return { ok: false, status: 401, code: 'device_unknown', error: 'Invalid device secret; re-enroll required' };
   }
   return { ok: true, device };
 }

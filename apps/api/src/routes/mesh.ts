@@ -35,13 +35,14 @@ function resolveNodeId(deviceId: string, explicit: string): string {
   if (explicit) return explicit;
   if (!deviceId) return '';
   const mapped = store.meshNodes.get(deviceId);
-  if (mapped) return mapped;
+  const mappedNode = mapped ? meshClient.getNode(mapped) : null;
+  if (mapped && mappedNode?.online) return mapped;
   const device = store.devices.get(deviceId);
   if (device) {
     const node = meshClient.resolveNode([device.hostname, device.name].filter(Boolean) as string[]);
     if (node) { store.meshNodes.set(deviceId, node.nodeid); return node.nodeid; }
   }
-  return '';
+  return mapped || '';
 }
 
 router.get('/health', (_req: AuthenticatedRequest, res) => {

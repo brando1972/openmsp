@@ -80,8 +80,8 @@ router.post('/enroll', (req, res) => {
     if (!hasCustomName) {
       existingDevice.name = hostname || existingDevice.name;
     }
-    // Preserve custom Client assignment if user manually assigned it
-    if (!(existingDevice as any).customClient && enrollmentToken.clientId) {
+    // Preserve existing Client assignment on re-enrollment unless the device had no client
+    if (!existingDevice.clientId && enrollmentToken.clientId) {
       existingDevice.clientId = enrollmentToken.clientId;
       existingDevice.clientName = clientName;
     }
