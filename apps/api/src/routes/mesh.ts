@@ -163,6 +163,16 @@ router.post('/session', async (req: AuthenticatedRequest, res) => {
   const node = meshClient.getNode(nodeid);
   const device = deviceId ? store.devices.get(deviceId) : undefined;
   const deviceName = device?.name || node?.name || node?.rname || nodeid;
+  if (node && !node.online) {
+    const lastSeen = device?.metrics?.lastSeen
+      ? new Date(device.metrics.lastSeen).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+      : 'unknown';
+    res.status(503).json({
+      error: `Device "${deviceName}" is currently offline (last seen ${lastSeen}). Power on or wake the computer to connect Backstage.`,
+      online: false
+    });
+    return;
+  }
   try {
     const session = await meshClient.openDesktopSession(nodeid, protocol);
     store.recordAudit({

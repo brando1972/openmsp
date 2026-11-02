@@ -10,17 +10,36 @@ import type { ManagedDevice, DeviceCommand, CreateDeviceCommandRequest } from '@
 const router = Router();
 router.use(authenticate);
 
+const STALE_OFFLINE_MS = 10 * 60 * 1000;
+const DEMO_DEVICE_IDS = new Set(['dev-gambinos-bo-pc', 'dev-muni-cad-01', 'dev-tbi-pos-srv']);
+
 function enrichDeviceWithMesh(d: ManagedDevice): ManagedDevice {
   const node = meshClient.resolveNode([d.hostname, d.name].filter(Boolean) as string[]);
-  if (!node) return d;
+  const lastSeenMs = d.metrics?.lastSeen ? Date.parse(d.metrics.lastSeen) : 0;
+  const rmmOnline = lastSeenMs > 0 && (Date.now() - lastSeenMs) < STALE_OFFLINE_MS;
+  const meshOnline = !!node?.online;
+
+  let effectiveHealth = d.health;
+  if (!DEMO_DEVICE_IDS.has(d.id)) {
+    if (!rmmOnline && !meshOnline) {
+      effectiveHealth = 'offline';
+    } else if (effectiveHealth === 'offline' && (rmmOnline || meshOnline)) {
+      effectiveHealth = 'healthy';
+    }
+  }
+
+  if (!node) {
+    return effectiveHealth !== d.health ? { ...d, health: effectiveHealth } : d;
+  }
 
   const cachedTelem = meshClient.getCachedTelemetry(node.nodeid);
   const loggedInUser = d.loggedInUser || cachedTelem?.loggedInUser || (node.users && node.users.length > 0 ? node.users[0] : undefined);
   const domain = d.domain || cachedTelem?.domain || node.domain || (d.os === 'windows' ? 'WORKGROUP' : undefined);
 
-  if (loggedInUser !== d.loggedInUser || domain !== d.domain) {
+  if (loggedInUser !== d.loggedInUser || domain !== d.domain || effectiveHealth !== d.health) {
     return {
       ...d,
+      health: effectiveHealth,
       loggedInUser: loggedInUser || d.loggedInUser,
       domain: domain || d.domain
     };
