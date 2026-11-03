@@ -1,6 +1,7 @@
 package remotesupport
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -14,7 +15,8 @@ import (
 
 const (
 	MeshCentralWindowsURL   = "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0"
-	MeshCentralMacPkgURL    = "https://mesh.apexmsp.app/meshosxagent?id=29&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib"
+	MeshCentralMacArmPkgURL = "https://mesh.apexmsp.app/meshosxagent?id=29&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib"
+	MeshCentralMacX64PkgURL = "https://mesh.apexmsp.app/meshosxagent?id=16&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib"
 	MeshCentralMacScriptURL = "https://mesh.apexmsp.app/meshagents?script=1&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib"
 	ApexMSPControlPlane     = "https://api.apexmsp.app"
 )
@@ -41,18 +43,29 @@ func ensureDarwin() {
 	if _, err := os.Stat(meshBin); err != nil {
 		if _, altErr := os.Stat("/usr/local/mesh/meshagent"); altErr != nil {
 			if os.Geteuid() == 0 {
-				log.Printf("[remotesupport] Mesh Agent not found on macOS. Installing via universal .pkg...")
-				pkgPath := "/tmp/ApexMSP-MeshAgent.pkg"
-				if dlErr := downloadFile(MeshCentralMacPkgURL, pkgPath); dlErr == nil {
+				log.Printf("[remotesupport] Mesh Agent not found on macOS (%s). Installing...", runtime.GOARCH)
+				pkgURL := MeshCentralMacArmPkgURL
+				if runtime.GOARCH == "amd64" {
+					pkgURL = MeshCentralMacX64PkgURL
+				}
+				tmpDir := "/tmp/apex_mesh_install"
+				_ = os.MkdirAll(tmpDir, 0755)
+				zipPath := filepath.Join(tmpDir, "MeshAgent.zip")
+				if dlErr := downloadFile(pkgURL, zipPath); dlErr == nil {
+					_ = exec.Command("unzip", "-qo", zipPath, "-d", tmpDir).Run()
+					pkgPath := filepath.Join(tmpDir, "MeshAgent.pkg")
+					if _, stErr := os.Stat(pkgPath); stErr != nil {
+						pkgPath = zipPath
+					}
 					if runErr := exec.Command("installer", "-pkg", pkgPath, "-target", "/").Run(); runErr != nil {
 						log.Printf("[remotesupport] macOS Mesh .pkg install warning: %v", runErr)
 					} else {
 						log.Printf("[remotesupport] macOS Mesh Agent installed successfully.")
 					}
-					_ = os.Remove(pkgPath)
 				} else {
 					log.Printf("[remotesupport] macOS Mesh .pkg download warning: %v", dlErr)
 				}
+				_ = os.RemoveAll(tmpDir)
 			}
 		}
 	} else if os.Geteuid() == 0 {
@@ -119,7 +132,12 @@ func ensureDarwin() {
 }
 
 func downloadFile(url, dest string) error {
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
 	resp, err := client.Get(url)
 	if err != nil {
 		return err

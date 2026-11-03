@@ -103,15 +103,30 @@ const getApiBase = (): string => {
 export const API_BASE = getApiBase();
 export const API_V1 = API_BASE ? `${API_BASE}/api/v1` : '/api/v1';
 
+import { supabaseAuth, setStoredRefreshToken } from '../lib/supabase';
+
 const TOKEN_KEY = 'openmsp_token';
 const USER_KEY = 'openmsp_user';
 
 let inMemoryToken: string | null = null;
 let inMemoryUser: UserProfile | null = null;
 
+const INVALID_LEGACY_TOKENS = new Set([
+  'dev-soc-operator-token',
+  'openmsp-demo-auth-token'
+]);
+
 export const getStoredToken = (): string | null => {
   try {
-    return localStorage.getItem(TOKEN_KEY) || inMemoryToken;
+    const raw = localStorage.getItem(TOKEN_KEY) || inMemoryToken;
+    if (raw && INVALID_LEGACY_TOKENS.has(raw.trim())) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      inMemoryToken = null;
+      inMemoryUser = null;
+      return null;
+    }
+    return raw;
   } catch {
     return inMemoryToken;
   }
@@ -120,7 +135,7 @@ export const getStoredToken = (): string | null => {
 export const setStoredToken = (token: string | null): void => {
   inMemoryToken = token;
   try {
-    if (token) {
+    if (token && !INVALID_LEGACY_TOKENS.has(token.trim())) {
       localStorage.setItem(TOKEN_KEY, token);
     } else {
       localStorage.removeItem(TOKEN_KEY);
@@ -157,10 +172,8 @@ export const setStoredUser = (user: UserProfile | null): void => {
  * handles JSON & text parsing, and formats error responses.
  */
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  // If running on HTTPS (e.g. Vercel) and no backend API URL is configured,
-  // do not attempt unroutable requests to static assets
   if (!API_BASE && typeof window !== 'undefined' && window.location.protocol === 'https:') {
-    throw new Error('No remote backend API configured (client demo mode active)');
+    throw new Error('No remote backend API configured');
   }
 
   const token = getStoredToken();
@@ -199,52 +212,72 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// 1. Auth API
+// 1. Auth API (Supabase Auth + Control Plane JWT Verification)
 // ---------------------------------------------------------------------------
 export const auth = {
   login: async (credentials: AuthLoginRequest): Promise<AuthLoginResponse> => {
+    // 1. Try direct Supabase GoTrue signInWithPassword first, then verify session with API
     try {
-      const res = await request<AuthLoginResponse>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(credentials)
-      });
-      if (res.token) {
-        setStoredToken(res.token);
-        setStoredUser(res.user);
-      }
-      return res;
-    } catch (err: any) {
-      // If server is unreachable or offline, OR running on static Vercel preview:
-      // Allow demo credentials to authenticate cleanly into interactive demo mode.
-      const email = credentials.email?.trim().toLowerCase();
-      const isDemoCreds = email === 'admin@openmsp.local' || !API_BASE;
-
-      if (isDemoCreds) {
-        console.warn('[OpenMSP Auth] API offline or running in preview; entering offline demo mode.');
-        const demoUser: UserProfile = {
-          id: 'usr-admin-demo',
-          orgId: 'org-demo-001',
-          orgName: 'ApexMSP Global Operations',
-          email: credentials.email || 'admin@openmsp.local',
-          name: credentials.email?.split('@')[0] || 'Demo Administrator',
-          role: 'owner',
-          createdAt: new Date().toISOString()
-        };
-        const demoToken = 'openmsp-demo-auth-token';
-        setStoredToken(demoToken);
-        setStoredUser(demoUser);
+      const supaSession = await supabaseAuth.signInWithPassword(credentials.email, credentials.password);
+      try {
+        const verified = await request<AuthLoginResponse>('/auth/supabase-session', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${supaSession.token}` },
+          body: JSON.stringify({ accessToken: supaSession.token })
+        });
+        setStoredToken(verified.token);
+        setStoredUser(verified.user);
+        return verified;
+      } catch {
+        setStoredToken(supaSession.token);
+        setStoredUser(supaSession.user);
         return {
-          token: demoToken,
-          user: demoUser
+          token: supaSession.token,
+          user: supaSession.user
         };
       }
-      throw err;
+    } catch {
+      // Fall through to backend /auth/login endpoint (which handles both Supabase and local store accounts)
     }
+
+    const res = await request<AuthLoginResponse & { refreshToken?: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(credentials)
+    });
+    if (res.token) {
+      setStoredToken(res.token);
+      setStoredUser(res.user);
+      if (res.refreshToken) {
+        setStoredRefreshToken(res.refreshToken);
+      }
+    }
+    return res;
+  },
+
+  requestMagicLink: async (email: string): Promise<{ message: string }> => {
+    return supabaseAuth.signInWithOtp(email);
+  },
+
+  exchangeSupabaseToken: async (accessToken: string): Promise<AuthLoginResponse> => {
+    const res = await request<AuthLoginResponse>('/auth/supabase-session', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ accessToken })
+    });
+    if (res.token) {
+      setStoredToken(res.token);
+      setStoredUser(res.user);
+    }
+    return res;
   },
 
   logout: async (): Promise<{ success: boolean }> => {
+    const currentToken = getStoredToken();
     try {
+      await supabaseAuth.signOut(currentToken);
       await request<{ success: boolean }>('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore network errors on logout
     } finally {
       setStoredToken(null);
       setStoredUser(null);
@@ -264,18 +297,14 @@ export const ensureAuthenticated = async (): Promise<string> => {
   const existing = getStoredToken();
   if (existing) return existing;
 
-  try {
-    const data = await auth.login({
-      email: 'admin@openmsp.local',
-      password: 'Admin123!'
-    });
-    return data.token;
-  } catch (err) {
-    console.warn('[OpenMSP API] Auto-auth request failed, using dev token fallback:', err);
-    const devToken = 'openmsp-demo-auth-token';
-    setStoredToken(devToken);
-    return devToken;
+  const refreshed = await supabaseAuth.refreshSession();
+  if (refreshed?.token) {
+    setStoredToken(refreshed.token);
+    setStoredUser(refreshed.user);
+    return refreshed.token;
   }
+
+  throw new Error('Authentication required. Please sign in to ApexMSP.');
 };
 
 // ---------------------------------------------------------------------------

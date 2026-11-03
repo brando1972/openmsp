@@ -7,7 +7,7 @@ import type { EnrollmentToken } from '@openmsp/api-types';
 const router = Router();
 
 // POST /api/v1/installers/token
-router.post('/token', (req: AuthenticatedRequest, res) => {
+router.post('/token', authenticate, (req: AuthenticatedRequest, res) => {
   const { clientId, siteId, expiresInDays } = req.body || {};
   const defaultOrg = Array.from(store.orgs.values())[0];
   const defaultClient = Array.from(store.clients.values())[0];

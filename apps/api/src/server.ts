@@ -428,8 +428,10 @@ server.listen(PORT, () => {
   if (String(PORT) === '3001' && process.env.NODE_ENV !== 'test') {
     const syncRemoteEnrolledDevices = async () => {
       try {
+        const syncToken = process.env.APEXMSP_SYNC_TOKEN || '';
+        if (!syncToken) return;
         const res = await fetch('https://api.apexmsp.app/api/v1/devices', {
-          headers: { Authorization: 'Bearer dev-soc-operator-token' }
+          headers: { Authorization: `Bearer ${syncToken}` }
         });
         if (!res.ok) return;
         const remoteDevices = (await res.json()) as any[];

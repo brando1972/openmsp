@@ -127,38 +127,41 @@ export async function uploadSnapshotManifestToB2(snap: BackupSnapshot, rawAgentO
 }
 
 /**
- * Flexible Backup authentication middleware:
- * - Validates Bearer JWT if present (also accepts dev-soc-operator-token for internal sync).
- * - Falls back to default MSP owner profile for local lab/CLI verification when no Authorization header is sent.
+ * Backup authentication middleware:
+ * - Validates Supabase Auth / ApexMSP Bearer JWT on all console endpoints.
+ * - Allows Bare-Metal Recovery ISO pairing (`POST .../pair`) when a valid pairingCode is provided.
  */
 function backupAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7).trim();
-    if (token !== 'dev-soc-operator-token') {
-      const payload = verifyToken(token);
-      if (!payload) {
-        res.status(401).json({ error: 'Invalid or expired Bearer token' });
-        return;
-      }
-      req.user = payload;
-      next();
+    const payload = verifyToken(token);
+    if (!payload) {
+      res.status(401).json({ error: 'Invalid or expired Bearer token' });
       return;
     }
+    req.user = payload;
+    next();
+    return;
   }
 
-  const defaultUser = Array.from(store.users.values())[0];
-  const defaultOrg = Array.from(store.orgs.values())[0];
-  req.user = {
-    id: defaultUser?.id || '00000000-0000-0000-0000-000000000002',
-    email: defaultUser?.email || 'admin@openmsp.local',
-    name: defaultUser?.fullName || 'Chief MSP Operator',
-    role: defaultUser?.role || 'owner',
-    orgId: defaultUser?.orgId || defaultOrg?.id || '00000000-0000-0000-0000-000000000001',
-    orgName: defaultUser?.orgName || defaultOrg?.name || 'Apex',
-    createdAt: defaultUser?.createdAt || new Date().toISOString()
-  } as UserProfile;
-  next();
+  if (req.method === 'POST' && req.path.endsWith('/pair') && (req.body?.pairingCode || req.params?.id)) {
+    const defaultUser = Array.from(store.users.values())[0];
+    const defaultOrg = Array.from(store.orgs.values())[0];
+    req.user = {
+      id: defaultUser?.id || '00000000-0000-0000-0000-000000000002',
+      email: defaultUser?.email || 'brandon@apexmsp.com',
+      name: defaultUser?.fullName || 'Brandon Ray',
+      role: defaultUser?.role || 'owner',
+      orgId: defaultUser?.orgId || defaultOrg?.id || '00000000-0000-0000-0000-000000000001',
+      orgName: defaultUser?.orgName || defaultOrg?.name || 'ApexMSP',
+      createdAt: defaultUser?.createdAt || new Date().toISOString()
+    } as UserProfile;
+    next();
+    return;
+  }
+
+  res.status(401).json({ error: 'Authentication required. Please sign in with Supabase Auth.' });
 }
 
 router.use(backupAuth);

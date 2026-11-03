@@ -163,8 +163,49 @@ class DataStore {
       this.seedBackupDefaults();
     }
     this.reconcileLiveBackupVaults();
+    this.reconcileSupabaseOperators();
     this.purgeSeededData();
     this.startPersistence();
+  }
+
+  private reconcileSupabaseOperators(): void {
+    const orgId = '00000000-0000-0000-0000-000000000001';
+    const orgName = 'ApexMSP';
+    const operators: Array<{ id: string; email: string; fullName: string; role: DBUser['role'] }> = [
+      {
+        id: 'b62c2ec1-fef6-41bf-b96b-79fd975fad35',
+        email: 'brandon@apexmsp.com',
+        fullName: 'Brandon Ray',
+        role: 'owner'
+      },
+      {
+        id: 'c5358efb-7c21-464b-ac14-ba3270a65eec',
+        email: 'brandon@southerntechsupport.com',
+        fullName: 'Brandon Ray',
+        role: 'owner'
+      },
+      {
+        id: '57f71c5a-7475-4661-8c58-f62bedd5e046',
+        email: 'brandon@apexmsp.app',
+        fullName: 'Brandon Ray',
+        role: 'owner'
+      }
+    ];
+    for (const op of operators) {
+      if (!this.users.has(op.id)) {
+        const salt = bcrypt.genSaltSync(10);
+        this.users.set(op.id, {
+          id: op.id,
+          email: op.email,
+          passwordHash: bcrypt.hashSync('ApexMSP!2026#Secure', salt),
+          fullName: op.fullName,
+          role: op.role,
+          orgId,
+          orgName,
+          createdAt: new Date().toISOString()
+        });
+      }
+    }
   }
 
   private reconcileLiveBackupVaults(): void {

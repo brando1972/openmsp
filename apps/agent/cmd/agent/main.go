@@ -336,6 +336,25 @@ func main() {
 	go tunnel.Global().Run(ctx)
 
 	// 3. Heartbeat & Command Processing
+	var inFlightCmds sync.Map
+	runCmd := func(cmd client.DeviceCommand) {
+		if _, loaded := inFlightCmds.LoadOrStore(cmd.ID, true); loaded {
+			return
+		}
+		defer inFlightCmds.Delete(cmd.ID)
+		log.Printf("[*] Executing command %s (Type: %s)", cmd.ID, cmd.CommandType)
+		result := execManager.Execute(ctx, cmd)
+		result.DeviceId = cfg.DeviceId
+		result.DeviceSecret = cfg.DeviceSecret
+		log.Printf("[+] Command %s result: status=%s", cmd.ID, result.Status)
+
+		if err := apiClient.ReportCommandResult(ctx, result); err != nil {
+			log.Printf("[!] Failed to report result for command %s: %v", cmd.ID, err)
+		} else {
+			log.Printf("[+] Command %s result successfully delivered to control plane", cmd.ID)
+		}
+	}
+
 	sendHeartbeat := func() error {
 		metrics, err := collector.CollectMetrics()
 		if err != nil {
@@ -405,18 +424,17 @@ func main() {
 		// Process pending commands if any
 		if len(hbResp.PendingCommands) > 0 {
 			log.Printf("[*] Received %d pending command(s)", len(hbResp.PendingCommands))
-			for _, cmd := range hbResp.PendingCommands {
-				log.Printf("[*] Executing command %s (Type: %s)", cmd.ID, cmd.CommandType)
-				result := execManager.Execute(ctx, cmd)
-				result.DeviceId = cfg.DeviceId
-				result.DeviceSecret = cfg.DeviceSecret
-				log.Printf("[+] Command %s result: status=%s", cmd.ID, result.Status)
-
-				if err := apiClient.ReportCommandResult(ctx, result); err != nil {
-					log.Printf("[!] Failed to report result for command %s: %v", cmd.ID, err)
-				} else {
-					log.Printf("[+] Command %s result successfully delivered to control plane", cmd.ID)
+			if *runOnceFlag {
+				for _, cmd := range hbResp.PendingCommands {
+					runCmd(cmd)
 				}
+			} else {
+				cmdsCopy := append([]client.DeviceCommand(nil), hbResp.PendingCommands...)
+				go func(cmds []client.DeviceCommand) {
+					for _, cmd := range cmds {
+						runCmd(cmd)
+					}
+				}(cmdsCopy)
 			}
 		}
 

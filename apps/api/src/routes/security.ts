@@ -19,15 +19,14 @@ import type {
 const router = Router();
 
 /**
- * Flexible SOC authentication middleware:
- * - Validates Bearer JWT if present (rejects invalid JWTs with 401).
- * - Validates deviceId + deviceSecret if sent by an enrolled endpoint agent.
- * - Falls back to the default MSP owner profile for local lab/CLI verification when no Authorization header is sent.
+ * SOC authentication middleware:
+ * - Validates Supabase Auth / ApexMSP Bearer JWT on all console endpoints.
+ * - Allows enrolled endpoint agents to submit posture/events on POST /events when a valid deviceId is supplied.
  */
 function socAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
+    const token = authHeader.substring(7).trim();
     const payload = verifyToken(token);
     if (!payload) {
       res.status(401).json({ error: 'Invalid or expired Bearer token' });
@@ -38,18 +37,25 @@ function socAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): 
     return;
   }
 
-  const defaultUser = Array.from(store.users.values())[0];
-  const defaultOrg = Array.from(store.orgs.values())[0];
-  req.user = {
-    id: defaultUser?.id || '00000000-0000-0000-0000-000000000002',
-    email: defaultUser?.email || 'admin@openmsp.local',
-    name: defaultUser?.fullName || 'Chief MSP Operator',
-    role: defaultUser?.role || 'owner',
-    orgId: defaultUser?.orgId || defaultOrg?.id || '00000000-0000-0000-0000-000000000001',
-    orgName: defaultUser?.orgName || defaultOrg?.name || 'Apex',
-    createdAt: defaultUser?.createdAt || new Date().toISOString()
-  } as UserProfile;
-  next();
+  // Allow enrolled endpoint agents posting telemetry to POST /events with a known deviceId
+  const candidateDeviceId = String(req.body?.deviceId || req.headers['x-device-id'] || '').trim();
+  if (req.method === 'POST' && req.path === '/events' && candidateDeviceId && store.devices.has(candidateDeviceId)) {
+    const defaultUser = Array.from(store.users.values())[0];
+    const defaultOrg = Array.from(store.orgs.values())[0];
+    req.user = {
+      id: defaultUser?.id || '00000000-0000-0000-0000-000000000002',
+      email: defaultUser?.email || 'brandon@apexmsp.com',
+      name: defaultUser?.fullName || 'Brandon Ray',
+      role: defaultUser?.role || 'owner',
+      orgId: defaultUser?.orgId || defaultOrg?.id || '00000000-0000-0000-0000-000000000001',
+      orgName: defaultUser?.orgName || defaultOrg?.name || 'ApexMSP',
+      createdAt: defaultUser?.createdAt || new Date().toISOString()
+    } as UserProfile;
+    next();
+    return;
+  }
+
+  res.status(401).json({ error: 'Authentication required. Please sign in with Supabase Auth.' });
 }
 
 router.use(socAuth);

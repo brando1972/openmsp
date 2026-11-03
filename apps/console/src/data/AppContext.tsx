@@ -42,6 +42,7 @@ import {
   setStoredUser,
   type RemoteHealthResponse
 } from '../services/api';
+import { supabaseAuth } from '../lib/supabase';
 import type { UserProfile } from '@openmsp/api-types';
 
 interface AppContextType {
@@ -151,22 +152,73 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (getStoredToken()) return true;
-    // Auto-authenticate dev/SOC preview session so the dashboard loads directly with data
-    setStoredToken('dev-soc-operator-token');
-    setStoredUser({
-      id: 'usr-brandon-01',
-      orgId: '00000000-0000-0000-0000-000000000001',
-      orgName: 'ApexMSP Security Operations',
-      email: 'brandon@apexmsp.com',
-      name: 'Brandon Ray (SOC Principal)',
-      role: 'owner',
-      createdAt: new Date().toISOString()
-    });
-    return true;
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(getStoredToken()));
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => getStoredUser());
+
+  // Validate existing Supabase / API session or consume Magic Link hash on mount
+  useEffect(() => {
+    let cancelled = false;
+    const verifyStartupSession = async () => {
+      const hashSession = supabaseAuth.consumeHashSession();
+      if (hashSession?.accessToken) {
+        try {
+          const verified = await api.auth.exchangeSupabaseToken(hashSession.accessToken);
+          if (!cancelled) {
+            setCurrentUser(verified.user);
+            setIsAuthenticated(true);
+          }
+          return;
+        } catch {
+          // Fall through to normal token validation
+        }
+      }
+
+      const token = getStoredToken();
+      if (!token) {
+        const refreshed = await supabaseAuth.refreshSession();
+        if (refreshed?.token && !cancelled) {
+          setStoredToken(refreshed.token);
+          setStoredUser(refreshed.user);
+          setCurrentUser(refreshed.user);
+          setIsAuthenticated(true);
+          return;
+        }
+        if (!cancelled) {
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+        }
+        return;
+      }
+
+      try {
+        const me = await api.auth.getMe();
+        if (!cancelled) {
+          setCurrentUser(me);
+          setIsAuthenticated(true);
+        }
+      } catch {
+        const refreshed = await supabaseAuth.refreshSession();
+        if (refreshed?.token && !cancelled) {
+          setStoredToken(refreshed.token);
+          setStoredUser(refreshed.user);
+          setCurrentUser(refreshed.user);
+          setIsAuthenticated(true);
+          return;
+        }
+        if (!cancelled) {
+          setStoredToken(null);
+          setStoredUser(null);
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+        }
+      }
+    };
+
+    void verifyStartupSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [activeTab, setActiveTabState] = useState<NavigationTab>('security-soc');
   const [clients, setClients] = useState<ClientTenant[]>(INITIAL_CLIENTS);
 
