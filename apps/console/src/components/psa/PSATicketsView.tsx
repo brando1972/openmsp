@@ -710,29 +710,9 @@ export const PSATicketsView: React.FC = () => {
     }
   };
 
+  // Live tickets come exclusively from the ApexMSP backend via AppContext (`tickets`)
   useEffect(() => {
-    let cancelled = false;
-    const fetchLiveScopedTickets = async () => {
-      try {
-        const res = await fetch('http://192.168.4.150:8080/api/tickets?scope=ALL', {
-          cache: 'no-store'
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const rawList = data.tickets || data.items || (Array.isArray(data) ? data : []);
-        if (!cancelled && Array.isArray(rawList) && rawList.length > 0) {
-          setLiveTickets(rawList.map(mapLiveApiTicketToPSA));
-        }
-      } catch {
-        // Offline or LAN unreachable — local mockData tickets remain seamless
-      }
-    };
-    fetchLiveScopedTickets();
-    const timer = setInterval(fetchLiveScopedTickets, 8000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+    setLiveTickets([]);
   }, []);
 
   const mergedTickets = useMemo(() => {

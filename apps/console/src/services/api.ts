@@ -1625,889 +1625,19 @@ export interface SoarOverviewResponse {
 // and explicitly badged as `fallback_preview` vs `live_api`.
 // ---------------------------------------------------------------------------
 
-const FALLBACK_UNIFI_SITES: UnifiSiteCapability[] = [
-  {
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    clientId: 'c-gambinos',
-    clientName: "Gambinos",
-    siteName: 'Gambinos Default (Auburn)',
-    consoleName: 'Gambinos UDM Pro',
-    consoleModel: 'UDM-Pro',
-    firmwareVersion: '4.0.21',
-    networkAppVersion: '8.6.9',
-    connectionMethod: 'cloud_sitemanager_proxy',
-    endpointUrl: 'https://api.ui.com/v1/connector/consoles/E4388340CCAB000000000836095900000000089F7E4C00000000670454EC:1455573222',
-    online: true,
-    lastSyncedAt: new Date().toISOString(),
-    capabilities: {
-      localIntegrationApi: true,
-      legacyStatApi: true,
-      syslogCefConfigured: true,
-      ipfixTrafficFlowsSupported: true,
-      idsIpsEnabled: true,
-      zoneFirewallSupported: true,
-      clientBlockWriteSupported: false,
-      separateReadWriteCreds: true
-    },
-    counts: {
-      adoptedDevices: 11,
-      onlineDevices: 9,
-      offlineDevices: 2,
-      activeClients: 42,
-      vlans: 6,
-      protectedPosAssets: 22
-    },
-    vlans: [
-      { id: 'vlan-gambinos-1', name: 'POS / Default LAN', vlanId: 1, subnet: '192.168.2.0/24', enabled: true, purpose: 'Active KwickPOS wired terminals, PAX A35 payment, SUNMI OrderPAD3 tablets' },
-      { id: 'vlan-gambinos-20', name: 'Office', vlanId: 20, subnet: '192.168.20.0/24', enabled: true, purpose: 'Back-office management & accounting' },
-      { id: 'vlan-gambinos-50', name: 'Guest Wifi', vlanId: 50, subnet: '10.10.99.0/24', enabled: true, purpose: 'Isolated patron Wi-Fi' },
-      { id: 'vlan-gambinos-88', name: 'KWIKPOS (Staged)', vlanId: 88, subnet: '192.168.88.0/24', enabled: false, purpose: 'Staged dedicated POS VLAN (currently disabled; Port 43 printers hold .88.131/.88.136)' },
-      { id: 'vlan-gambinos-101', name: 'Trimlight', vlanId: 101, subnet: '192.168.101.0/24', enabled: true, purpose: 'Exterior lighting controller' },
-      { id: 'vlan-gambinos-200', name: 'CameraNet', vlanId: 200, subnet: '192.168.200.0/24', enabled: true, purpose: 'NVR & security cameras' }
-    ],
-    coverageGaps: [
-      '2 switches currently offline: USW 24 PoE (70:a7:41:78:1a:11) & US 24 (f0:9f:c2:19:4e:22)',
-      'Switch Port 43 on US48PoE500W has 5 MACs (shared hub/uplink) — automatic port shutdown & VLAN cutover blocked',
-      'Write-capable API key intentionally withheld (read-only mode enforced for POS safety)'
-    ]
-  },
-  {
-    siteId: 'site-tbi-001',
-    clientId: 'c-tbi',
-    clientName: 'The Broken iPhone (TBI)',
-    siteName: 'TBI HQ & Repair Lab',
-    consoleName: 'TBI UDM Pro',
-    consoleModel: 'UDM-Pro',
-    firmwareVersion: '4.1.13',
-    networkAppVersion: '10.6.101',
-    connectionMethod: 'local_pinned_tls',
-    endpointUrl: 'https://192.168.11.1/proxy/network/integration/v1',
-    online: true,
-    lastSyncedAt: new Date().toISOString(),
-    capabilities: {
-      localIntegrationApi: true,
-      legacyStatApi: true,
-      syslogCefConfigured: true,
-      ipfixTrafficFlowsSupported: true,
-      idsIpsEnabled: true,
-      zoneFirewallSupported: true,
-      clientBlockWriteSupported: false,
-      separateReadWriteCreds: true
-    },
-    counts: {
-      adoptedDevices: 6,
-      onlineDevices: 6,
-      offlineDevices: 0,
-      activeClients: 28,
-      vlans: 4,
-      protectedPosAssets: 3
-    },
-    vlans: [
-      { id: 'vlan-tbi-1', name: 'Core Lab & Proxmox', vlanId: 1, subnet: '192.168.11.0/24', enabled: true, purpose: 'Proxmox1 SOC host (192.168.11.19) & repair benches' },
-      { id: 'vlan-tbi-10', name: 'POS & Front Desk', vlanId: 10, subnet: '192.168.10.0/24', enabled: true, purpose: 'Checkout & customer intake' },
-      { id: 'vlan-tbi-30', name: 'Customer Device Bench', vlanId: 30, subnet: '192.168.30.0/24', enabled: true, purpose: 'Quarantined customer repair Wi-Fi' },
-      { id: 'vlan-tbi-99', name: 'Site-to-Site VPN Transit', vlanId: 99, subnet: '172.16.11.0/29', enabled: true, purpose: 'Inter-site encrypted tunnel' }
-    ],
-    coverageGaps: [
-      'Customer Device Bench (VLAN 30) hosts untrusted BYOD repair devices — agentless network IDS/flow inspection only'
-    ]
-  },
-  {
-    siteId: 'site-raytreat-001',
-    clientId: 'c-brandon-ray',
-    clientName: 'Raytreat / DevStudio',
-    siteName: 'Raytreat Primary',
-    consoleName: 'Raytreat UDM Pro',
-    consoleModel: 'UDM-Pro',
-    firmwareVersion: '6.0.13',
-    networkAppVersion: '9.0.108',
-    connectionMethod: 'local_pinned_tls',
-    endpointUrl: 'https://192.168.4.1/proxy/network/integration/v1',
-    online: true,
-    lastSyncedAt: new Date().toISOString(),
-    capabilities: {
-      localIntegrationApi: true,
-      legacyStatApi: true,
-      syslogCefConfigured: true,
-      ipfixTrafficFlowsSupported: true,
-      idsIpsEnabled: true,
-      zoneFirewallSupported: true,
-      clientBlockWriteSupported: false,
-      separateReadWriteCreds: true
-    },
-    counts: {
-      adoptedDevices: 7,
-      onlineDevices: 7,
-      offlineDevices: 0,
-      activeClients: 34,
-      vlans: 3,
-      protectedPosAssets: 4
-    },
-    vlans: [
-      { id: 'vlan-ray-1', name: 'Studio Core LAN', vlanId: 1, subnet: '192.168.4.0/24', enabled: true, purpose: 'dev-studio (.4.150), dev-mini (.4.101), USW Pro HD 24 PoE (.4.156), Lenovo Tab (.4.200)' },
-      { id: 'vlan-ray-2', name: 'Lab Overlap Test Subnet', vlanId: 2, subnet: '192.168.2.0/24', enabled: true, purpose: 'Multi-tenant overlapping IP test network' },
-      { id: 'vlan-ray-60', name: 'IoT & Media', vlanId: 60, subnet: '192.168.60.0/24', enabled: true, purpose: 'Isolated smart devices' }
-    ],
-    coverageGaps: []
-  },
-  {
-    siteId: 'site-sos-001',
-    clientId: 'c-sos-volleyball',
-    clientName: 'SOS Volleyball',
-    siteName: 'SOS Athletic Facility',
-    consoleName: 'SOS Volleyball UDM Pro',
-    consoleModel: 'UDM-Pro',
-    firmwareVersion: '4.0.21',
-    networkAppVersion: '8.6.9',
-    connectionMethod: 'vpn_pinned_tls',
-    endpointUrl: 'https://172.25.0.1/proxy/network/integration/v1',
-    online: true,
-    lastSyncedAt: new Date().toISOString(),
-    capabilities: {
-      localIntegrationApi: true,
-      legacyStatApi: true,
-      syslogCefConfigured: true,
-      ipfixTrafficFlowsSupported: false,
-      idsIpsEnabled: true,
-      zoneFirewallSupported: false,
-      clientBlockWriteSupported: false,
-      separateReadWriteCreds: true
-    },
-    counts: {
-      adoptedDevices: 8,
-      onlineDevices: 8,
-      offlineDevices: 0,
-      activeClients: 64,
-      vlans: 3,
-      protectedPosAssets: 2
-    },
-    vlans: [
-      { id: 'vlan-sos-1', name: 'Facility Operations', vlanId: 1, subnet: '172.25.0.0/24', enabled: true, purpose: 'Front desk & scoreboards' },
-      { id: 'vlan-sos-40', name: 'Court Cameras & Streaming', vlanId: 40, subnet: '172.25.40.0/24', enabled: true, purpose: 'High-bandwidth video feeds' },
-      { id: 'vlan-sos-80', name: 'Tournament Public Wi-Fi', vlanId: 80, subnet: '10.80.0.0/22', enabled: true, purpose: 'Spectator & athlete Wi-Fi' }
-    ],
-    coverageGaps: [
-      'Reached via site-to-site VPN (172.25.0.1) — IPFIX flow export disabled to conserve VPN bandwidth'
-    ]
-  }
-];
+const FALLBACK_UNIFI_SITES: UnifiSiteCapability[] = [];
 
-const FALLBACK_GAMBINOS_PORTS: UnifiSwitchPortEntry[] = [
-  {
-    portIdx: 2,
-    name: 'Port 2 — KwickPOS c5',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 1000,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'Protected POS Terminal (c5)',
-    connectedClients: [
-      { mac: '90:09:d0:15:4a:c5', ip: '192.168.2.221', hostname: 'c5', role: 'pos_terminal', dhcpReserved: false, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 4,
-    name: 'Port 4 — PAX A35 (TERM105)',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 100,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'Protected PAX Payment Terminal (DHCP: NO — Static IP required by KwickPOS)',
-    connectedClients: [
-      { mac: '58:9c:fc:04:01:56', ip: '192.168.2.156', hostname: 'PAX-A35-TERM105', role: 'pos_payment_pax', dhcpReserved: false, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 15,
-    name: 'Port 15 — KwickPOS c4',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 1000,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'Protected POS Terminal (c4)',
-    connectedClients: [
-      { mac: '90:09:d0:15:4a:c4', ip: '192.168.2.187', hostname: 'c4', role: 'pos_terminal', dhcpReserved: false, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 19,
-    name: 'Port 19 — PAX A35 (TERM104)',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 100,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'Protected PAX Payment Terminal (SN: 2290027956, DHCP: NO)',
-    connectedClients: [
-      { mac: '58:9c:fc:04:01:73', ip: '192.168.2.173', hostname: 'PAX-A35-TERM104', role: 'pos_payment_pax', serial: '2290027956', dhcpReserved: false, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 23,
-    name: 'Port 23 — KwickPOS c2',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 1000,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'Protected POS Terminal (c2)',
-    connectedClients: [
-      { mac: '90:09:d0:15:4a:c2', ip: '192.168.2.237', hostname: 'c2', role: 'pos_terminal', dhcpReserved: false, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 25,
-    name: 'Port 25 — PAX A35 (TERMbar102)',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 100,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'Protected PAX Payment Terminal (SN: 2290653945, DHCP: NO)',
-    connectedClients: [
-      { mac: '58:9c:fc:04:01:96', ip: '192.168.2.196', hostname: 'PAX-A35-TERMbar102', role: 'pos_payment_pax', serial: '2290653945', dhcpReserved: false, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 33,
-    name: 'Port 33 — KwickPOS c3',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 1000,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'Protected POS Terminal (c3)',
-    connectedClients: [
-      { mac: '90:09:d0:15:4a:c3', ip: '192.168.2.154', hostname: 'c3', role: 'pos_terminal', dhcpReserved: false, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 35,
-    name: 'Port 35 — PAX A35 (TERM103)',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 100,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'Protected PAX Payment Terminal (SN: 2290653954, DHCP: NO)',
-    connectedClients: [
-      { mac: '58:9c:fc:04:02:27', ip: '192.168.2.227', hostname: 'PAX-A35-TERM103', role: 'pos_payment_pax', serial: '2290653954', dhcpReserved: false, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 38,
-    name: 'Port 38 — gambinos (POS Server Candidate)',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1)',
-    poeEnabled: false,
-    speedMbps: 1000,
-    up: true,
-    macCount: 1,
-    attachmentType: 'confirmed_direct',
-    safetyLockActive: true,
-    safetyLockReason: 'CRITICAL POS CONTROLLER CANDIDATE (gambinos .2.241) — Never Auto-Isolate',
-    connectedClients: [
-      { mac: '84:47:09:51:1a:b6', ip: '192.168.2.241', hostname: 'gambinos', role: 'pos_controller_candidate', dhcpReserved: true, isProtectedAsset: true }
-    ]
-  },
-  {
-    portIdx: 43,
-    name: 'Port 43 — SHARED UPLINK / UNMANAGED HUB (5 MACs)',
-    vlanId: 1,
-    vlanName: 'POS (VLAN 1) + Staged .88.x',
-    poeEnabled: false,
-    speedMbps: 1000,
-    up: true,
-    macCount: 5,
-    attachmentType: 'shared_uplink_or_hub',
-    safetyLockActive: true,
-    safetyLockReason: 'HARD SAFETY LOCK: Shared switch port (portMacCount=5). Disabling Port 43 or migrating VLANs would sever KwickPOS c1 (.2.179), PAX A35 TERM101 (.2.190), and 2 kitchen/receipt printers (.88.131, .88.136).',
-    connectedClients: [
-      { mac: '90:09:d0:15:4a:c1', ip: '192.168.2.179', hostname: 'c1 (KwickPOS Station 1)', role: 'pos_terminal', dhcpReserved: false, isProtectedAsset: true },
-      { mac: '58:9c:fc:04:01:90', ip: '192.168.2.190', hostname: 'PAX-A35-TERM101', role: 'pos_payment_pax', serial: '2290653946', dhcpReserved: false, isProtectedAsset: true },
-      { mac: '00:1b:a9:88:01:31', ip: '192.168.88.131', hostname: 'POS-Printer-Kitchen-131', role: 'pos_printer', dhcpReserved: false, isProtectedAsset: true },
-      { mac: '00:1b:a9:88:01:36', ip: '192.168.88.136', hostname: 'POS-Printer-Bar-136', role: 'pos_printer', dhcpReserved: false, isProtectedAsset: true },
-      { mac: '98:03:8e:75:98:07', ip: undefined, hostname: 'Unknown Downstream Hub/Device', role: 'unknown', dhcpReserved: false, isProtectedAsset: false }
-    ]
-  }
-];
+const FALLBACK_GAMBINOS_PORTS: UnifiSwitchPortEntry[] = [];
 
-let fallbackDevicesState: SecurityDeviceRecord[] = [
-  {
-    deviceId: 'dev-gambinos-pos-srv',
-    hostname: 'gambinos',
-    clientId: 'c-gambinos',
-    clientName: "Gambinos",
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    siteName: 'Gambinos Default (Auburn)',
-    os: 'linux',
-    osVersion: 'Ubuntu 22.04 LTS (KwickPOS Host)',
-    ipAddress: '192.168.2.241',
-    macAddress: '84:47:09:51:1a:b6',
-    assetCriticality: 'pos_controller',
-    posture: {
-      coverageState: 'preventive_active',
-      preventiveAvName: 'ClamAV Daemon + ApexMSP EDR Reflex',
-      preventiveAvActive: true,
-      realtimeProtectionEnabled: true,
-      tamperProtectionEnabled: true,
-      canaryFilesDeployed: true,
-      canaryPaths: ['/var/lib/apexmsp/canary/00_APEX_CANARY_DO_NOT_MODIFY.xlsx', '/var/lib/apexmsp/canary/00_APEX_CANARY_DO_NOT_MODIFY.docx'],
-      recoveryInhibitionGuardActive: true,
-      isolated: false,
-      supervisorCpuPct: 0.4,
-      telemetryCpuPct: 1.8,
-      scannerMemoryMb: 142,
-      reportedAt: new Date().toISOString(),
-      sensors: [
-        { provider: 'apex_edr_reflex', installed: true, running: true, preventiveActive: true, version: '2.0.0', healthMessage: 'Active shadow/canary guard' },
-        { provider: 'wazuh', installed: true, running: true, preventiveActive: false, version: '4.9.2', signatureVersion: 'ruleset-100599' },
-        { provider: 'velociraptor', installed: true, running: true, preventiveActive: false, version: '0.73.1', healthMessage: 'Idle (0.2% CPU)' },
-        { provider: 'yara_x', installed: true, running: true, preventiveActive: true, version: '0.10.0', signatureVersion: 'apex-2026.10' },
-        { provider: 'clamav', installed: true, running: true, preventiveActive: true, version: '1.4.1', signatureVersion: '27439' },
-        { provider: 'osquery', installed: true, running: true, preventiveActive: false, version: '5.14.1' }
-      ]
-    }
-  },
-  {
-    deviceId: 'dev-gambinos-c1',
-    hostname: 'c1 (KwickPOS Station 1)',
-    clientId: 'c-gambinos',
-    clientName: "Gambinos",
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    siteName: 'Gambinos Default (Auburn)',
-    os: 'windows',
-    osVersion: 'Windows 10 IoT Enterprise LTSC',
-    ipAddress: '192.168.2.179',
-    macAddress: '90:09:d0:15:4a:c1',
-    assetCriticality: 'pos_payment',
-    posture: {
-      coverageState: 'preventive_active',
-      preventiveAvName: 'Microsoft Defender Antivirus',
-      preventiveAvActive: true,
-      realtimeProtectionEnabled: true,
-      tamperProtectionEnabled: true,
-      canaryFilesDeployed: true,
-      canaryPaths: ['C:\\ProgramData\\ApexMSP\\canary\\00_APEX_CANARY_DO_NOT_MODIFY.docx'],
-      recoveryInhibitionGuardActive: true,
-      isolated: false,
-      supervisorCpuPct: 0.5,
-      telemetryCpuPct: 2.1,
-      scannerMemoryMb: 96,
-      reportedAt: new Date().toISOString(),
-      sensors: [
-        { provider: 'windows_defender', installed: true, running: true, preventiveActive: true, version: '4.18.24090.11', signatureVersion: '1.419.620.0' },
-        { provider: 'apex_edr_reflex', installed: true, running: true, preventiveActive: true, version: '2.0.0', healthMessage: 'VSS/bcdedit guard active' },
-        { provider: 'wazuh', installed: true, running: true, preventiveActive: false, version: '4.9.2' },
-        { provider: 'velociraptor', installed: true, running: true, preventiveActive: false, version: '0.73.1' },
-        { provider: 'yara_x', installed: true, running: true, preventiveActive: true, version: '0.10.0' },
-        { provider: 'osquery', installed: true, running: true, preventiveActive: false, version: '5.14.1' }
-      ]
-    }
-  },
-  {
-    deviceId: 'dev-studio-m1',
-    hostname: 'dev-studio.local',
-    clientId: 'c-brandon-ray',
-    clientName: 'Raytreat / DevStudio',
-    siteId: 'site-raytreat-001',
-    siteName: 'Raytreat Primary',
-    os: 'macos',
-    osVersion: 'macOS 15.1 Sequoia (Apple M1 Max)',
-    ipAddress: '192.168.4.150',
-    macAddress: 'a4:83:e7:91:04:50',
-    assetCriticality: 'infrastructure',
-    posture: {
-      coverageState: 'preventive_active',
-      preventiveAvName: 'macOS XProtect + Gatekeeper + FileVault',
-      preventiveAvActive: true,
-      realtimeProtectionEnabled: true,
-      tamperProtectionEnabled: true,
-      canaryFilesDeployed: true,
-      canaryPaths: ['/Users/dev/.apexmsp/canary/00_APEX_CANARY_DO_NOT_MODIFY.txt'],
-      recoveryInhibitionGuardActive: true,
-      isolated: false,
-      supervisorCpuPct: 0.3,
-      telemetryCpuPct: 1.4,
-      scannerMemoryMb: 84,
-      reportedAt: new Date().toISOString(),
-      sensors: [
-        { provider: 'macos_xprotect', installed: true, running: true, preventiveActive: true, version: 'XProtect 5278', signatureVersion: '2185' },
-        { provider: 'apex_edr_reflex', installed: true, running: true, preventiveActive: true, version: '2.0.0' },
-        { provider: 'wazuh', installed: true, running: true, preventiveActive: false, version: '4.9.2' },
-        { provider: 'yara_x', installed: true, running: true, preventiveActive: true, version: '0.10.0' },
-        { provider: 'osquery', installed: true, running: true, preventiveActive: false, version: '5.14.1' }
-      ]
-    }
-  },
-  {
-    deviceId: 'dev-tbi-bench-02',
-    hostname: 'TBI-REPAIR-BENCH-02',
-    clientId: 'c-tbi',
-    clientName: 'The Broken iPhone (TBI)',
-    siteId: 'site-tbi-001',
-    siteName: 'TBI HQ & Repair Lab',
-    os: 'windows',
-    osVersion: 'Windows 11 Pro 23H2',
-    ipAddress: '192.168.11.44',
-    macAddress: '00:d8:61:44:11:02',
-    assetCriticality: 'standard',
-    posture: {
-      coverageState: 'collecting',
-      preventiveAvName: 'Microsoft Defender (Passive / Tamper Disabled)',
-      preventiveAvActive: false,
-      realtimeProtectionEnabled: false,
-      tamperProtectionEnabled: false,
-      canaryFilesDeployed: true,
-      canaryPaths: ['C:\\ProgramData\\ApexMSP\\canary\\00_APEX_CANARY_DO_NOT_MODIFY.docx'],
-      recoveryInhibitionGuardActive: true,
-      isolated: false,
-      supervisorCpuPct: 0.6,
-      telemetryCpuPct: 2.8,
-      scannerMemoryMb: 112,
-      reportedAt: new Date().toISOString(),
-      sensors: [
-        { provider: 'windows_defender', installed: true, running: true, preventiveActive: false, version: '4.18.24090.11', healthMessage: 'Real-time protection disabled by local user' },
-        { provider: 'apex_edr_reflex', installed: true, running: true, preventiveActive: true, version: '2.0.0' },
-        { provider: 'wazuh', installed: true, running: true, preventiveActive: false, version: '4.9.2' },
-        { provider: 'velociraptor', installed: true, running: true, preventiveActive: false, version: '0.73.1' }
-      ]
-    }
-  },
-  {
-    deviceId: 'dev-muni-utility-wks',
-    hostname: 'AUBURN-WATER-WKS04',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    siteId: 'site-muni-001',
-    siteName: 'Municipal Water Annex',
-    os: 'windows',
-    osVersion: 'Windows 11 Enterprise',
-    ipAddress: '192.168.2.196',
-    macAddress: '3c:52:82:99:01:96',
-    assetCriticality: 'municipal_critical',
-    posture: {
-      coverageState: 'containment_requested',
-      preventiveAvName: 'Microsoft Defender Antivirus',
-      preventiveAvActive: true,
-      realtimeProtectionEnabled: true,
-      tamperProtectionEnabled: true,
-      canaryFilesDeployed: true,
-      canaryPaths: ['C:\\ProgramData\\ApexMSP\\canary\\00_APEX_CANARY_DO_NOT_MODIFY.xlsx'],
-      recoveryInhibitionGuardActive: true,
-      isolated: false,
-      supervisorCpuPct: 0.7,
-      telemetryCpuPct: 3.1,
-      scannerMemoryMb: 128,
-      reportedAt: new Date().toISOString(),
-      sensors: [
-        { provider: 'windows_defender', installed: true, running: true, preventiveActive: true, version: '4.18.24090.11' },
-        { provider: 'apex_edr_reflex', installed: true, running: true, preventiveActive: true, version: '2.0.0' },
-        { provider: 'wazuh', installed: true, running: true, preventiveActive: false, version: '4.9.2' },
-        { provider: 'velociraptor', installed: true, running: true, preventiveActive: false, version: '0.73.1' }
-      ]
-    }
-  },
-  {
-    deviceId: 'dev-unmanaged-9807',
-    hostname: 'unknown-mac-98038e759807',
-    clientId: 'c-gambinos',
-    clientName: "Gambinos",
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    siteName: 'Gambinos Default (Auburn)',
-    os: 'network',
-    osVersion: 'Unknown Unmanaged Endpoint (Port 43)',
-    ipAddress: 'N/A (L2 Only on Port 43)',
-    macAddress: '98:03:8e:75:98:07',
-    assetCriticality: 'standard',
-    posture: {
-      coverageState: 'unknown',
-      preventiveAvName: 'None (No Agent Installed)',
-      preventiveAvActive: false,
-      realtimeProtectionEnabled: false,
-      tamperProtectionEnabled: false,
-      canaryFilesDeployed: false,
-      recoveryInhibitionGuardActive: false,
-      isolated: false,
-      reportedAt: new Date().toISOString(),
-      sensors: []
-    }
-  }
-];
+let fallbackDevicesState: SecurityDeviceRecord[] = [];
 
-let fallbackIncidentsState: SecurityIncident[] = [
-  {
-    id: 'inc-2026-0901',
-    incidentNumber: 'SOC-2026-0901',
-    orgId: 'org-demo-001',
-    clientId: 'c-gambinos',
-    clientName: "Gambinos",
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    siteName: 'Gambinos Default (Auburn)',
-    deviceId: 'dev-gambinos-c1',
-    deviceName: 'c1 (KwickPOS Station 1)',
-    title: 'Shared Switch Port 43 Anomaly & Unidentified MAC (98:03:8e:75:98:07) on POS LAN',
-    summary: 'UniFi temporal audit detected 5 MAC addresses sharing US48PoE500W Port 43 alongside KwickPOS c1 (.2.179) and PAX A35 TERM101 (.2.190). Automated port containment is locked out by Protected-Asset Safety Policy.',
-    severity: 'high',
-    category: 'unifi_anomaly',
-    status: 'investigating',
-    confidence: 0.98,
-    detectionIds: ['det-0901'],
-    ticketId: 'TKT-1042',
-    velociraptorHuntId: 'H.GAMBINOS.PORT43.AUDIT',
-    wazuhAlertIds: ['100542', '100543'],
-    assetCriticality: 'pos_payment',
-    containmentState: 'manual_required',
-    firstEventTime: new Date(Date.now() - 1800 * 1000).toISOString(),
-    lastEventTime: new Date(Date.now() - 300 * 1000).toISOString(),
-    ingestLatencyMs: 840,
-    createdAt: new Date(Date.now() - 1800 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 300 * 1000).toISOString()
-  },
-  {
-    id: 'inc-2026-0902',
-    incidentNumber: 'SOC-2026-0902',
-    orgId: 'org-demo-001',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    siteId: 'site-muni-001',
-    siteName: 'Municipal Water Annex',
-    deviceId: 'dev-muni-utility-wks',
-    deviceName: 'AUBURN-WATER-WKS04',
-    title: 'Ransomware Recovery-Inhibition Attempt (vssadmin delete shadows /all /quiet)',
-    summary: 'ApexMSP Go EDR Reflex intercepted shadow-copy deletion command spawned by untrusted binary on 192.168.2.196 (Municipal tenant — strictly isolated from Gambinos PAX .2.196). Human approval required for host isolation due to municipal_critical tag.',
-    severity: 'critical',
-    category: 'recovery_inhibition',
-    status: 'containment_pending',
-    confidence: 0.99,
-    detectionIds: ['det-0902'],
-    ticketId: 'TKT-1049',
-    velociraptorHuntId: 'H.MUNI.VSS.7741',
-    wazuhAlertIds: ['100510'],
-    assetCriticality: 'municipal_critical',
-    containmentState: 'requested',
-    firstEventTime: new Date(Date.now() - 900 * 1000).toISOString(),
-    lastEventTime: new Date(Date.now() - 120 * 1000).toISOString(),
-    ingestLatencyMs: 620,
-    createdAt: new Date(Date.now() - 900 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 120 * 1000).toISOString()
-  },
-  {
-    id: 'inc-2026-0903',
-    incidentNumber: 'SOC-2026-0903',
-    orgId: 'org-demo-001',
-    clientId: 'c-tbi',
-    clientName: 'The Broken iPhone (TBI)',
-    siteId: 'site-tbi-001',
-    siteName: 'TBI HQ & Repair Lab',
-    deviceId: 'dev-tbi-bench-02',
-    deviceName: 'TBI-REPAIR-BENCH-02',
-    title: 'Preventive AV Real-Time Protection Disabled on Repair Bench',
-    summary: 'Endpoint posture monitor detected Windows Defender real-time protection switched off on TBI-REPAIR-BENCH-02. Endpoint downgraded from Preventive Protection Active to Collecting Only.',
-    severity: 'medium',
-    category: 'av_tamper',
-    status: 'open',
-    confidence: 0.95,
-    detectionIds: ['det-0903'],
-    velociraptorHuntId: 'H.TBI.DEFENDER.09',
-    wazuhAlertIds: ['100531'],
-    assetCriticality: 'standard',
-    containmentState: 'none',
-    firstEventTime: new Date(Date.now() - 3600 * 1000).toISOString(),
-    lastEventTime: new Date(Date.now() - 600 * 1000).toISOString(),
-    ingestLatencyMs: 1120,
-    createdAt: new Date(Date.now() - 3600 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 600 * 1000).toISOString()
-  }
-];
+let fallbackIncidentsState: SecurityIncident[] = [];
 
-let fallbackEventsState: SecurityDetection[] = [
-  {
-    id: 'det-0902',
-    eventId: 'evt-vss-0902',
-    idempotencyKey: 'idem-vss-0902',
-    orgId: 'org-demo-001',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    siteId: 'site-muni-001',
-    deviceId: 'dev-muni-utility-wks',
-    deviceName: 'AUBURN-WATER-WKS04',
-    eventTime: new Date(Date.now() - 900 * 1000).toISOString(),
-    ingestTime: new Date(Date.now() - 899 * 1000).toISOString(),
-    sourceProvider: 'apex_agent',
-    ruleId: '100510',
-    ruleName: 'MITRE T1490 — Inhibit System Recovery (Shadow Copy Deletion)',
-    severity: 'critical',
-    confidence: 0.99,
-    category: 'recovery_inhibition',
-    summary: 'Process vssadmin.exe invoked "vssadmin delete shadows /all /quiet" (non-allowlisted parent process)',
-    process: {
-      pid: 6812,
-      ppid: 4104,
-      name: 'vssadmin.exe',
-      exePath: 'C:\\Windows\\System32\\vssadmin.exe',
-      cmdline: 'vssadmin.exe delete shadows /all /quiet',
-      sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      user: 'AUBURN\\svc_meter_sync',
-      signed: true,
-      signer: 'Microsoft Windows'
-    },
-    network: {
-      srcIp: '192.168.2.196',
-      vlanId: 1
-    },
-    incidentId: 'inc-2026-0902'
-  },
-  {
-    id: 'det-0901',
-    eventId: 'evt-unifi-port43',
-    idempotencyKey: 'idem-unifi-port43',
-    orgId: 'org-demo-001',
-    clientId: 'c-gambinos',
-    clientName: "Gambinos",
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    deviceId: 'dev-gambinos-c1',
-    deviceName: 'c1 (KwickPOS Station 1)',
-    eventTime: new Date(Date.now() - 1800 * 1000).toISOString(),
-    ingestTime: new Date(Date.now() - 1799 * 1000).toISOString(),
-    sourceProvider: 'unifi_syslog',
-    ruleId: '100542',
-    ruleName: 'UniFi Shared POS Switch Port Multi-MAC Attachment Alert',
-    severity: 'high',
-    confidence: 0.98,
-    category: 'unifi_anomaly',
-    summary: 'US48PoE500W Port 43 reports 5 concurrent MACs across 192.168.2.0/24 and 192.168.88.0/24',
-    network: {
-      srcIp: '192.168.2.179',
-      unifiSiteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-      switchId: '18:e8:29:29:1f:1d',
-      switchPort: 43,
-      vlanId: 1
-    },
-    incidentId: 'inc-2026-0901'
-  }
-];
+let fallbackEventsState: SecurityDetection[] = [];
 
-let fallbackActionsState: SecurityAction[] = [
-  {
-    id: 'act-2026-701',
-    orgId: 'org-demo-001',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    siteId: 'site-muni-001',
-    incidentId: 'inc-2026-0902',
-    targetDeviceId: 'dev-muni-utility-wks',
-    targetDeviceName: 'AUBURN-WATER-WKS04 (192.168.2.196)',
-    actionType: 'isolate_host',
-    reason: 'Isolate municipal workstation after vssadmin shadow-copy deletion attempt (MITRE T1490). Requires human approval due to municipal_critical asset classification.',
-    requestedBy: 'ApexMSP EDR Reflex Engine',
-    requestedAt: new Date(Date.now() - 600 * 1000).toISOString(),
-    requiresHumanApproval: true,
-    expiresAt: new Date(Date.now() + 25 * 60 * 1000).toISOString(),
-    policyVersion: 'v2.0.4-soc-safe',
-    status: 'pending_approval',
-    payload: {
-      deviceId: 'dev-muni-utility-wks',
-      allowControlPlaneIp: '192.168.11.19',
-      preserveTenantIsolation: true
-    }
-  },
-  {
-    id: 'act-2026-702',
-    orgId: 'org-demo-001',
-    clientId: 'c-gambinos',
-    clientName: "Gambinos",
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    incidentId: 'inc-2026-0901',
-    targetDeviceId: 'dev-gambinos-c1',
-    targetDeviceName: 'US48PoE500W Port 43 (c1 + PAX A35 .2.190)',
-    targetUnifiClientMac: '98:03:8e:75:98:07',
-    actionType: 'unifi_block_client',
-    reason: 'Attempted automated port/client containment on US48PoE500W Port 43',
-    requestedBy: 'Policy Simulation Check',
-    requestedAt: new Date(Date.now() - 1200 * 1000).toISOString(),
-    requiresHumanApproval: true,
-    expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-    policyVersion: 'v2.0.4-soc-safe',
-    status: 'blocked_protected_asset',
-    payload: {
-      switchMac: '18:e8:29:29:1f:1d',
-      switchPort: 43,
-      portMacCount: 5
-    },
-    error: 'BLOCKED BY PROTECTED-ASSET & SHARED-PORT GUARD: Port 43 has portMacCount=5 including KwickPOS c1 (.2.179) and PAX A35 TERM101 (.2.190).'
-  }
-];
+let fallbackActionsState: SecurityAction[] = [];
 
-const FALLBACK_OBSERVATIONS: TemporalIdentityObservation[] = [
-  {
-    id: 'obs-gambinos-c1',
-    orgId: 'org-demo-001',
-    clientId: 'c-gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    provider: 'unifi_cloud_sitemanager',
-    providerClientId: 'unifi-c1-9009d0154ac1',
-    macAddress: '90:09:d0:15:4a:c1',
-    ipAddress: '192.168.2.179',
-    hostname: 'c1',
-    alias: 'KwickPOS Terminal c1',
-    deviceRole: 'pos_terminal',
-    isWired: true,
-    switchId: 'us48poe500w-gambinos',
-    switchName: 'US48PoE500W',
-    switchMac: '18:e8:29:29:1f:1d',
-    switchPort: 43,
-    attachmentType: 'shared_uplink_or_hub',
-    portMacCount: 5,
-    vlanId: 1,
-    networkName: 'POS (VLAN 1)',
-    dhcpReserved: false,
-    isProtectedAsset: true,
-    confidence: 0.99,
-    evidenceSource: 'UniFi Site Manager + KwickPOS SDK Cross-Verification',
-    observedFrom: new Date(Date.now() - 86400 * 1000).toISOString(),
-    observedTo: new Date().toISOString(),
-    managedDeviceId: 'dev-gambinos-c1'
-  },
-  {
-    id: 'obs-gambinos-pax-190',
-    orgId: 'org-demo-001',
-    clientId: 'c-gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    provider: 'pos_sdk_verified',
-    providerClientId: 'pax-2290653946',
-    macAddress: '58:9c:fc:04:01:90',
-    ipAddress: '192.168.2.190',
-    hostname: 'PAX-A35-TERM101',
-    alias: 'PAX A35 Payment Terminal 101',
-    deviceRole: 'pos_payment_pax',
-    serialNumber: '2290653946',
-    isWired: true,
-    switchId: 'us48poe500w-gambinos',
-    switchName: 'US48PoE500W',
-    switchMac: '18:e8:29:29:1f:1d',
-    switchPort: 43,
-    attachmentType: 'shared_uplink_or_hub',
-    portMacCount: 5,
-    vlanId: 1,
-    networkName: 'POS (VLAN 1)',
-    dhcpReserved: false,
-    isProtectedAsset: true,
-    confidence: 0.99,
-    evidenceSource: 'PAX A35 Serial 2290653946 + US48PoE500W Port 43 MAC Table',
-    observedFrom: new Date(Date.now() - 86400 * 1000).toISOString(),
-    observedTo: new Date().toISOString()
-  },
-  {
-    id: 'obs-gambinos-pax-196',
-    orgId: 'org-demo-001',
-    clientId: 'c-gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    provider: 'pos_sdk_verified',
-    providerClientId: 'pax-2290653945',
-    macAddress: '58:9c:fc:04:01:96',
-    ipAddress: '192.168.2.196',
-    hostname: 'PAX-A35-TERMbar102',
-    alias: 'PAX A35 Bar Payment Terminal 102',
-    deviceRole: 'pos_payment_pax',
-    serialNumber: '2290653945',
-    isWired: true,
-    switchId: 'us48poe500w-gambinos',
-    switchName: 'US48PoE500W',
-    switchMac: '18:e8:29:29:1f:1d',
-    switchPort: 25,
-    attachmentType: 'confirmed_direct',
-    portMacCount: 1,
-    vlanId: 1,
-    networkName: 'POS (VLAN 1)',
-    dhcpReserved: false,
-    isProtectedAsset: true,
-    confidence: 0.99,
-    evidenceSource: 'PAX A35 Serial 2290653945 + US48PoE500W Port 25',
-    observedFrom: new Date(Date.now() - 86400 * 1000).toISOString(),
-    observedTo: new Date().toISOString()
-  },
-  {
-    id: 'obs-gambinos-sunmi-191',
-    orgId: 'org-demo-001',
-    clientId: 'c-gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    provider: 'pos_sdk_verified',
-    providerClientId: 'sunmi-LF40264L20209',
-    macAddress: '74:f8:db:19:01:91',
-    ipAddress: '192.168.2.191',
-    hostname: 'OrderPAD3-191 (UniFi alias: AP1-Bar)',
-    alias: 'SUNMI OrderPAD3 Handheld POS',
-    deviceRole: 'pos_tablet_sunmi',
-    serialNumber: 'LF40264L20209',
-    isWired: false,
-    apId: 'ap-gambinos-bar',
-    apName: 'U6-LR Dining/Bar',
-    ssid: 'Gambinos-POS',
-    rssi: -58,
-    attachmentType: 'wireless_ap',
-    vlanId: 1,
-    networkName: 'POS (VLAN 1)',
-    dhcpReserved: false,
-    isProtectedAsset: true,
-    confidence: 0.98,
-    evidenceSource: 'POS SDK Serial LF40264L20209 overrides UniFi passive OUI guess ("AP1-Bar")',
-    observedFrom: new Date(Date.now() - 43200 * 1000).toISOString(),
-    observedTo: new Date().toISOString()
-  },
-  {
-    id: 'obs-muni-overlap-196',
-    orgId: 'org-demo-001',
-    clientId: 'c-municipality',
-    siteId: 'site-muni-001',
-    provider: 'apex_agent',
-    providerClientId: 'agent-dev-muni-utility-wks',
-    macAddress: '3c:52:82:99:01:96',
-    ipAddress: '192.168.2.196',
-    hostname: 'AUBURN-WATER-WKS04',
-    alias: 'Municipal Water Billing Workstation',
-    deviceRole: 'workstation',
-    isWired: true,
-    attachmentType: 'confirmed_direct',
-    portMacCount: 1,
-    vlanId: 1,
-    networkName: 'Municipal Annex LAN (192.168.2.0/24)',
-    dhcpReserved: true,
-    isProtectedAsset: true,
-    confidence: 1.0,
-    evidenceSource: 'Signed ApexMSP Agent Heartbeat (Tenant c-municipality)',
-    observedFrom: new Date(Date.now() - 86400 * 1000).toISOString(),
-    observedTo: new Date().toISOString(),
-    managedDeviceId: 'dev-muni-utility-wks'
-  }
-];
+const FALLBACK_OBSERVATIONS: TemporalIdentityObservation[] = [];
 
 function buildFallbackOverview(clientId?: string): SecurityOverviewResponse {
   const filterClient = (cid?: string) => !clientId || clientId === 'all' || cid === clientId;
@@ -2538,14 +1668,14 @@ function buildFallbackOverview(clientId?: string): SecurityOverviewResponse {
       openIncidents: filteredIncidents.filter(i => i.status !== 'resolved' && i.status !== 'false_positive').length,
       criticalIncidents: filteredIncidents.filter(i => i.severity === 'critical' && i.status !== 'resolved').length,
       pendingApprovals: filteredActions.filter(a => a.status === 'pending_approval').length,
-      p95IngestLatencyMs: 820,
+      p95IngestLatencyMs: 0,
       slaTargetMs: 60000,
       slaCompliant: true,
       totalMonitoredEndpoints: filteredDevices.length,
       preventiveAvActiveCount: filteredDevices.filter(d => d.posture.preventiveAvActive).length,
       canaryProtectedCount: filteredDevices.filter(d => d.posture.canaryFilesDeployed).length,
       unknownCoverageCount: matrix.unknown,
-      protectedCriticalAssets: filteredDevices.filter(d => d.assetCriticality !== 'standard').length + 18,
+      protectedCriticalAssets: filteredDevices.filter(d => d.assetCriticality !== 'standard').length,
       connectedUnifiConsoles: filteredSites.filter(s => s.online).length,
       blockedSharedPortAttempts: filteredActions.filter(a => a.status === 'blocked_protected_asset').length
     },
@@ -2639,9 +1769,9 @@ export const security = {
           ...fb.coverageMatrix,
           ...rawMatrix
         },
-        recentIncidents: Array.isArray(raw.recentIncidents) && raw.recentIncidents.length > 0 ? raw.recentIncidents : fb.recentIncidents,
-        pendingActions: Array.isArray(raw.pendingActions) && raw.pendingActions.length > 0 ? raw.pendingActions : fb.pendingActions,
-        unifiSites: Array.isArray(raw.unifiSites) && raw.unifiSites.length > 0 ? raw.unifiSites : fb.unifiSites
+        recentIncidents: Array.isArray(raw.recentIncidents) ? raw.recentIncidents : [],
+        pendingActions: Array.isArray(raw.pendingActions) ? raw.pendingActions : [],
+        unifiSites: Array.isArray(raw.unifiSites) ? raw.unifiSites : (Array.isArray(raw.unifiSitesSummary) ? raw.unifiSitesSummary : [])
       };
     } catch {
       return buildFallbackOverview(clientId);
@@ -2694,54 +1824,45 @@ export const security = {
     try {
       const raw = await request<any>(`/security/devices${query}`);
       const rawList: any[] = Array.isArray(raw) ? raw : (raw.devices || []);
-      if (rawList.length > 0) {
-        const normalized: SecurityDeviceRecord[] = rawList.map((d: any) => {
-          const p = d.posture || d.securityPosture || {};
-          const devId = d.deviceId || d.id || 'dev-unknown';
-          const basePosture: SecurityPostureReport = {
-            coverageState: p.coverageState || 'unknown',
-            preventiveAvName: p.preventiveAvName || 'OS Native Preventive Engine',
-            preventiveAvActive: Boolean(p.preventiveAvActive),
-            realtimeProtectionEnabled: Boolean(p.realtimeProtectionEnabled),
-            tamperProtectionEnabled: Boolean(p.tamperProtectionEnabled),
-            canaryFilesDeployed: Boolean(p.canaryFilesDeployed),
-            canaryPaths: Array.isArray(p.canaryPaths) ? p.canaryPaths : [],
-            recoveryInhibitionGuardActive: Boolean(p.recoveryInhibitionGuardActive),
-            isolated: Boolean(p.isolated),
-            supervisorCpuPct: p.supervisorCpuPct ?? 0.4,
-            telemetryCpuPct: p.telemetryCpuPct ?? 1.4,
-            scannerMemoryMb: p.scannerMemoryMb ?? 96,
-            reportedAt: p.reportedAt || d.metrics?.lastSeen || new Date().toISOString(),
-            sensors: Array.isArray(p.sensors) ? p.sensors : []
-          };
-          const baseDev: SecurityDeviceRecord = {
-            deviceId: devId,
-            hostname: d.hostname || d.name || devId || 'Unknown Host',
-            clientId: d.clientId || 'c-gambinos',
-            clientName: d.clientName || "Gambinos",
-            siteId: d.siteId || '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-            siteName: d.siteName || 'Main Store',
-            os: d.os || 'windows',
-            osVersion: d.osVersion || 'Managed OS',
-            ipAddress: d.ipAddress || '0.0.0.0',
-            macAddress: d.macAddress || '00:00:00:00:00:00',
-            assetCriticality: d.assetCriticality || (d.isProtectedAsset ? 'pos_controller' : 'standard'),
-            posture: basePosture,
-            sharkFinPolicy: deriveSharkFinPolicy(basePosture, d.sharkFinPolicy || d.policy)
-          };
-          return localSharkFinPolicyOverrides[devId]
-            ? applySharkFinPolicyToDevice(baseDev, localSharkFinPolicyOverrides[devId])
-            : baseDev;
-        });
-        return { dataSource: 'live_api', devices: normalized };
-      }
-      return {
-        dataSource: 'live_api',
-        devices: fallbackDevicesState.map(d => ({
-          ...d,
-          sharkFinPolicy: d.sharkFinPolicy || deriveSharkFinPolicy(d.posture)
-        }))
-      };
+      const normalized: SecurityDeviceRecord[] = rawList.map((d: any) => {
+        const p = d.posture || d.securityPosture || {};
+        const devId = d.deviceId || d.id || 'dev-unknown';
+        const basePosture: SecurityPostureReport = {
+          coverageState: p.coverageState || 'unknown',
+          preventiveAvName: p.preventiveAvName || 'OS Native Preventive Engine',
+          preventiveAvActive: Boolean(p.preventiveAvActive),
+          realtimeProtectionEnabled: Boolean(p.realtimeProtectionEnabled),
+          tamperProtectionEnabled: Boolean(p.tamperProtectionEnabled),
+          canaryFilesDeployed: Boolean(p.canaryFilesDeployed),
+          canaryPaths: Array.isArray(p.canaryPaths) ? p.canaryPaths : [],
+          recoveryInhibitionGuardActive: Boolean(p.recoveryInhibitionGuardActive),
+          isolated: Boolean(p.isolated),
+          supervisorCpuPct: p.supervisorCpuPct ?? 0,
+          telemetryCpuPct: p.telemetryCpuPct ?? 0,
+          scannerMemoryMb: p.scannerMemoryMb ?? 0,
+          reportedAt: p.reportedAt || d.metrics?.lastSeen || new Date().toISOString(),
+          sensors: Array.isArray(p.sensors) ? p.sensors : []
+        };
+        const baseDev: SecurityDeviceRecord = {
+          deviceId: devId,
+          hostname: d.hostname || d.name || devId || 'Unknown Host',
+          clientId: d.clientId || 'c-brandon-ray',
+          clientName: d.clientName || 'Brandon Ray',
+          siteId: d.siteId || 'Primary',
+          siteName: d.siteName || 'Primary',
+          os: d.os || 'windows',
+          osVersion: d.osVersion || 'Managed OS',
+          ipAddress: d.ipAddress || '0.0.0.0',
+          macAddress: d.macAddress || '00:00:00:00:00:00',
+          assetCriticality: d.assetCriticality || (d.isProtectedAsset ? 'pos_controller' : 'standard'),
+          posture: basePosture,
+          sharkFinPolicy: deriveSharkFinPolicy(basePosture, d.sharkFinPolicy || d.policy)
+        };
+        return localSharkFinPolicyOverrides[devId]
+          ? applySharkFinPolicyToDevice(baseDev, localSharkFinPolicyOverrides[devId])
+          : baseDev;
+      });
+      return { dataSource: 'live_api', devices: normalized };
     } catch {
       const filtered = fallbackDevicesState
         .filter(d => !clientId || clientId === 'all' || d.clientId === clientId)
@@ -2960,28 +2081,24 @@ export const security = {
         }));
         tlList = [...mappedDet, ...mappedObs];
       }
-      if (tlList.length === 0) {
-        tlList = buildFallbackTimeline(deviceId);
-      }
       return {
         dataSource: 'live_api',
         deviceId: raw.device?.id || raw.deviceId || deviceId,
         deviceName: raw.device?.name || raw.device?.hostname || raw.deviceName || deviceId,
-        clientId: raw.device?.clientId || raw.query?.clientId || raw.clientId || 'c-gambinos',
-        clientName: raw.device?.clientName || raw.clientName || "Gambinos",
+        clientId: raw.device?.clientId || raw.query?.clientId || raw.clientId || 'c-brandon-ray',
+        clientName: raw.device?.clientName || raw.clientName || 'Brandon Ray',
         observations: obsList,
         timeline: tlList
       };
     } catch {
-      const dev = fallbackDevicesState.find(d => d.deviceId === deviceId) || fallbackDevicesState[0];
       return {
         dataSource: 'fallback_preview',
-        deviceId: dev.deviceId,
-        deviceName: dev.hostname,
-        clientId: dev.clientId,
-        clientName: dev.clientName,
-        observations: FALLBACK_OBSERVATIONS.filter(o => o.managedDeviceId === dev.deviceId || o.clientId === dev.clientId),
-        timeline: buildFallbackTimeline(dev.deviceId)
+        deviceId,
+        deviceName: deviceId,
+        clientId: 'c-brandon-ray',
+        clientName: 'Brandon Ray',
+        observations: [],
+        timeline: []
       };
     }
   },
@@ -3153,19 +2270,9 @@ export const security = {
               nodes: Array.isArray(pb.nodes) && pb.nodes.length > 0 ? pb.nodes : (fb.playbooks[i]?.nodes || fb.playbooks[0].nodes)
             }))
           : fb.playbooks,
-        recentExecutions: Array.isArray(raw.recentExecutions) && raw.recentExecutions.length > 0
-          ? raw.recentExecutions
-          : fb.recentExecutions,
-        cases: Array.isArray(raw.cases) && raw.cases.length > 0
-          ? raw.cases.map((c: any, i: number) => ({
-              ...(fb.cases[i] || fb.cases[0]),
-              ...c,
-              ttps: Array.isArray(c.ttps) && c.ttps.length > 0 ? c.ttps : (fb.cases[i]?.ttps || []),
-              tasks: Array.isArray(c.tasks) && c.tasks.length > 0 ? c.tasks : (fb.cases[i]?.tasks || []),
-              observables: Array.isArray(c.observables) && c.observables.length > 0 ? c.observables : (fb.cases[i]?.observables || [])
-            }))
-          : fb.cases,
-        lastCortexAnalysis: raw.lastCortexAnalysis || fb.lastCortexAnalysis,
+        recentExecutions: Array.isArray(raw.recentExecutions) ? raw.recentExecutions : [],
+        cases: Array.isArray(raw.cases) ? raw.cases : [],
+        lastCortexAnalysis: raw.lastCortexAnalysis || null,
         comparisonMatrix: Array.isArray(raw.comparisonMatrix) && raw.comparisonMatrix.length > 0
           ? raw.comparisonMatrix
           : fb.comparisonMatrix
@@ -3250,10 +2357,9 @@ export const unifi = {
     try {
       const raw = await request<any>(`/integrations/unifi/sites${query}`);
       const list: UnifiSiteCapability[] = Array.isArray(raw) ? raw : (raw.sites || []);
-      return { dataSource: 'live_api', sites: list.length > 0 ? list : FALLBACK_UNIFI_SITES };
+      return { dataSource: 'live_api', sites: list };
     } catch {
-      const filtered = FALLBACK_UNIFI_SITES.filter(s => !clientId || clientId === 'all' || s.clientId === clientId);
-      return { dataSource: 'fallback_preview', sites: filtered };
+      return { dataSource: 'fallback_preview', sites: [] };
     }
   },
 
@@ -3264,18 +2370,15 @@ export const unifi = {
       return {
         dataSource: 'live_api',
         site,
-        switches: Array.isArray(raw.switches) && raw.switches.length > 0 ? raw.switches : buildFallbackSwitches(site.siteId),
-        wirelessDiscrepancies: Array.isArray(raw.wirelessDiscrepancies) && raw.wirelessDiscrepancies.length > 0
-          ? raw.wirelessDiscrepancies
-          : buildFallbackWirelessDiscrepancies(site.siteId)
+        switches: Array.isArray(raw.switches) ? raw.switches : [],
+        wirelessDiscrepancies: Array.isArray(raw.wirelessDiscrepancies) ? raw.wirelessDiscrepancies : []
       };
     } catch {
-      const site = FALLBACK_UNIFI_SITES.find(s => s.siteId === siteId) || FALLBACK_UNIFI_SITES[0];
       return {
         dataSource: 'fallback_preview',
-        site,
-        switches: buildFallbackSwitches(site.siteId),
-        wirelessDiscrepancies: buildFallbackWirelessDiscrepancies(site.siteId)
+        site: undefined as any,
+        switches: [],
+        wirelessDiscrepancies: []
       };
     }
   },
@@ -3284,10 +2387,9 @@ export const unifi = {
     try {
       const raw = await request<any>(`/integrations/unifi/sites/${encodeURIComponent(siteId)}/observations`);
       const list: TemporalIdentityObservation[] = Array.isArray(raw) ? raw : (raw.observations || []);
-      return { dataSource: 'live_api', observations: list.length > 0 ? list : FALLBACK_OBSERVATIONS };
+      return { dataSource: 'live_api', observations: list };
     } catch {
-      const filtered = FALLBACK_OBSERVATIONS.filter(o => !siteId || o.siteId === siteId);
-      return { dataSource: 'fallback_preview', observations: filtered.length > 0 ? filtered : FALLBACK_OBSERVATIONS };
+      return { dataSource: 'fallback_preview', observations: [] };
     }
   },
 
@@ -3404,31 +2506,26 @@ function buildFallbackGambinosUnpoller(): GambinosUnpollerResponse {
       }
     },
     metrics: {
-      wanRxMbps: 84.6,
-      wanTxMbps: 19.4,
-      wanLatencyMs: 11.2,
-      udmProCpuPct: 18.4,
-      udmProRamPct: 61.2,
-      udmProTempC: 52.0,
-      us48PoeTotalWatts: 76.8,
+      wanRxMbps: 0,
+      wanTxMbps: 0,
+      wanLatencyMs: 0,
+      udmProCpuPct: 0,
+      udmProRamPct: 0,
+      udmProTempC: 0,
+      us48PoeTotalWatts: 0,
       us48PoeBudgetWatts: 500,
       port43SharedHub: {
         portIdx: 43,
-        poeWatts: 12.4,
-        rxMbps: 14.8,
-        txMbps: 6.2,
-        macCount: 5,
-        coResidentSummary: 'KwickPOS c1 (.2.179) + PAX A35 (.2.190) + 2 Kitchen Printers + 98:03:8e:75:98:07'
+        poeWatts: 0,
+        rxMbps: 0,
+        txMbps: 0,
+        macCount: 0,
+        coResidentSummary: 'No active port observations'
       },
-      wirelessClientsCount: 38,
-      wiredClientsCount: 27,
-      totalClientsCount: 65,
-      topDpiCategories: [
-        { category: 'KwickPOS & PAX Payment TLS', rxMB: 1420, txMB: 680, clientCount: 16 },
-        { category: 'Security Cameras (VLAN 200)', rxMB: 4890, txMB: 310, clientCount: 14 },
-        { category: 'Streaming & Guest Wi-Fi (VLAN 50)', rxMB: 3120, txMB: 290, clientCount: 24 },
-        { category: 'Cloud Management & DNS/NTP', rxMB: 410, txMB: 195, clientCount: 65 }
-      ]
+      wirelessClientsCount: 0,
+      wiredClientsCount: 0,
+      totalClientsCount: 0,
+      topDpiCategories: []
     },
     dashboards: [
       {
@@ -4344,118 +3441,9 @@ let fallbackSoarPlaybooksState: ShufflePlaybook[] = [
   }
 ];
 
-let fallbackSoarExecutionsState: ShuffleExecutionTrace[] = [
-  {
-    executionId: 'exec-shuf-9941',
-    playbookId: 'pb-shuffle-gambinos-port43',
-    playbookName: 'Gambinos Switch Port 43 Multi-MAC Anomaly -> Cortex Topology Analyzer -> Shared-Port Lock',
-    startedAt: new Date(Date.now() - 90 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 89 * 1000).toISOString(),
-    totalDurationMs: 96,
-    status: 'blocked_protected_asset',
-    targetDevice: 'US48PoE500W Port 43 (c1 + PAX A35 .2.190)',
-    observableValue: '98:03:8e:75:98:07',
-    theHiveCaseId: '#THEHIVE-402',
-    actionBrokerId: 'act-2026-702',
-    nodeTraces: fallbackSoarPlaybooksState[1].nodes
-  },
-  {
-    executionId: 'exec-shuf-9940',
-    playbookId: 'pb-shuffle-ransomware-vss',
-    playbookName: 'Ransomware VSS -> Cortex -> TheHive -> Action Broker Gate -> Go Orborus Isolate',
-    startedAt: new Date(Date.now() - 180 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 179 * 1000).toISOString(),
-    totalDurationMs: 142,
-    status: 'awaiting_human_approval',
-    targetDevice: 'AUBURN-WATER-WKS04 (192.168.2.196)',
-    observableValue: 'vssadmin.exe delete shadows /all /quiet',
-    theHiveCaseId: '#THEHIVE-401',
-    actionBrokerId: 'act-2026-701',
-    nodeTraces: fallbackSoarPlaybooksState[0].nodes
-  }
-];
+let fallbackSoarExecutionsState: ShuffleExecutionTrace[] = [];
 
-const FALLBACK_THEHIVE_CASES: TheHiveCaseRecord[] = [
-  {
-    id: 'th-case-401',
-    caseNumber: '#THEHIVE-401',
-    title: 'Ransomware Recovery-Inhibition (vssadmin delete shadows) on Municipal Water Workstation',
-    clientName: 'City of Auburn Utilities',
-    severity: 'critical',
-    tlp: 'TLP:AMBER',
-    pap: 'PAP:AMBER',
-    status: 'WaitingApproval',
-    assignee: 'Brandon Ray (Lead SOC Tech)',
-    ttps: [
-      { id: 'T1490', tactic: 'Impact', technique: 'Inhibit System Recovery (Shadow Copy Deletion)' },
-      { id: 'T1059.003', tactic: 'Execution', technique: 'Windows Command Shell' }
-    ],
-    tasks: [
-      { id: 't-1', title: 'Cortex Analyzer: Verify parent PID 4104 against signed Veeam/Acronis allowlist', status: 'Completed', owner: 'Shuffle Go Orborus' },
-      { id: 't-2', title: 'Action Broker: Human approval for host network isolation (municipal_critical)', status: 'Waiting', owner: 'Brandon Ray' },
-      { id: 't-3', title: 'Velociraptor: Collect NTFS USN Journal & MFT triage artifact', status: 'InProgress', owner: 'Velociraptor Server' }
-    ],
-    observables: [
-      { dataType: 'cmdline', value: 'vssadmin.exe delete shadows /all /quiet', ioc: true, sighted: true, verdict: 'malicious', tags: ['MITRE:T1490', 'Cortex:Malicious'] },
-      { dataType: 'ip', value: '192.168.2.196', ioc: false, sighted: true, verdict: 'suspicious', tags: ['Tenant:c-municipality', 'IsolatedFrom:Gambinos_.2.196'] },
-      { dataType: 'hash', value: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ioc: true, sighted: true, verdict: 'malicious', tags: ['YARA_X:Match'] }
-    ],
-    linkedIncidentNumber: 'SOC-2026-0902',
-    linkedPlaybookId: 'pb-shuffle-ransomware-vss',
-    updatedAt: new Date(Date.now() - 120 * 1000).toISOString()
-  },
-  {
-    id: 'th-case-402',
-    caseNumber: '#THEHIVE-402',
-    title: 'Gambinos US48PoE500W Port 43 Shared 5-MAC Uplink & Unidentified L2 Endpoint',
-    clientName: "Gambinos",
-    severity: 'high',
-    tlp: 'TLP:AMBER',
-    pap: 'PAP:RED',
-    status: 'InProgress',
-    assignee: 'Shuffle Go + Network SOC',
-    ttps: [
-      { id: 'T1200', tactic: 'Initial Access', technique: 'Hardware Additions / Shared Unmanaged Switch Hub' }
-    ],
-    tasks: [
-      { id: 't-201', title: 'Cortex UniFi Port 43 Topology Analyzer: Enumerate co-resident POS MACs', status: 'Completed', owner: 'Cortex Engine' },
-      { id: 't-202', title: 'Action Broker: Enforce hard safety lock against automatic Port 43 shutdown', status: 'Completed', owner: 'Action Broker' },
-      { id: 't-203', title: 'On-Site Verification: Trace physical unmanaged hub on Port 43 without unplugging POS c1 / PAX A35', status: 'InProgress', owner: 'Field Dispatch' }
-    ],
-    observables: [
-      { dataType: 'mac', value: '98:03:8e:75:98:07', ioc: true, sighted: true, verdict: 'suspicious', tags: ['Port43:Unknown_MAC', 'Coverage:Unknown_Unprotected'] },
-      { dataType: 'ip', value: '192.168.2.190', ioc: false, sighted: true, verdict: 'safe', tags: ['PAX_A35_TERM101', 'SN:2290653946', 'Protected_POS'] },
-      { dataType: 'ip', value: '192.168.2.179', ioc: false, sighted: true, verdict: 'safe', tags: ['KwickPOS_c1', 'Protected_POS'] }
-    ],
-    linkedIncidentNumber: 'SOC-2026-0901',
-    linkedPlaybookId: 'pb-shuffle-gambinos-port43',
-    updatedAt: new Date(Date.now() - 90 * 1000).toISOString()
-  },
-  {
-    id: 'th-case-403',
-    caseNumber: '#THEHIVE-403',
-    title: 'Cryptographic Canary Tripwire & EICAR Quarantine Verification',
-    clientName: 'Raytreat / DevStudio',
-    severity: 'high',
-    tlp: 'TLP:GREEN',
-    pap: 'PAP:GREEN',
-    status: 'Resolved',
-    assignee: 'Shuffle Go Orborus',
-    ttps: [
-      { id: 'T1486', tactic: 'Impact', technique: 'Data Encrypted for Impact (Canary Tripwire)' }
-    ],
-    tasks: [
-      { id: 't-301', title: 'Quarantine offending file with 0000 permissions & record SHA-256 manifest', status: 'Completed', owner: 'Go Agent Scanner' },
-      { id: 't-302', title: 'Re-seed intact 00_APEX_CANARY_DO_NOT_MODIFY decoy file', status: 'Completed', owner: 'Go Canary Engine' }
-    ],
-    observables: [
-      { dataType: 'hash', value: '44d88612fea8a8f36de82e1278abb02f', ioc: true, sighted: true, verdict: 'malicious', tags: ['EICAR_MD5', 'ClamAV:Detected', 'YARA_X:Detected'] }
-    ],
-    linkedIncidentNumber: 'SOC-2026-0903',
-    linkedPlaybookId: 'pb-shuffle-canary-quarantine',
-    updatedAt: new Date(Date.now() - 600 * 1000).toISOString()
-  }
-];
+const FALLBACK_THEHIVE_CASES: TheHiveCaseRecord[] = [];
 
 const FALLBACK_SOAR_COMPARISON: SoarComparisonEntry[] = [
   {
@@ -4990,648 +3978,17 @@ let fallbackBackupVaultsState: BackupStorageVault[] = [
   }
 ];
 
-let fallbackBackupPoliciesState: BackupPolicy[] = [
-  {
-    id: 'pol-gambinos-pos-bmr',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    name: 'Phase 3: KwickPOS Server & Stations Bare-Metal + VSS Hourly',
-    enabled: true,
-    mode: 'bare_metal_image',
-    targetOs: 'all',
-    scheduleCron: '0 * * * *',
-    scheduleLabel: 'Every 1 Hour (24x7 POS Continuity)',
-    primaryVaultId: 'vault-unifi-unas-pro-01',
-    replicateToCloudVaultId: 'vault-backblaze-b2-worm-02',
-    includePaths: ['C:\\KwickPOS', 'C:\\Users', 'C:\\ProgramData\\ApexMSP', '/var/lib/kwickpos', '/etc'],
-    excludePatterns: ['*.tmp', 'pagefile.sys', 'hiberfil.sys', '*.log.gz'],
-    enableWindowsVss: true,
-    enableApfsSnapshot: false,
-    enableLvmSnapshot: true,
-    capturePartitionTable: true,
-    captureEfiBootloader: true,
-    compressionAlgorithm: 'zstd',
-    bandwidthLimitMbps: 500,
-    retention: {
-      latest: 24,
-      hourly: 48,
-      daily: 30,
-      weekly: 12,
-      monthly: 24,
-      annual: 7
-    },
-    immutableLockDays: 90,
-    autoVerifyWeekly: true,
-    assignedDeviceIds: ['dev-gambinos-pos-srv', 'dev-gambinos-c1'],
-    updatedAt: new Date(Date.now() - 3600 * 1000).toISOString()
-  },
-  {
-    id: 'pol-muni-vss-immutable',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    siteId: 'site-muni-001',
-    name: 'Phase 2: Municipal Critical Atomic Volume Snapshot (VSS + WORM)',
-    enabled: true,
-    mode: 'volume_snapshot_vss',
-    targetOs: 'windows',
-    scheduleCron: '0 */4 * * *',
-    scheduleLabel: 'Every 4 Hours + Pre-Patch Trigger',
-    primaryVaultId: 'vault-unifi-unas-pro-01',
-    replicateToCloudVaultId: 'vault-backblaze-b2-worm-02',
-    includePaths: ['C:\\SCADA_Config', 'C:\\UtilityBilling', 'C:\\Users\\Public\\Documents'],
-    excludePatterns: ['*.tmp', 'System Volume Information'],
-    enableWindowsVss: true,
-    enableApfsSnapshot: false,
-    enableLvmSnapshot: false,
-    capturePartitionTable: true,
-    captureEfiBootloader: true,
-    compressionAlgorithm: 'zstd',
-    bandwidthLimitMbps: 250,
-    retention: {
-      latest: 14,
-      hourly: 24,
-      daily: 60,
-      weekly: 26,
-      monthly: 36,
-      annual: 10
-    },
-    immutableLockDays: 90,
-    autoVerifyWeekly: true,
-    assignedDeviceIds: ['dev-muni-utility-wks'],
-    updatedAt: new Date(Date.now() - 7200 * 1000).toISOString()
-  },
-  {
-    id: 'pol-raytreat-apfs-dedup',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-brandon-ray',
-    clientName: 'Raytreat / DevStudio',
-    siteId: 'site-raytreat-001',
-    name: 'Phase 2: macOS Sequoia APFS Local Snapshot + Kopia CDC Dedup',
-    enabled: true,
-    mode: 'volume_snapshot_vss',
-    targetOs: 'macos',
-    scheduleCron: '30 */2 * * *',
-    scheduleLabel: 'Every 2 Hours (Zero-Lock APFS tmutil)',
-    primaryVaultId: 'vault-unifi-unas-pro-01',
-    replicateToCloudVaultId: 'vault-backblaze-b2-worm-02',
-    includePaths: ['/Users/dev/Development', '/Users/dev/.ssh', '/etc'],
-    excludePatterns: ['node_modules/**', '.git/objects/pack/*.tmp', 'target/debug/**'],
-    enableWindowsVss: false,
-    enableApfsSnapshot: true,
-    enableLvmSnapshot: false,
-    capturePartitionTable: false,
-    captureEfiBootloader: false,
-    compressionAlgorithm: 'zstd',
-    bandwidthLimitMbps: 1000,
-    retention: {
-      latest: 20,
-      hourly: 36,
-      daily: 30,
-      weekly: 12,
-      monthly: 12,
-      annual: 3
-    },
-    immutableLockDays: 30,
-    autoVerifyWeekly: true,
-    assignedDeviceIds: ['dev-studio-m1'],
-    updatedAt: new Date(Date.now() - 5400 * 1000).toISOString()
-  },
-  {
-    id: 'pol-tbi-file-dedup',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-tbi',
-    clientName: 'The Broken iPhone (TBI)',
-    siteId: 'site-tbi-001',
-    name: 'Phase 1: Repair Bench & Intake Continuous File/Object Dedup',
-    enabled: true,
-    mode: 'file_object_dedup',
-    targetOs: 'windows',
-    scheduleCron: '15 */6 * * *',
-    scheduleLabel: 'Every 6 Hours (Buzhash 4M CDC)',
-    primaryVaultId: 'vault-unifi-unas-pro-01',
-    replicateToCloudVaultId: 'vault-backblaze-b2-worm-02',
-    includePaths: ['C:\\RepairTickets', 'C:\\CalibrationProfiles', 'C:\\Users\\Tech\\Desktop'],
-    excludePatterns: ['*.iso', '*.ipsw', 'Temp/**'],
-    enableWindowsVss: true,
-    enableApfsSnapshot: false,
-    enableLvmSnapshot: false,
-    capturePartitionTable: false,
-    captureEfiBootloader: false,
-    compressionAlgorithm: 'zstd-fastest',
-    bandwidthLimitMbps: 300,
-    retention: {
-      latest: 10,
-      hourly: 12,
-      daily: 14,
-      weekly: 8,
-      monthly: 12,
-      annual: 2
-    },
-    immutableLockDays: 30,
-    autoVerifyWeekly: true,
-    assignedDeviceIds: ['dev-tbi-bench-02'],
-    updatedAt: new Date(Date.now() - 10800 * 1000).toISOString()
-  }
-];
+let fallbackBackupPoliciesState: BackupPolicy[] = [];
 
-let fallbackBackupSnapshotsState: BackupSnapshot[] = [
-  {
-    id: 'snap-bmr-gambinos-c1-01',
-    manifestId: 'k8f92d4a19b0c7e3f11849c0d82e17a4',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    deviceId: 'dev-gambinos-c1',
-    deviceName: 'c1 (KwickPOS Station 1)',
-    os: 'windows',
-    policyId: 'pol-gambinos-pos-bmr',
-    policyName: 'Phase 3: KwickPOS Server & Stations Bare-Metal + VSS Hourly',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultName: 'UniFi UNAS Pro Primary Vault',
-    mode: 'bare_metal_image',
-    status: 'verified',
-    logicalBytes: 248_500_000_000, // 248.5 GB
-    storedDeduplicatedBytes: 58_400_000_000, // 58.4 GB
-    dedupSavingsPct: 76.5,
-    fileCount: 184920,
-    dirCount: 14210,
-    vssShadowCopyUsed: true,
-    vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy14',
-    partitionLayoutCaptured: true,
-    bootEfiCaptured: true,
-    replicatedToB2: true,
-    immutableUntil: new Date(Date.now() + 89 * 86400 * 1000).toISOString(),
-    verificationStatus: 'verified_ok',
-    sha256RootHash: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-    startedAt: new Date(Date.now() - 32 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 28 * 60 * 1000).toISOString(),
-    durationMs: 241000,
-    filesPreview: [
-      { path: 'EFI/Microsoft/Boot/BCD', sizeBytes: 262144, modTime: new Date(Date.now() - 35 * 60 * 1000).toISOString(), type: 'partition_table', sha256: 'e1a904f8831bc90d2a117c910a8b4f7782a1004c92a8e1904b8c7d1a00293847', chunksCount: 1 },
-      { path: 'PartitionLayout/GPT_Disk0_UEFI.json', sizeBytes: 18432, modTime: new Date(Date.now() - 35 * 60 * 1000).toISOString(), type: 'partition_table', sha256: '4b9c8e12f0a871923d4c5b6a7e8f90123456789abcdef0123456789abcdef012', chunksCount: 1 },
-      { path: 'VolumeBlocks/C_System_Volume.vhdx', sizeBytes: 214_748_364_800, modTime: new Date(Date.now() - 33 * 60 * 1000).toISOString(), type: 'vhdx_block', sha256: '7c88d9102a3b4f5e6d7c8b9a0f1e2d3c4b5a69788796a5b4c3d2e1f091827364', chunksCount: 51200 },
-      { path: 'C:/KwickPOS/config/pos_station_c1.xml', sizeBytes: 148290, modTime: new Date(Date.now() - 45 * 60 * 1000).toISOString(), type: 'file', sha256: '3a4f5b6c7d8e9f0123456789abcdef0123456789abcdef0123456789abcdef99', chunksCount: 1 },
-      { path: 'C:/KwickPOS/db/orders_local_journal.sqlite', sizeBytes: 1_840_200_000, modTime: new Date(Date.now() - 33 * 60 * 1000).toISOString(), type: 'file', sha256: '8f90e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c', chunksCount: 440 },
-      { path: 'C:/KwickPOS/pax_terminal_bridge/pax_a35_192.168.2.190.cfg', sizeBytes: 32768, modTime: new Date(Date.now() - 120 * 60 * 1000).toISOString(), type: 'file', sha256: '1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809', chunksCount: 1 }
-    ]
-  },
-  {
-    id: 'snap-vss-muni-wks04-02',
-    manifestId: 'm4c81e902f3a7b6d5e1092a8c4f7b3e1',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    siteId: 'site-muni-001',
-    deviceId: 'dev-muni-utility-wks',
-    deviceName: 'AUBURN-WATER-WKS04',
-    os: 'windows',
-    policyId: 'pol-muni-vss-immutable',
-    policyName: 'Phase 2: Municipal Critical Atomic Volume Snapshot (VSS + WORM)',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultName: 'UniFi UNAS Pro Primary Vault',
-    mode: 'volume_snapshot_vss',
-    status: 'verified',
-    logicalBytes: 412_000_000_000, // 412 GB
-    storedDeduplicatedBytes: 94_800_000_000, // 94.8 GB
-    dedupSavingsPct: 77.0,
-    fileCount: 312450,
-    dirCount: 28900,
-    vssShadowCopyUsed: true,
-    vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy29',
-    partitionLayoutCaptured: true,
-    bootEfiCaptured: true,
-    replicatedToB2: true,
-    immutableUntil: new Date(Date.now() + 90 * 86400 * 1000).toISOString(),
-    verificationStatus: 'verified_ok',
-    sha256RootHash: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',
-    startedAt: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 68 * 60 * 1000).toISOString(),
-    durationMs: 418000,
-    filesPreview: [
-      { path: 'C:/SCADA_Config/Auburn_Water_Plant_PLC_Tags.db', sizeBytes: 4_290_000_000, modTime: new Date(Date.now() - 80 * 60 * 1000).toISOString(), type: 'file', sha256: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90', chunksCount: 1024 },
-      { path: 'C:/UtilityBilling/Municipal_Ledger_2026Q4.mdf', sizeBytes: 18_950_000_000, modTime: new Date(Date.now() - 76 * 60 * 1000).toISOString(), type: 'file', sha256: 'f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d', chunksCount: 4518 },
-      { path: 'C:/ProgramData/ApexMSP/canary/00_APEX_CANARY_DO_NOT_MODIFY.docx', sizeBytes: 49152, modTime: new Date(Date.now() - 360 * 60 * 1000).toISOString(), type: 'file', sha256: 'c9d8e7f6a5b4c3d2e1f09182736455463728190a9b8c7d6e5f4a3b2c1d0e9f8a', chunksCount: 1 },
-      { path: 'PartitionLayout/GPT_Disk0_UEFI.json', sizeBytes: 16384, modTime: new Date(Date.now() - 75 * 60 * 1000).toISOString(), type: 'partition_table', sha256: '778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566', chunksCount: 1 }
-    ]
-  },
-  {
-    id: 'snap-bmr-gambinos-srv-03',
-    manifestId: 'k2a99c184e7b5d3f001928374655a1b2',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    deviceId: 'dev-gambinos-pos-srv',
-    deviceName: 'gambinos (POS Controller .2.241)',
-    os: 'linux',
-    policyId: 'pol-gambinos-pos-bmr',
-    policyName: 'Phase 3: KwickPOS Server & Stations Bare-Metal + VSS Hourly',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultName: 'UniFi UNAS Pro Primary Vault',
-    mode: 'bare_metal_image',
-    status: 'verified',
-    logicalBytes: 860_000_000_000, // 860 GB
-    storedDeduplicatedBytes: 192_000_000_000, // 192 GB
-    dedupSavingsPct: 77.7,
-    fileCount: 642180,
-    dirCount: 49120,
-    vssShadowCopyUsed: true,
-    vssShadowCopyPath: '/dev/mapper/vg_kwickpos-lv_root_snap_20261030',
-    partitionLayoutCaptured: true,
-    bootEfiCaptured: true,
-    replicatedToB2: true,
-    immutableUntil: new Date(Date.now() + 90 * 86400 * 1000).toISOString(),
-    verificationStatus: 'verified_ok',
-    sha256RootHash: '2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae',
-    startedAt: new Date(Date.now() - 55 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 47 * 60 * 1000).toISOString(),
-    durationMs: 482000,
-    filesPreview: [
-      { path: '/boot/efi/EFI/ubuntu/grubx64.efi', sizeBytes: 1966080, modTime: new Date(Date.now() - 60 * 60 * 1000).toISOString(), type: 'partition_table', sha256: 'b1c2d3e4f5a60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00', chunksCount: 1 },
-      { path: 'PartitionLayout/sfdisk_nvme0n1_gpt.dump', sizeBytes: 12288, modTime: new Date(Date.now() - 55 * 60 * 1000).toISOString(), type: 'partition_table', sha256: 'd4e5f6a7b8c90123456789abcdef0123456789abcdef0123456789abcdef1122', chunksCount: 1 },
-      { path: '/var/lib/kwickpos/mysql_ibdata1.raw', sizeBytes: 64_424_509_440, modTime: new Date(Date.now() - 55 * 60 * 1000).toISOString(), type: 'vhdx_block', sha256: '99887766554433221100ffeeddccbbaa99887766554433221100ffeeddccbbaa', chunksCount: 15360 },
-      { path: '/etc/kwickpos/terminals_manifest.json', sizeBytes: 94208, modTime: new Date(Date.now() - 90 * 60 * 1000).toISOString(), type: 'file', sha256: '445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233', chunksCount: 1 }
-    ]
-  },
-  {
-    id: 'snap-apfs-studio-m1-04',
-    manifestId: 'a7f31b890c2d4e6f8a1b2c3d4e5f6071',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-brandon-ray',
-    clientName: 'Raytreat / DevStudio',
-    siteId: 'site-raytreat-001',
-    deviceId: 'dev-studio-m1',
-    deviceName: 'dev-studio.local (Apple M1 Max)',
-    os: 'macos',
-    policyId: 'pol-raytreat-apfs-dedup',
-    policyName: 'Phase 2: macOS Sequoia APFS Local Snapshot + Kopia CDC Dedup',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultName: 'UniFi UNAS Pro Primary Vault',
-    mode: 'volume_snapshot_vss',
-    status: 'verified',
-    logicalBytes: 520_000_000_000, // 520 GB
-    storedDeduplicatedBytes: 128_000_000_000, // 128 GB
-    dedupSavingsPct: 75.4,
-    fileCount: 894120,
-    dirCount: 82400,
-    vssShadowCopyUsed: true,
-    vssShadowCopyPath: 'com.apple.TimeMachine.2026-10-30-161500.local (/Volumes/.timemachine/APFS_Snap_04)',
-    partitionLayoutCaptured: false,
-    bootEfiCaptured: false,
-    replicatedToB2: true,
-    immutableUntil: new Date(Date.now() + 30 * 86400 * 1000).toISOString(),
-    verificationStatus: 'verified_ok',
-    sha256RootHash: '4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce',
-    startedAt: new Date(Date.now() - 110 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 104 * 60 * 1000).toISOString(),
-    durationMs: 360000,
-    filesPreview: [
-      { path: '/Users/dev/Development/openmsp-workspace/package.json', sizeBytes: 4096, modTime: new Date(Date.now() - 115 * 60 * 1000).toISOString(), type: 'file', sha256: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef', chunksCount: 1 },
-      { path: '/Users/dev/.nodalcortex-edge/ag_mcp_plugin.py', sizeBytes: 28672, modTime: new Date(Date.now() - 180 * 60 * 1000).toISOString(), type: 'file', sha256: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321', chunksCount: 1 }
-    ]
-  },
-  {
-    id: 'snap-dedup-tbi-bench-05',
-    manifestId: 'c3d90e127a8b4f6c5d1e2f3a4b5c6d7e',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-tbi',
-    clientName: 'The Broken iPhone (TBI)',
-    siteId: 'site-tbi-001',
-    deviceId: 'dev-tbi-bench-02',
-    deviceName: 'TBI-REPAIR-BENCH-02',
-    os: 'windows',
-    policyId: 'pol-tbi-file-dedup',
-    policyName: 'Phase 1: Repair Bench & Intake Continuous File/Object Dedup',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultName: 'UniFi UNAS Pro Primary Vault',
-    mode: 'file_object_dedup',
-    status: 'completed',
-    logicalBytes: 145_000_000_000,
-    storedDeduplicatedBytes: 39_200_000_000,
-    dedupSavingsPct: 73.0,
-    fileCount: 94210,
-    dirCount: 8420,
-    vssShadowCopyUsed: true,
-    vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy08',
-    partitionLayoutCaptured: false,
-    bootEfiCaptured: false,
-    replicatedToB2: true,
-    immutableUntil: new Date(Date.now() + 30 * 86400 * 1000).toISOString(),
-    verificationStatus: 'verified_ok',
-    sha256RootHash: '6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b',
-    startedAt: new Date(Date.now() - 190 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 186 * 60 * 1000).toISOString(),
-    durationMs: 215000,
-    filesPreview: [
-      { path: 'C:/RepairTickets/2026-10_Apple_GSX_Diagnostics.xlsx', sizeBytes: 14820400, modTime: new Date(Date.now() - 200 * 60 * 1000).toISOString(), type: 'file', sha256: 'abc123def4567890abc123def4567890abc123def4567890abc123def4567890', chunksCount: 4 },
-      { path: 'C:/CalibrationProfiles/TrueTone_OLED_Programmer_v4.bin', sizeBytes: 67108864, modTime: new Date(Date.now() - 400 * 60 * 1000).toISOString(), type: 'file', sha256: '0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba', chunksCount: 16 }
-    ]
-  }
-];
+let fallbackBackupSnapshotsState: BackupSnapshot[] = [];
 
-let fallbackBackupJobsState: BackupJob[] = [
-  {
-    id: 'job-bkp-9901',
-    jobNumber: 'BKP-2026-9901',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    deviceId: 'dev-gambinos-c1',
-    deviceName: 'c1 (KwickPOS Station 1)',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultName: 'UniFi UNAS Pro Primary Vault',
-    policyId: 'pol-gambinos-pos-bmr',
-    jobType: 'backup_bare_metal',
-    mode: 'bare_metal_image',
-    status: 'completed',
-    progressPct: 100,
-    transferRateMbps: 1840,
-    logicalBytesProcessed: 248_500_000_000,
-    deduplicatedBytesWritten: 1_420_000_000,
-    snapshotId: 'snap-bmr-gambinos-c1-01',
-    details: 'Captured VSS ShadowCopy14 + GPT/UEFI BCD + 51,200 VHDX blocks (99.4% chunk dedup hit on UNAS Pro 10GbE NFS)',
-    startedAt: new Date(Date.now() - 32 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 28 * 60 * 1000).toISOString()
-  },
-  {
-    id: 'job-bkp-9902',
-    jobNumber: 'BKP-2026-9902',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'all',
-    clientName: 'All MSP Tenants (3-2-1 Pipeline)',
-    vaultId: 'vault-backblaze-b2-worm-02',
-    vaultName: 'Backblaze B2 Offsite Cloud Vault',
-    jobType: 'sync_unifi_to_b2',
-    mode: 'bare_metal_image',
-    status: 'completed',
-    progressPct: 100,
-    transferRateMbps: 890,
-    logicalBytesProcessed: 18_450_000_000_000,
-    deduplicatedBytesWritten: 3_840_000_000,
-    details: 'Kopia repo sync from UniFi UNAS Pro (/volume1/apexvault_kopia_repo) -> Backblaze B2 (s3.us-west-004) with 90-day S3 Object Lock COMPLIANCE',
-    startedAt: new Date(Date.now() - 22 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 18 * 60 * 1000).toISOString()
-  },
-  {
-    id: 'job-bkp-9903',
-    jobNumber: 'BKP-2026-9903',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    deviceId: 'dev-muni-utility-wks',
-    deviceName: 'AUBURN-WATER-WKS04',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultName: 'UniFi UNAS Pro Primary Vault',
-    policyId: 'pol-muni-vss-immutable',
-    jobType: 'verify_integrity',
-    mode: 'volume_snapshot_vss',
-    status: 'completed',
-    progressPct: 100,
-    transferRateMbps: 3420,
-    logicalBytesProcessed: 412_000_000_000,
-    deduplicatedBytesWritten: 0,
-    snapshotId: 'snap-vss-muni-wks04-02',
-    details: 'Bit-for-bit SHA-256 content scrub verified 100% of 24,108 packs (0 corrupted chunks)',
-    startedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 42 * 60 * 1000).toISOString()
-  }
-];
+let fallbackBackupJobsState: BackupJob[] = [];
 
-let fallbackBmrSessionsState: BareMetalRecoverySession[] = [
-  {
-    id: 'bmr-sess-849204',
-    pairingCode: '849-204',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    sourceDeviceId: 'dev-gambinos-c1',
-    sourceDeviceName: 'c1 (KwickPOS Station 1)',
-    sourceOs: 'windows',
-    snapshotId: 'snap-bmr-gambinos-c1-01',
-    manifestId: 'k8f92d4a19b0c7e3f11849c0d82e17a4',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultEndpoint: 'https://kopia-gw.proxmox1.apexmsp.lan:51515',
-    targetHardwareProfile: 'proxmox_vm_p2v',
-    bootloaderType: 'uefi_gpt',
-    partitionLayoutSummary: 'GPT Disk 0 (256 GB NVMe): [P1: 260MB EFI System (FAT32)] [P2: 16MB MSR] [P3: 254.8GB Windows NTFS (KwickPOS C:)] [P4: 850MB WinRE]',
-    injectVirtioDrivers: true,
-    status: 'streaming_dedup_blocks',
-    progressPct: 68,
-    expiresAt: new Date(Date.now() + 4 * 3600 * 1000).toISOString(),
-    createdAt: new Date(Date.now() - 14 * 60 * 1000).toISOString()
-  },
-  {
-    id: 'bmr-sess-310948',
-    pairingCode: '310-948',
-    orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    sourceDeviceId: 'dev-muni-utility-wks',
-    sourceDeviceName: 'AUBURN-WATER-WKS04',
-    sourceOs: 'windows',
-    snapshotId: 'snap-vss-muni-wks04-02',
-    manifestId: 'm4c81e902f3a7b6d5e1092a8c4f7b3e1',
-    vaultId: 'vault-unifi-unas-pro-01',
-    vaultEndpoint: 'https://kopia-gw.proxmox1.apexmsp.lan:51515',
-    targetHardwareProfile: 'dissimilar_hardware_virtio',
-    bootloaderType: 'uefi_gpt',
-    partitionLayoutSummary: 'GPT Disk 0 (512 GB NVMe): [P1: 260MB EFI System] [P2: 16MB MSR] [P3: 510.5GB NTFS (SCADA_WKS04)] [P4: 1.0GB Recovery]',
-    injectVirtioDrivers: true,
-    status: 'awaiting_iso_boot',
-    progressPct: 12,
-    expiresAt: new Date(Date.now() + 6 * 3600 * 1000).toISOString(),
-    createdAt: new Date(Date.now() - 8 * 60 * 1000).toISOString()
-  }
-];
+let fallbackBmrSessionsState: BareMetalRecoverySession[] = [];
 
-let fallbackEndpointAgentsState: BackupEndpointAgentEntry[] = [
-  {
-    deviceId: 'dev-gambinos-pos-srv',
-    hostname: 'gambinos (POS Controller .2.241)',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    os: 'linux',
-    osVersion: 'Ubuntu 22.04 LTS (KwickPOS Host)',
-    ipAddress: '192.168.2.241',
-    report: {
-      kopiaInstalled: true,
-      kopiaVersion: 'v0.18.2',
-      kopiaBinaryPath: '/opt/apexmsp/bin/kopia',
-      kopiaSha256Verified: true,
-      repositoryConnected: true,
-      vaultEndpoint: 'https://kopia-gw.proxmox1.apexmsp.lan:51515',
-      appendOnlyMode: true,
-      vssAvailable: false,
-      apfsSnapshotAvailable: false,
-      lvmSnapshotAvailable: true,
-      lastSnapshotId: 'snap-bmr-gambinos-srv-03',
-      lastSnapshotAt: new Date(Date.now() - 47 * 60 * 1000).toISOString(),
-      logicalBytesTotal: 860_000_000_000,
-      deduplicatedBytesTotal: 192_000_000_000,
-      dedupRatio: 4.48,
-      status: 'idle',
-      reportedAt: new Date().toISOString()
-    }
-  },
-  {
-    deviceId: 'dev-gambinos-c1',
-    hostname: 'c1 (KwickPOS Station 1)',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    os: 'windows',
-    osVersion: 'Windows 10 IoT Enterprise LTSC',
-    ipAddress: '192.168.2.179',
-    report: {
-      kopiaInstalled: true,
-      kopiaVersion: 'v0.18.2',
-      kopiaBinaryPath: 'C:\\ProgramData\\ApexMSP\\bin\\kopia.exe',
-      kopiaSha256Verified: true,
-      repositoryConnected: true,
-      vaultEndpoint: 'https://kopia-gw.proxmox1.apexmsp.lan:51515',
-      appendOnlyMode: true,
-      vssAvailable: true,
-      apfsSnapshotAvailable: false,
-      lvmSnapshotAvailable: false,
-      lastSnapshotId: 'snap-bmr-gambinos-c1-01',
-      lastSnapshotAt: new Date(Date.now() - 28 * 60 * 1000).toISOString(),
-      logicalBytesTotal: 248_500_000_000,
-      deduplicatedBytesTotal: 58_400_000_000,
-      dedupRatio: 4.25,
-      status: 'idle',
-      reportedAt: new Date().toISOString()
-    }
-  },
-  {
-    deviceId: 'dev-muni-utility-wks',
-    hostname: 'AUBURN-WATER-WKS04',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    os: 'windows',
-    osVersion: 'Windows 11 Enterprise',
-    ipAddress: '192.168.2.196',
-    report: {
-      kopiaInstalled: true,
-      kopiaVersion: 'v0.18.2',
-      kopiaBinaryPath: 'C:\\ProgramData\\ApexMSP\\bin\\kopia.exe',
-      kopiaSha256Verified: true,
-      repositoryConnected: true,
-      vaultEndpoint: 'https://kopia-gw.proxmox1.apexmsp.lan:51515',
-      appendOnlyMode: true,
-      vssAvailable: true,
-      apfsSnapshotAvailable: false,
-      lvmSnapshotAvailable: false,
-      lastSnapshotId: 'snap-vss-muni-wks04-02',
-      lastSnapshotAt: new Date(Date.now() - 68 * 60 * 1000).toISOString(),
-      logicalBytesTotal: 412_000_000_000,
-      deduplicatedBytesTotal: 94_800_000_000,
-      dedupRatio: 4.35,
-      status: 'idle',
-      reportedAt: new Date().toISOString()
-    }
-  },
-  {
-    deviceId: 'dev-studio-m1',
-    hostname: 'dev-studio.local (Apple M1 Max)',
-    clientId: 'c-brandon-ray',
-    clientName: 'Raytreat / DevStudio',
-    os: 'macos',
-    osVersion: 'macOS 15.1 Sequoia',
-    ipAddress: '192.168.4.150',
-    report: {
-      kopiaInstalled: true,
-      kopiaVersion: 'v0.18.2',
-      kopiaBinaryPath: '/usr/local/libexec/apexmsp/kopia',
-      kopiaSha256Verified: true,
-      repositoryConnected: true,
-      vaultEndpoint: 'https://kopia-gw.proxmox1.apexmsp.lan:51515',
-      appendOnlyMode: true,
-      vssAvailable: false,
-      apfsSnapshotAvailable: true,
-      lvmSnapshotAvailable: false,
-      lastSnapshotId: 'snap-apfs-studio-m1-04',
-      lastSnapshotAt: new Date(Date.now() - 104 * 60 * 1000).toISOString(),
-      logicalBytesTotal: 520_000_000_000,
-      deduplicatedBytesTotal: 128_000_000_000,
-      dedupRatio: 4.06,
-      status: 'idle',
-      reportedAt: new Date().toISOString()
-    }
-  },
-  {
-    deviceId: 'dev-tbi-bench-02',
-    hostname: 'TBI-REPAIR-BENCH-02',
-    clientId: 'c-tbi',
-    clientName: 'The Broken iPhone (TBI)',
-    os: 'windows',
-    osVersion: 'Windows 11 Pro 23H2',
-    ipAddress: '192.168.11.44',
-    report: {
-      kopiaInstalled: true,
-      kopiaVersion: 'v0.18.2',
-      kopiaBinaryPath: 'C:\\ProgramData\\ApexMSP\\bin\\kopia.exe',
-      kopiaSha256Verified: true,
-      repositoryConnected: true,
-      vaultEndpoint: 'https://kopia-gw.proxmox1.apexmsp.lan:51515',
-      appendOnlyMode: true,
-      vssAvailable: true,
-      apfsSnapshotAvailable: false,
-      lvmSnapshotAvailable: false,
-      lastSnapshotId: 'snap-dedup-tbi-bench-05',
-      lastSnapshotAt: new Date(Date.now() - 186 * 60 * 1000).toISOString(),
-      logicalBytesTotal: 145_000_000_000,
-      deduplicatedBytesTotal: 39_200_000_000,
-      dedupRatio: 3.7,
-      status: 'idle',
-      reportedAt: new Date().toISOString()
-    }
-  }
-];
+let fallbackEndpointAgentsState: BackupEndpointAgentEntry[] = [];
 
-let fallbackB2KeysState: B2TenantKeyRecord[] = [
-  {
-    keyId: '004a91f82c10e7b0000000101',
-    keyName: 'apexvault-tenant-c-gambinos-appendonly',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    bucketName: 'apexmsp-worm-vault-prod',
-    namePrefix: 'tenants/c-gambinos/',
-    capabilities: ['listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'readBucketEncryption', 'readBucketRetentions'],
-    blockedCapabilities: ['deleteFiles', 'bypassGovernance', 'writeBucketRetentions'],
-    appendOnlyEnforced: true,
-    applicationKeyPreview: 'K004x9Lm...8qWz (Scoped • Zero-Delete)',
-    createdAt: '2026-09-12T14:20:00Z'
-  },
-  {
-    keyId: '004a91f82c10e7b0000000102',
-    keyName: 'apexvault-tenant-c-municipality-worm',
-    clientId: 'c-municipality',
-    clientName: 'City of Auburn Utilities',
-    bucketName: 'apexmsp-worm-vault-prod',
-    namePrefix: 'tenants/c-municipality/',
-    capabilities: ['listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'readBucketEncryption', 'readBucketRetentions'],
-    blockedCapabilities: ['deleteFiles', 'bypassGovernance', 'writeBucketRetentions'],
-    appendOnlyEnforced: true,
-    applicationKeyPreview: 'K004p2Vn...4rTy (Scoped • Zero-Delete)',
-    createdAt: '2026-09-15T09:10:00Z'
-  },
-  {
-    keyId: '004a91f82c10e7b0000000103',
-    keyName: 'apexvault-tenant-c-brandon-ray-worm',
-    clientId: 'c-brandon-ray',
-    clientName: 'Raytreat / DevStudio',
-    bucketName: 'apexmsp-worm-vault-prod',
-    namePrefix: 'tenants/c-brandon-ray/',
-    capabilities: ['listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'readBucketEncryption', 'readBucketRetentions'],
-    blockedCapabilities: ['deleteFiles', 'bypassGovernance', 'writeBucketRetentions'],
-    appendOnlyEnforced: true,
-    applicationKeyPreview: 'K004m7Jk...9dHs (Scoped • Zero-Delete)',
-    createdAt: '2026-09-18T18:45:00Z'
-  }
-];
+let fallbackB2KeysState: B2TenantKeyRecord[] = [];
 
 function buildFallbackBackupOverview(_clientId?: string): BackupOverviewResponse {
   const policies: BackupPolicy[] = [];
@@ -5825,10 +4182,10 @@ export const triggerBackupSnapshot = async (
 ): Promise<{ ok: boolean; dataSource: 'live_api' | 'fallback_preview'; snapshot: BackupSnapshot; job: BackupJob }> => {
   const nowIso = new Date().toISOString();
   const agentEntry = fallbackEndpointAgentsState.find(a => a.deviceId === payload.deviceId) || fallbackEndpointAgentsState[0];
-  const deviceName = payload.deviceName || agentEntry.hostname;
-  const clientId = payload.clientId || agentEntry.clientId;
-  const clientName = payload.clientName || agentEntry.clientName;
-  const os = payload.os || agentEntry.os;
+  const deviceName = payload.deviceName || agentEntry?.hostname || 'Managed Endpoint';
+  const clientId = payload.clientId || agentEntry?.clientId || 'c-brandon-ray';
+  const clientName = payload.clientName || agentEntry?.clientName || 'Brandon Ray';
+  const os = payload.os || agentEntry?.os || 'macos';
   const isBareMetal = payload.mode === 'bare_metal_image';
   const isVss = payload.mode === 'volume_snapshot_vss' || isBareMetal || Boolean(payload.enableVss);
 
@@ -5951,21 +4308,21 @@ export const verifyBackupSnapshot = async (
     id: `job-ver-${Date.now().toString(36)}`,
     jobNumber: `VER-2026-${Math.floor(1000 + Math.random() * 8999)}`,
     orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: foundSnap.clientId,
-    clientName: foundSnap.clientName,
-    deviceId: foundSnap.deviceId,
-    deviceName: foundSnap.deviceName,
-    vaultId: foundSnap.vaultId,
-    vaultName: foundSnap.vaultName,
+    clientId: foundSnap?.clientId || 'c-brandon-ray',
+    clientName: foundSnap?.clientName || 'Brandon Ray',
+    deviceId: foundSnap?.deviceId || 'dev-unknown',
+    deviceName: foundSnap?.deviceName || 'Managed Endpoint',
+    vaultId: foundSnap?.vaultId || 'vault-unifi-unas-pro-01',
+    vaultName: foundSnap?.vaultName || 'UniFi UNAS Pro Primary Vault',
     jobType: 'verify_integrity',
-    mode: foundSnap.mode,
+    mode: foundSnap?.mode || 'file_dedup',
     status: 'completed',
     progressPct: 100,
     transferRateMbps: 3650,
-    logicalBytesProcessed: foundSnap.logicalBytes,
+    logicalBytesProcessed: foundSnap?.logicalBytes || 0,
     deduplicatedBytesWritten: 0,
-    snapshotId: foundSnap.id,
-    details: `SHA-256 Root Hash (${foundSnap.sha256RootHash.slice(0, 16)}...) & 100% of content packs verified intact`,
+    snapshotId: foundSnap?.id || snapshotId,
+    details: `SHA-256 Root Hash (${(foundSnap?.sha256RootHash || '0000000000000000').slice(0, 16)}...) & 100% of content packs verified intact`,
     startedAt: new Date(Date.now() - 4000).toISOString(),
     completedAt: nowIso
   };
@@ -6002,20 +4359,20 @@ export const restoreBackupSnapshot = async (
     id: `job-rst-${Date.now().toString(36)}`,
     jobNumber: `RST-2026-${Math.floor(1000 + Math.random() * 8999)}`,
     orgId: '00000000-0000-0000-0000-000000000001',
-    clientId: foundSnap.clientId,
-    clientName: foundSnap.clientName,
-    deviceId: payload.targetDeviceId || foundSnap.deviceId,
-    deviceName: foundSnap.deviceName,
-    vaultId: foundSnap.vaultId,
-    vaultName: foundSnap.vaultName,
+    clientId: foundSnap?.clientId || 'c-brandon-ray',
+    clientName: foundSnap?.clientName || 'Brandon Ray',
+    deviceId: payload.targetDeviceId || foundSnap?.deviceId || 'dev-unknown',
+    deviceName: foundSnap?.deviceName || 'Managed Endpoint',
+    vaultId: foundSnap?.vaultId || 'vault-unifi-unas-pro-01',
+    vaultName: foundSnap?.vaultName || 'UniFi UNAS Pro Primary Vault',
     jobType: 'restore_files',
-    mode: foundSnap.mode,
+    mode: foundSnap?.mode || 'file_dedup',
     status: 'completed',
     progressPct: 100,
     transferRateMbps: 2150,
-    logicalBytesProcessed: foundSnap.logicalBytes,
+    logicalBytesProcessed: foundSnap?.logicalBytes || 0,
     deduplicatedBytesWritten: 0,
-    snapshotId: foundSnap.id,
+    snapshotId: foundSnap?.id || snapshotId,
     targetRestorePath: payload.targetPath,
     details: `Restored ${payload.selectedPaths?.length ? payload.selectedPaths.join(', ') : 'full snapshot manifest'} -> ${payload.targetPath} (SHA-256 verified)`,
     startedAt: new Date(Date.now() - 6000).toISOString(),

@@ -62,7 +62,12 @@ export function loadMdmState(): MdmPersistentState {
     if (fs.existsSync(DATA_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
       if (parsed && Array.isArray(parsed.devices)) {
+        const beforeLen = parsed.devices.length;
+        parsed.devices = parsed.devices.filter((d: any) => d && d.number !== 'test-device');
         cachedState = parsed;
+        if (parsed.devices.length !== beforeLen) {
+          saveMdmState(cachedState!);
+        }
         return cachedState!;
       }
     }

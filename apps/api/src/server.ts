@@ -442,34 +442,6 @@ server.listen(PORT, () => {
           const localUpdated = localDev ? new Date(localDev.updatedAt || localDev.createdAt || 0).getTime() : 0;
           if (!localDev || remoteUpdated > localUpdated) {
             store.devices.set(rDev.id, rDev);
-            if (!store.securityPostures.has(rDev.id)) {
-              const isWin = rDev.os === 'windows';
-              const isMac = rDev.os === 'macos';
-              upsertDeviceSecurityPosture(
-                rDev.id,
-                {
-                  coverageState: 'preventive_active',
-                  preventiveAvVendor: isWin ? 'Microsoft Defender Antivirus' : isMac ? 'Apple XProtect + Gatekeeper' : 'ClamAV Real-Time Daemon',
-                  preventiveAvActive: true,
-                  preventiveAvTamperProtected: true,
-                  edrActive: true,
-                  canaryInstalled: true,
-                  canaryFileCount: 3,
-                  canaryIntact: true,
-                  recoveryInhibitionGuardActive: true,
-                  containmentState: 'normal',
-                  sensorVersions: {
-                    openmspAgent: rDev.agentVersion || '2.0.4',
-                    wazuhAgent: '4.9.2',
-                    velociraptor: '0.73.1',
-                    yaraX: '0.10.0',
-                    clamav: '1.4.1',
-                    osquery: '5.13.1'
-                  }
-                } as any,
-                defaultOrgId
-              );
-            }
             if (!localDev) {
               console.log(`[sync] Imported newly enrolled endpoint from api.apexmsp.app: ${rDev.name} (${rDev.id}, ${rDev.ipAddress})`);
               wsManager.broadcastToOrg(defaultOrgId, 'device.enrolled' as any, rDev);

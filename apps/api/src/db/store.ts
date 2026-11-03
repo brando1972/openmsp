@@ -156,14 +156,14 @@ class DataStore {
     if (this.stagedApps.size === 0) {
       this.seedDefaultStagedApps();
     }
-    if (this.unifiSites.size === 0 || this.identityObservations.size === 0 || this.securityPolicies.size === 0) {
+    if (this.securityPolicies.size === 0) {
       this.seedSecurityAndUnifiDefaults();
     }
     if (this.backupVaults.size === 0) {
       this.seedBackupDefaults();
     }
     this.reconcileLiveBackupVaults();
-    this.hydrateUnifiFixtures();
+    this.purgeSeededData();
     this.startPersistence();
   }
 
@@ -306,8 +306,8 @@ class DataStore {
       sites: ['Primary'],
       activeContract: 'Internal',
       monthlySlaTier: 'Gold 24/7',
-      totalDevices: 2,
-      openTickets: 1
+      totalDevices: 0,
+      openTickets: 0
     };
     const client2: ClientTenant = {
       id: 'c-richs',
@@ -341,147 +341,6 @@ class DataStore {
     // Android/relay tablets → client org mapping (device serial → client)
     this.mdmClients.set('apex-lenovo-01', { clientId: client1.id, clientName: client1.name, name: 'Lenovo Tab TB373FU', model: 'Lenovo Tab TB373FU' });
 
-    // Initial Ticket
-    const ticket1: PSATicket = {
-      id: 'tick-001',
-      ticketNumber: 'TICK-1001',
-      title: 'Periodic print spooler crash on accounting PC',
-      description: 'The local printer becomes unreachable every morning until Print Spooler is manually restarted.',
-      clientId: client1.id,
-      clientName: client1.name,
-      deviceId: 'dev-win-01',
-      deviceName: 'ACME-EXEC-PC',
-      priority: 'medium',
-      status: 'in_progress',
-      category: 'Hardware',
-      assignedTech: 'Chief MSP Operator',
-      createdAt: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
-      updatedAt: new Date().toISOString(),
-      slaDueDate: new Date(Date.now() + 3600 * 1000 * 20).toISOString(),
-      slaBreached: false,
-      comments: [
-        {
-          id: uuidv4(),
-          author: 'Sarah Jenkins',
-          authorRole: 'client',
-          timestamp: new Date(Date.now() - 3600 * 1000 * 4).toISOString(),
-          content: 'Printer stopped responding again this morning at 9am.',
-          isInternal: false
-        },
-        {
-          id: uuidv4(),
-          author: 'Chief MSP Operator',
-          authorRole: 'tech',
-          timestamp: new Date(Date.now() - 3600 * 1000 * 2).toISOString(),
-          content: 'Configured self-healing automation rule to auto-restart the spooler if it halts.',
-          isInternal: true
-        }
-      ],
-      timeEntries: [
-        {
-          id: uuidv4(),
-          technician: 'Chief MSP Operator',
-          minutes: 30,
-          description: 'Diagnosed print queue corruption and enabled auto-restart rule',
-          date: new Date().toISOString().split('T')[0],
-          billable: true,
-          hourlyRate: 150
-        }
-      ],
-      aiSuggestedFix: 'Self-healing trigger created for service_stopped: Spooler -> Stop-Service Spooler -Force; Remove-Item C:\\Windows\\System32\\spool\\PRINTERS\\* -Force; Start-Service Spooler'
-    };
-    this.tickets.set(ticket1.id, ticket1);
-
-    const extraTickets: PSATicket[] = [
-      {
-        id: 'tick-cd29af2e',
-        ticketNumber: 'TICK-1002',
-        title: 'TEst',
-        description: 'Test',
-        clientId: client1.id,
-        clientName: client1.name,
-        deviceId: 'dev-mac-7c8a43',
-        deviceName: 'Brandons-MacBook-Pro.local',
-        priority: 'medium',
-        status: 'new',
-        category: 'Hardware',
-        assignedTech: 'Orch (Autonomous MSP Engineer)',
-        createdAt: '2026-04-20T18:16:33.666Z',
-        updatedAt: new Date().toISOString(),
-        slaDueDate: new Date(Date.now() + 3600 * 1000 * 24).toISOString(),
-        slaBreached: false,
-        comments: [],
-        timeEntries: [],
-        aiSuggestedFix: 'Self-healing trigger verified: PSA-to-Brain webhook pipeline active (200 OK); auto-linked to Brandons-MacBook-Pro.local telemetry node.'
-      },
-      {
-        id: 'tick-8316df0a',
-        ticketNumber: 'TICK-1003',
-        title: 'Menu-bar self-test — please ignore',
-        description: 'Verifying Request Support from the sharkfin menu.',
-        clientId: client1.id,
-        clientName: client1.name,
-        deviceId: 'dev-mac-7c8a43',
-        deviceName: 'Brandons-MacBook-Pro.local',
-        priority: 'medium',
-        status: 'new',
-        category: 'Software',
-        assignedTech: 'Orch (Autonomous MSP Engineer)',
-        createdAt: '2026-04-20T19:03:09.619Z',
-        updatedAt: new Date().toISOString(),
-        slaDueDate: new Date(Date.now() + 3600 * 1000 * 24).toISOString(),
-        slaBreached: false,
-        comments: [],
-        timeEntries: [],
-        aiSuggestedFix: 'Self-healing trigger created for macos_menubar_watchdog: launchctl kickstart -k gui/$(id -u)/com.apexmsp.menubar && curl -fsSL http://192.168.4.150:8080/api/edge/devices'
-      },
-      {
-        id: 'tick-feb13507',
-        ticketNumber: 'TICK-1004',
-        title: 'Test',
-        description: 'Test',
-        clientId: client1.id,
-        clientName: client1.name,
-        deviceId: 'dev-mac-7c8a43',
-        deviceName: 'Brandons-MacBook-Pro.local',
-        priority: 'medium',
-        status: 'new',
-        category: 'Software',
-        assignedTech: 'Orch (Autonomous MSP Engineer)',
-        createdAt: '2026-04-20T19:45:43.470Z',
-        updatedAt: new Date().toISOString(),
-        slaDueDate: new Date(Date.now() + 3600 * 1000 * 24).toISOString(),
-        slaBreached: false,
-        comments: [],
-        timeEntries: [],
-        aiSuggestedFix: 'Self-healing trigger verified: Site collector election pinned to Brandons-MacBook-Pro.local (isSiteCollector: true) with 60s heartbeat cadence.'
-      },
-      {
-        id: 'tick-e30ae7c8',
-        ticketNumber: 'TICK-1005',
-        title: 'test',
-        description: 'help',
-        clientId: client1.id,
-        clientName: client1.name,
-        deviceId: 'dev-mac-7c8a43',
-        deviceName: 'Brandons-MacBook-Pro.local',
-        priority: 'urgent',
-        status: 'new',
-        category: 'Software',
-        assignedTech: 'Orch (Autonomous MSP Engineer)',
-        createdAt: '2026-04-20T19:53:09.007Z',
-        updatedAt: new Date().toISOString(),
-        slaDueDate: new Date(Date.now() + 3600 * 1000 * 4).toISOString(),
-        slaBreached: false,
-        comments: [],
-        timeEntries: [],
-        aiSuggestedFix: 'Self-healing trigger executed: Priority SLA fast-track activated; Orch verified Brandons-MacBook-Pro.local online (192.168.4.122) and staged 1-click remote triage.'
-      }
-    ];
-    for (const et of extraTickets) {
-      this.tickets.set(et.id, et);
-    }
-
     // Initial Automations
     const rule1: SelfHealingRule = {
       id: 'rule-spooler-restart',
@@ -492,9 +351,8 @@ class DataStore {
       triggerType: 'service_stopped',
       targetServiceName: 'Spooler',
       actionType: 'restart_service',
-      executionsCount: 3,
-      successRate: 100,
-      lastExecuted: new Date(Date.now() - 7200 * 1000).toISOString()
+      executionsCount: 0,
+      successRate: 100
     };
     const rule2: SelfHealingRule = {
       id: 'rule-disk-alert',
@@ -505,60 +363,11 @@ class DataStore {
       triggerType: 'high_disk',
       triggerThreshold: 90,
       actionType: 'create_ticket',
-      executionsCount: 1,
-      successRate: 100,
-      lastExecuted: new Date(Date.now() - 86400 * 1000).toISOString()
+      executionsCount: 0,
+      successRate: 100
     };
     this.automations.set(rule1.id, rule1);
     this.automations.set(rule2.id, rule2);
-
-    // Initial Patches
-    const patch1: PatchItem = {
-      id: 'patch-kb5034441',
-      kbArticle: 'KB5034441',
-      title: 'Windows Recovery Environment update for CVE-2024-20666',
-      severity: 'critical',
-      category: 'Security',
-      targetOs: 'windows',
-      releaseDate: '2025-01-09',
-      approved: true,
-      affectedDevicesCount: 1,
-      installedDevicesCount: 1
-    };
-    const patch2: PatchItem = {
-      id: 'patch-macos-15-3-1',
-      kbArticle: 'APPLE-SA-2025-02',
-      title: 'macOS Sequoia 15.3.1 Security Fixes',
-      severity: 'important',
-      category: 'Security',
-      targetOs: 'macos',
-      releaseDate: '2025-02-14',
-      approved: false,
-      affectedDevicesCount: 1,
-      installedDevicesCount: 0
-    };
-    this.patches.set(patch1.id, patch1);
-    this.patches.set(patch2.id, patch2);
-
-    // Initial Vault Items (Metadata only stored, passwords encrypted/safe)
-    const vault1: VaultItem = {
-      id: 'v-001',
-      clientId: client1.id,
-      clientName: client1.name,
-      folder: 'Infrastructure',
-      type: 'server_credential',
-      title: 'Primary Domain Controller Admin',
-      username: 'ACME\\svc_domainadmin',
-      password: '• • • • • • • • • • • •',
-      url: 'rdp://192.168.1.10',
-      notes: 'LAPS managed account for disaster recovery.',
-      totpCode: '582910',
-      totpRemainingSeconds: 24,
-      favorite: true,
-      strengthScore: 95,
-      lastModified: new Date().toISOString()
-    };
-    this.vaultItems.set(vault1.id, vault1);
 
     // Initial Audit Event
     this.auditEvents.push({
@@ -649,6 +458,7 @@ class DataStore {
     const orgId = Array.from(this.orgs.values())[0]?.id || '00000000-0000-0000-0000-000000000001';
     const now = Date.now();
     const iso = (msOffset = 0) => new Date(now + msOffset).toISOString();
+    const gambinosSiteId = '88f7af54-98f8-306a-a1c7-c9349722b1f6';
 
     // Ensure all MSP Clients exist
     const clientsToSeed: ClientTenant[] = [
@@ -662,8 +472,8 @@ class DataStore {
         sites: ['88f7af54-98f8-306a-a1c7-c9349722b1f6'],
         activeContract: 'Managed SOC + POS Care',
         monthlySlaTier: 'Gold 24/7',
-        totalDevices: 18,
-        openTickets: 1
+        totalDevices: 0,
+        openTickets: 0
       },
       {
         id: 'c-brandon-ray',
@@ -675,8 +485,8 @@ class DataStore {
         sites: ['Primary'],
         activeContract: 'Internal SOC & Fleet',
         monthlySlaTier: 'Gold 24/7',
-        totalDevices: 4,
-        openTickets: 1
+        totalDevices: 0,
+        openTickets: 0
       },
       {
         id: 'c-raytreat',
@@ -688,7 +498,7 @@ class DataStore {
         sites: ['Raytreat-HQ'],
         activeContract: 'Managed Healthcare & Security',
         monthlySlaTier: 'Gold 24/7',
-        totalDevices: 6,
+        totalDevices: 0,
         openTickets: 0
       },
       {
@@ -701,7 +511,7 @@ class DataStore {
         sites: ['TBI-Main'],
         activeContract: 'Managed POS & Retail Security',
         monthlySlaTier: 'Gold 24/7',
-        totalDevices: 9,
+        totalDevices: 0,
         openTickets: 0
       },
       {
@@ -714,7 +524,7 @@ class DataStore {
         sites: ['SOS-Complex'],
         activeContract: 'Managed Wi-Fi & Facility RMM',
         monthlySlaTier: 'Silver 8/5',
-        totalDevices: 5,
+        totalDevices: 0,
         openTickets: 0
       },
       {
@@ -727,8 +537,8 @@ class DataStore {
         sites: ['muni-city-hall'],
         activeContract: 'Public Sector CJIS Managed SOC',
         monthlySlaTier: 'Gold 24/7',
-        totalDevices: 14,
-        openTickets: 1
+        totalDevices: 0,
+        openTickets: 0
       }
     ];
 
@@ -736,946 +546,6 @@ class DataStore {
       if (!this.clients.has(c.id)) {
         this.clients.set(c.id, c);
       }
-    }
-
-    // Seed representative ManagedDevices if not already present so SOC & RMM link cleanly
-    const gambinosSiteId = '88f7af54-98f8-306a-a1c7-c9349722b1f6';
-    const seedDevices: ManagedDevice[] = [
-      {
-        id: 'dev-gambinos-pos-ctrl',
-        name: 'GAMBINOS-KWICKPOS-C1',
-        hostname: 'kwickpos-c1.gambinos.local',
-        clientId: 'c-gambinos',
-        clientName: 'Gambinos',
-        siteId: gambinosSiteId,
-        siteName: 'Gambinos Main Store',
-        os: 'linux',
-        osVersion: 'Ubuntu 22.04 LTS (KwickPOS Host)',
-        serialNumber: 'KWICK-C1-90881',
-        ipAddress: '192.168.1.101',
-        publicIp: '72.14.201.88',
-        macAddress: '24:5E:BE:41:10:01',
-        health: 'healthy',
-        metrics: { cpuUsage: 16, ramUsage: 44, diskUsage: 39, uptimeDays: 42.5, lastSeen: iso(-15000) },
-        rustDeskId: '719283101',
-        rustDeskOnline: true,
-        agentVersion: '1.4.0',
-        arch: 'amd64',
-        mdmEnrolled: true,
-        encryptionStatus: 'encrypted',
-        patchCompliance: 100,
-        pendingPatchesCount: 0,
-        installedApps: [
-          { id: 'kwick', name: 'KwickPOS Server & Order Engine', version: '4.12.2', publisher: 'KwickPOS', installDate: '2025-11-10' }
-        ],
-        services: [
-          { name: 'kwickposd', displayName: 'KwickPOS Core Daemon', status: 'running', startupType: 'auto' },
-          { name: 'wazuh-agent', displayName: 'Wazuh Security Sensor', status: 'running', startupType: 'auto' }
-        ],
-        eventLogs: [],
-        tags: ['pos-controller', 'protected-asset', 'pci-zone'],
-        createdAt: iso(-86400000 * 60),
-        updatedAt: iso(-15000)
-      },
-      {
-        id: 'dev-gambinos-bo-pc',
-        name: 'GAMBINOS-BACKOFFICE-PC',
-        hostname: 'gambinos-mgr-pc.local',
-        clientId: 'c-gambinos',
-        clientName: 'Gambinos',
-        siteId: gambinosSiteId,
-        siteName: 'Gambinos Main Store',
-        os: 'windows',
-        osVersion: 'Windows 11 Pro 23H2',
-        serialNumber: 'DELL-GMB-7721',
-        ipAddress: '192.168.1.140',
-        publicIp: '72.14.201.88',
-        macAddress: 'F8:B1:56:9A:44:12',
-        health: 'warning',
-        metrics: { cpuUsage: 34, ramUsage: 62, diskUsage: 51, uptimeDays: 11.2, lastSeen: iso(-12000) },
-        rustDeskId: '719283140',
-        rustDeskOnline: true,
-        agentVersion: '1.4.0',
-        arch: 'amd64',
-        mdmEnrolled: true,
-        encryptionStatus: 'encrypted',
-        patchCompliance: 96,
-        pendingPatchesCount: 1,
-        installedApps: [
-          { id: 'chrome', name: 'Google Chrome', version: '130.0.6723.70', publisher: 'Google LLC', installDate: '2026-01-14' },
-          { id: 'qbo', name: 'QuickBooks Bridge', version: '24.1', publisher: 'Intuit', installDate: '2026-02-01' }
-        ],
-        services: [
-          { name: 'WinDefend', displayName: 'Microsoft Defender Antivirus Service', status: 'running', startupType: 'auto' },
-          { name: 'Velociraptor', displayName: 'Velociraptor DFIR Sensor', status: 'running', startupType: 'auto' }
-        ],
-        eventLogs: [],
-        tags: ['backoffice', 'manager-workstation'],
-        loggedInUser: 'GAMBINOS\\store_mgr',
-        domain: 'WORKGROUP',
-        createdAt: iso(-86400000 * 45),
-        updatedAt: iso(-12000)
-      },
-      {
-        id: 'dev-muni-cad-01',
-        name: 'MUNI-DISPATCH-CAD-01',
-        hostname: 'muni-dispatch-cad01.cityhall.local',
-        clientId: 'c-municipality',
-        clientName: 'Municipal Client (City Hall & Public Safety)',
-        siteId: 'muni-city-hall',
-        siteName: 'City Hall & Dispatch Center',
-        os: 'windows',
-        osVersion: 'Windows Server 2022 Datacenter',
-        serialNumber: 'HPE-MUNI-91101',
-        ipAddress: '192.168.1.105', // Intentionally overlaps RFC1918 IP with Gambinos c5 to prove tenant isolation!
-        publicIp: '198.51.100.210',
-        macAddress: '00:50:56:99:11:01',
-        health: 'healthy',
-        metrics: { cpuUsage: 22, ramUsage: 54, diskUsage: 47, uptimeDays: 89.4, lastSeen: iso(-8000) },
-        rustDeskId: '911000105',
-        rustDeskOnline: true,
-        agentVersion: '1.4.0',
-        arch: 'amd64',
-        mdmEnrolled: true,
-        encryptionStatus: 'encrypted',
-        patchCompliance: 100,
-        pendingPatchesCount: 0,
-        installedApps: [],
-        services: [
-          { name: 'WinDefend', displayName: 'Microsoft Defender Antivirus Service', status: 'running', startupType: 'auto' }
-        ],
-        eventLogs: [],
-        tags: ['municipal-critical', 'cjis', 'protected-asset'],
-        loggedInUser: 'CITYHALL\\svc_cad',
-        domain: 'CITYHALL.GOV.LOCAL',
-        createdAt: iso(-86400000 * 90),
-        updatedAt: iso(-8000)
-      },
-      {
-        id: 'dev-raytreat-clin-01',
-        name: 'RAYTREAT-CLINICAL-MAC01',
-        hostname: 'raytreat-clin-mac01.local',
-        clientId: 'c-raytreat',
-        clientName: 'Raytreat',
-        siteId: 'Raytreat-HQ',
-        siteName: 'Raytreat HQ',
-        os: 'macos',
-        osVersion: 'macOS Sequoia 15.3.1',
-        serialNumber: 'C02RAYTREAT01',
-        ipAddress: '10.40.10.25',
-        publicIp: '203.0.113.44',
-        macAddress: 'A4:83:E7:33:10:25',
-        health: 'healthy',
-        metrics: { cpuUsage: 11, ramUsage: 49, diskUsage: 34, uptimeDays: 19.0, lastSeen: iso(-19000) },
-        rustDeskId: '844010025',
-        rustDeskOnline: true,
-        agentVersion: '1.4.0',
-        arch: 'arm64',
-        mdmEnrolled: true,
-        encryptionStatus: 'encrypted',
-        patchCompliance: 100,
-        pendingPatchesCount: 0,
-        installedApps: [],
-        services: [],
-        eventLogs: [],
-        tags: ['clinical', 'hipaa'],
-        createdAt: iso(-86400000 * 30),
-        updatedAt: iso(-19000)
-      },
-      {
-        id: 'dev-tbi-pos-srv',
-        name: 'TBI-POS-MASTER',
-        hostname: 'tbi-pos-master.local',
-        clientId: 'c-tbi',
-        clientName: 'TBI',
-        siteId: 'TBI-Main',
-        siteName: 'TBI Main Store',
-        os: 'windows',
-        osVersion: 'Windows 11 IoT Enterprise LTSC',
-        serialNumber: 'TBI-POS-8821',
-        ipAddress: '10.50.1.10',
-        publicIp: '198.51.100.88',
-        macAddress: 'BC:24:11:50:01:10',
-        health: 'healthy',
-        metrics: { cpuUsage: 19, ramUsage: 41, diskUsage: 44, uptimeDays: 31.2, lastSeen: iso(-21000) },
-        rustDeskId: '855010010',
-        rustDeskOnline: true,
-        agentVersion: '1.4.0',
-        arch: 'amd64',
-        mdmEnrolled: true,
-        encryptionStatus: 'encrypted',
-        patchCompliance: 100,
-        pendingPatchesCount: 0,
-        installedApps: [],
-        services: [],
-        eventLogs: [],
-        tags: ['pos-controller', 'protected-asset'],
-        createdAt: iso(-86400000 * 50),
-        updatedAt: iso(-21000)
-      }
-    ];
-
-    for (const d of seedDevices) {
-      if (!this.devices.has(d.id)) {
-        this.devices.set(d.id, d);
-      }
-    }
-
-    // Seed SecurityPostureReports for managed devices
-    const defaultSensors = (os: string): SecurityPostureReport['sensors'] => [
-      {
-        provider: 'apex_edr_reflex',
-        installed: true,
-        running: true,
-        preventiveActive: true,
-        version: '1.4.0',
-        lastUpdated: iso(-300000),
-        healthMessage: 'Canary tripwire + recovery-inhibition reflex active (<1.2% CPU)'
-      },
-      {
-        provider: 'wazuh',
-        installed: true,
-        running: true,
-        preventiveActive: false,
-        version: '4.9.2',
-        signatureVersion: 'ruleset-2026.10',
-        lastUpdated: iso(-600000),
-        healthMessage: 'Connected to Wazuh Manager cluster'
-      },
-      {
-        provider: 'velociraptor',
-        installed: true,
-        running: true,
-        preventiveActive: false,
-        version: '0.73.3',
-        lastUpdated: iso(-600000),
-        healthMessage: 'DFIR artifact collector ready'
-      },
-      {
-        provider: 'yara_x',
-        installed: true,
-        running: true,
-        preventiveActive: true,
-        version: '0.10.0',
-        signatureVersion: 'apex-yara-2026.10.25',
-        lastScanAt: iso(-3600000),
-        healthMessage: 'On-write & process-spawn YARA-X rules loaded'
-      },
-      {
-        provider: 'clamav',
-        installed: true,
-        running: true,
-        preventiveActive: true,
-        version: '1.4.1',
-        signatureVersion: 'daily-27438',
-        lastScanAt: iso(-7200000),
-        healthMessage: 'ClamAV signature engine healthy'
-      },
-      {
-        provider: os === 'macos' ? 'macos_xprotect' : 'windows_defender',
-        installed: os !== 'linux',
-        running: os !== 'linux',
-        preventiveActive: os !== 'linux',
-        version: os === 'macos' ? 'XProtect 5278' : '4.18.24090.11',
-        signatureVersion: '1.421.682.0',
-        lastUpdated: iso(-1800000),
-        healthMessage: os === 'linux' ? 'N/A on Linux (ClamAV + YARA-X active)' : 'OS native kernel realtime protection verified'
-      }
-    ];
-
-    for (const d of this.devices.values()) {
-      if (!this.securityPostures.has(d.id)) {
-        this.securityPostures.set(d.id, {
-          coverageState: 'preventive_active',
-          preventiveAvName: d.os === 'windows' ? 'Microsoft Defender + ClamAV/YARA-X' : d.os === 'macos' ? 'macOS XProtect + YARA-X/ClamAV' : 'ClamAV + YARA-X + Kunai',
-          preventiveAvActive: true,
-          realtimeProtectionEnabled: true,
-          tamperProtectionEnabled: true,
-          canaryFilesDeployed: true,
-          canaryPaths: d.os === 'windows'
-            ? ['C:\\Users\\Public\\Documents\\._apex_canary_financials.xlsx', 'C:\\Users\\Public\\._apex_canary_keys.docx']
-            : ['/Users/Shared/.apex_canary_ledger.xlsx', '/var/tmp/.apex_canary_vault.pdf'],
-          recoveryInhibitionGuardActive: true,
-          isolated: false,
-          sensors: defaultSensors(d.os),
-          scannerMemoryMb: 118.4,
-          supervisorCpuPct: 0.7,
-          telemetryCpuPct: 1.1,
-          reportedAt: iso(-15000)
-        });
-      }
-    }
-
-    // Seed UniFi Site Capabilities (starting with Gambinos live topology + other MSP sites)
-    const gambinosCapability: UnifiSiteCapability = {
-      siteId: gambinosSiteId,
-      clientId: 'c-gambinos',
-      clientName: 'Gambinos',
-      siteName: 'Gambinos Main Store (88f7af54-98f8-306a-a1c7-c9349722b1f6)',
-      consoleName: 'Gambinos-UCG-Max',
-      consoleModel: 'UniFi Cloud Gateway / US-48-500W Stack',
-      firmwareVersion: '4.0.20',
-      networkAppVersion: '8.6.9',
-      connectionMethod: 'cloud_sitemanager_proxy',
-      endpointUrl: 'https://api.ui.com/v1/connector/consoles/gambinos/proxy/network/integration/v1/sites/88f7af54-98f8-306a-a1c7-c9349722b1f6',
-      online: true,
-      lastSyncedAt: iso(-30000),
-      capabilities: {
-        localIntegrationApi: true,
-        legacyStatApi: true,
-        syslogCefConfigured: true,
-        ipfixTrafficFlowsSupported: true,
-        idsIpsEnabled: true,
-        zoneFirewallSupported: true,
-        clientBlockWriteSupported: true,
-        separateReadWriteCreds: true
-      },
-      counts: {
-        adoptedDevices: 6,
-        onlineDevices: 5,
-        offlineDevices: 1,
-        activeClients: 24,
-        vlans: 3,
-        protectedPosAssets: 13
-      },
-      vlans: [
-        { id: 'vlan-gmb-1', name: 'Default / Store POS & Infrastructure', vlanId: 1, subnet: '192.168.1.0/24', enabled: true, purpose: 'POS + Management (Flat VLAN — segmentation recommended)' },
-        { id: 'vlan-gmb-20', name: 'Guest Wi-Fi Isolated', vlanId: 20, subnet: '192.168.20.0/24', enabled: true, purpose: 'Customer Guest Wi-Fi' },
-        { id: 'vlan-gmb-30', name: 'Voice / VoIP Phones', vlanId: 30, subnet: '192.168.30.0/24', enabled: true, purpose: '3CX / Store Phones' }
-      ],
-      coverageGaps: [
-        'Port 43 on US48PoE500W has 5 MAC addresses attached via an unmanaged downstream hub/switch (auto-port-disable is safety-locked)',
-        '1 adopted UniFi AP (Kitchen-UAP-AC-Pro) reported offline — verify PoE cable',
-        'PAX A35 payment terminals (.156, .173, .190, .196, .227) share VLAN 1 with backoffice PC — recommend dedicated PCI VLAN 10'
-      ]
-    };
-    this.unifiSites.set(gambinosCapability.siteId, gambinosCapability);
-
-    const otherSites: UnifiSiteCapability[] = [
-      {
-        siteId: 'Primary',
-        clientId: 'c-brandon-ray',
-        clientName: 'Brandon Ray',
-        siteName: 'Primary Lab & Operations HQ',
-        consoleName: 'Apex-UDM-Pro-Max',
-        consoleModel: 'UDM-Pro-Max',
-        firmwareVersion: '4.1.9',
-        networkAppVersion: '9.0.108',
-        connectionMethod: 'local_pinned_tls',
-        endpointUrl: 'https://192.168.4.1/proxy/network/integration/v1/sites/Primary',
-        online: true,
-        lastSyncedAt: iso(-20000),
-        capabilities: {
-          localIntegrationApi: true,
-          legacyStatApi: true,
-          syslogCefConfigured: true,
-          ipfixTrafficFlowsSupported: true,
-          idsIpsEnabled: true,
-          zoneFirewallSupported: true,
-          clientBlockWriteSupported: true,
-          separateReadWriteCreds: true
-        },
-        counts: { adoptedDevices: 8, onlineDevices: 8, offlineDevices: 0, activeClients: 38, vlans: 4, protectedPosAssets: 3 },
-        vlans: [
-          { id: 'vlan-br-1', name: 'Core Infrastructure & Proxmox', vlanId: 1, subnet: '192.168.4.0/24', enabled: true, purpose: 'NodalCortex Brain .150 & Proxmox .222' },
-          { id: 'vlan-br-10', name: 'SOC Lab Sandbox', vlanId: 10, subnet: '10.10.10.0/24', enabled: true, purpose: 'Isolated Detection Testing' }
-        ],
-        coverageGaps: []
-      },
-      {
-        siteId: 'Raytreat-HQ',
-        clientId: 'c-raytreat',
-        clientName: 'Raytreat',
-        siteName: 'Raytreat Clinical HQ',
-        consoleName: 'Raytreat-UDM-SE',
-        consoleModel: 'UDM-SE',
-        firmwareVersion: '4.0.21',
-        networkAppVersion: '8.6.9',
-        connectionMethod: 'cloud_sitemanager_proxy',
-        endpointUrl: 'https://api.ui.com/v1/connector/consoles/raytreat/proxy/network/integration/v1/sites/Raytreat-HQ',
-        online: true,
-        lastSyncedAt: iso(-45000),
-        capabilities: {
-          localIntegrationApi: true,
-          legacyStatApi: true,
-          syslogCefConfigured: true,
-          ipfixTrafficFlowsSupported: false,
-          idsIpsEnabled: true,
-          zoneFirewallSupported: true,
-          clientBlockWriteSupported: true,
-          separateReadWriteCreds: true
-        },
-        counts: { adoptedDevices: 5, onlineDevices: 5, offlineDevices: 0, activeClients: 19, vlans: 3, protectedPosAssets: 2 },
-        vlans: [
-          { id: 'vlan-rt-10', name: 'Clinical Workstations (HIPAA)', vlanId: 10, subnet: '10.40.10.0/24', enabled: true, purpose: 'Clinical Endpoints' },
-          { id: 'vlan-rt-20', name: 'Patient Kiosks & Tablets', vlanId: 20, subnet: '10.40.20.0/24', enabled: true, purpose: 'MDM Kiosk Tablets' }
-        ],
-        coverageGaps: ['IPFIX Flow export requires Network 9.x upgrade on UDM-SE']
-      },
-      {
-        siteId: 'TBI-Main',
-        clientId: 'c-tbi',
-        clientName: 'TBI',
-        siteName: 'TBI Retail & POS Operations',
-        consoleName: 'TBI-UXG-Pro',
-        consoleModel: 'UXG-Pro',
-        firmwareVersion: '4.0.20',
-        networkAppVersion: '8.6.9',
-        connectionMethod: 'cloud_sitemanager_proxy',
-        endpointUrl: 'https://api.ui.com/v1/connector/consoles/tbi/proxy/network/integration/v1/sites/TBI-Main',
-        online: true,
-        lastSyncedAt: iso(-50000),
-        capabilities: {
-          localIntegrationApi: true,
-          legacyStatApi: true,
-          syslogCefConfigured: true,
-          ipfixTrafficFlowsSupported: true,
-          idsIpsEnabled: true,
-          zoneFirewallSupported: true,
-          clientBlockWriteSupported: true,
-          separateReadWriteCreds: true
-        },
-        counts: { adoptedDevices: 7, onlineDevices: 7, offlineDevices: 0, activeClients: 29, vlans: 3, protectedPosAssets: 6 },
-        vlans: [
-          { id: 'vlan-tbi-1', name: 'POS & Backoffice', vlanId: 1, subnet: '10.50.1.0/24', enabled: true, purpose: 'TBI POS Terminals' }
-        ],
-        coverageGaps: []
-      },
-      {
-        siteId: 'SOS-Complex',
-        clientId: 'c-sos-volleyball',
-        clientName: 'SOS Volleyball',
-        siteName: 'SOS Volleyball Athletic Complex',
-        consoleName: 'SOS-UDM-Pro',
-        consoleModel: 'UDM-Pro',
-        firmwareVersion: '4.0.20',
-        networkAppVersion: '8.6.9',
-        connectionMethod: 'cloud_sitemanager_proxy',
-        endpointUrl: 'https://api.ui.com/v1/connector/consoles/sos/proxy/network/integration/v1/sites/SOS-Complex',
-        online: true,
-        lastSyncedAt: iso(-55000),
-        capabilities: {
-          localIntegrationApi: true,
-          legacyStatApi: true,
-          syslogCefConfigured: true,
-          ipfixTrafficFlowsSupported: false,
-          idsIpsEnabled: true,
-          zoneFirewallSupported: false,
-          clientBlockWriteSupported: true,
-          separateReadWriteCreds: true
-        },
-        counts: { adoptedDevices: 11, onlineDevices: 11, offlineDevices: 0, activeClients: 112, vlans: 3, protectedPosAssets: 2 },
-        vlans: [
-          { id: 'vlan-sos-1', name: 'Facility Ops & Concessions POS', vlanId: 1, subnet: '10.60.1.0/24', enabled: true, purpose: 'Operations' },
-          { id: 'vlan-sos-50', name: 'Tournament Public High-Density Wi-Fi', vlanId: 50, subnet: '10.60.50.0/22', enabled: true, purpose: 'Spectator Wi-Fi' }
-        ],
-        coverageGaps: ['High-density 5GHz DFS channel monitoring active on Court APs']
-      },
-      {
-        siteId: 'muni-city-hall',
-        clientId: 'c-municipality',
-        clientName: 'Municipal Client (City Hall & Public Safety)',
-        siteName: 'City Hall & Public Safety Complex',
-        consoleName: 'Muni-UDM-Pro-Max',
-        consoleModel: 'UDM-Pro-Max',
-        firmwareVersion: '4.1.9',
-        networkAppVersion: '9.0.108',
-        connectionMethod: 'vpn_pinned_tls',
-        endpointUrl: 'https://10.254.0.1/proxy/network/integration/v1/sites/muni-city-hall',
-        online: true,
-        lastSyncedAt: iso(-25000),
-        capabilities: {
-          localIntegrationApi: true,
-          legacyStatApi: true,
-          syslogCefConfigured: true,
-          ipfixTrafficFlowsSupported: true,
-          idsIpsEnabled: true,
-          zoneFirewallSupported: true,
-          clientBlockWriteSupported: true,
-          separateReadWriteCreds: true
-        },
-        counts: { adoptedDevices: 14, onlineDevices: 14, offlineDevices: 0, activeClients: 64, vlans: 5, protectedPosAssets: 8 },
-        vlans: [
-          { id: 'vlan-muni-1', name: 'Municipal Operations', vlanId: 1, subnet: '192.168.1.0/24', enabled: true, purpose: 'City Hall Admin (Overlapping RFC1918 tested)' },
-          { id: 'vlan-muni-911', name: 'CJIS / CAD Enclave', vlanId: 911, subnet: '10.91.1.0/24', enabled: true, purpose: 'Public Safety CAD (Zero Auto-Containment)' }
-        ],
-        coverageGaps: []
-      }
-    ];
-
-    for (const s of otherSites) {
-      this.unifiSites.set(s.siteId, s);
-    }
-
-    // Seed Temporal Identity Observations for Gambinos (PAX A35s, SUNMI OrderPAD3s, KwickPOS c1-c5, US48PoE500W Port 43 shared attachment, DHCP lease reuse) + Municipal overlapping IP
-    const gambinosObservations: TemporalIdentityObservation[] = [
-      // 5 PAX A35 Payment Terminals (.156, .173, .190, .196, .227) — 3 of them + 2 POS printers/terminals share US48PoE500W Port 43!
-      {
-        id: 'obs-gmb-pax-156',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-pax-156',
-        macAddress: '90:6D:78:A3:51:56',
-        ipAddress: '192.168.1.156',
-        hostname: 'PAX-A35-REG1',
-        alias: 'PAX A35 Counter 1 (.156)',
-        deviceRole: 'pos_payment_pax',
-        serialNumber: 'PAXA35-00156',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 43,
-        attachmentType: 'shared_uplink_or_hub',
-        portMacCount: 5,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.99,
-        evidenceSource: 'UniFi Integration API + PAX OUI + Port 43 Multi-MAC Table',
-        observedFrom: iso(-86400000 * 7),
-        observedTo: iso(0)
-      },
-      {
-        id: 'obs-gmb-pax-173',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-pax-173',
-        macAddress: '90:6D:78:A3:51:73',
-        ipAddress: '192.168.1.173',
-        hostname: 'PAX-A35-REG2',
-        alias: 'PAX A35 Counter 2 (.173)',
-        deviceRole: 'pos_payment_pax',
-        serialNumber: 'PAXA35-00173',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 43,
-        attachmentType: 'shared_uplink_or_hub',
-        portMacCount: 5,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.99,
-        evidenceSource: 'UniFi Integration API + PAX OUI + Port 43 Multi-MAC Table',
-        observedFrom: iso(-86400000 * 7),
-        observedTo: iso(0)
-      },
-      {
-        id: 'obs-gmb-pax-190',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-pax-190',
-        macAddress: '90:6D:78:A3:51:90',
-        ipAddress: '192.168.1.190',
-        hostname: 'PAX-A35-DRIVETHRU',
-        alias: 'PAX A35 Drive-Thru (.190)',
-        deviceRole: 'pos_payment_pax',
-        serialNumber: 'PAXA35-00190',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 43,
-        attachmentType: 'shared_uplink_or_hub',
-        portMacCount: 5,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.99,
-        evidenceSource: 'UniFi Integration API + PAX OUI + Port 43 Multi-MAC Table',
-        observedFrom: iso(-86400000 * 7),
-        observedTo: iso(0)
-      },
-      {
-        id: 'obs-gmb-pax-196',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-pax-196',
-        macAddress: '90:6D:78:A3:51:96',
-        ipAddress: '192.168.1.196',
-        hostname: 'PAX-A35-PICKUP',
-        alias: 'PAX A35 Pickup Counter (.196)',
-        deviceRole: 'pos_payment_pax',
-        serialNumber: 'PAXA35-00196',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 18,
-        attachmentType: 'confirmed_direct',
-        portMacCount: 1,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.99,
-        evidenceSource: 'UniFi Integration API + Direct Port 18',
-        observedFrom: iso(-86400000 * 7),
-        observedTo: iso(0)
-      },
-      {
-        id: 'obs-gmb-pax-227',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-pax-227',
-        macAddress: '90:6D:78:A3:52:27',
-        ipAddress: '192.168.1.227',
-        hostname: 'PAX-A35-BAR',
-        alias: 'PAX A35 Dining/Bar (.227)',
-        deviceRole: 'pos_payment_pax',
-        serialNumber: 'PAXA35-00227',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 19,
-        attachmentType: 'confirmed_direct',
-        portMacCount: 1,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.99,
-        evidenceSource: 'UniFi Integration API + Direct Port 19',
-        observedFrom: iso(-86400000 * 7),
-        observedTo: iso(0)
-      },
-      // KwickPOS c1 - c5 terminals (c1 and c2 also on Port 43 to complete the 5-MAC shared uplink on Port 43!)
-      {
-        id: 'obs-gmb-kwick-c1',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'pos_sdk_verified',
-        providerClientId: 'unifi-kwick-c1',
-        macAddress: '24:5E:BE:41:10:01',
-        ipAddress: '192.168.1.101',
-        hostname: 'c1',
-        alias: 'KwickPOS c1 (Primary Controller / Counter 1)',
-        deviceRole: 'pos_controller_candidate',
-        serialNumber: 'KWICK-C1-90881',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 43,
-        attachmentType: 'shared_uplink_or_hub',
-        portMacCount: 5,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 1.0,
-        evidenceSource: 'Apex Agent + UniFi Port 43 Multi-MAC Table (5 MACs)',
-        observedFrom: iso(-86400000 * 14),
-        observedTo: iso(0),
-        managedDeviceId: 'dev-gambinos-pos-ctrl'
-      },
-      {
-        id: 'obs-gmb-kwick-c2',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-kwick-c2',
-        macAddress: '24:5E:BE:41:10:02',
-        ipAddress: '192.168.1.102',
-        hostname: 'c2',
-        alias: 'KwickPOS c2 (Counter 2)',
-        deviceRole: 'pos_terminal',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 43,
-        attachmentType: 'shared_uplink_or_hub',
-        portMacCount: 5,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.98,
-        evidenceSource: 'UniFi Integration API + Port 43 Multi-MAC Table (5 MACs)',
-        observedFrom: iso(-86400000 * 14),
-        observedTo: iso(0)
-      },
-      {
-        id: 'obs-gmb-kwick-c3',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-kwick-c3',
-        macAddress: '24:5E:BE:41:10:03',
-        ipAddress: '192.168.1.103',
-        hostname: 'c3',
-        alias: 'KwickPOS c3 (Drive-Thru Station)',
-        deviceRole: 'pos_terminal',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 12,
-        attachmentType: 'confirmed_direct',
-        portMacCount: 1,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.98,
-        evidenceSource: 'UniFi Integration API + Direct Port 12',
-        observedFrom: iso(-86400000 * 14),
-        observedTo: iso(0)
-      },
-      {
-        id: 'obs-gmb-kwick-c4',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-kwick-c4',
-        macAddress: '24:5E:BE:41:10:04',
-        ipAddress: '192.168.1.104',
-        hostname: 'c4',
-        alias: 'KwickPOS c4 (Kitchen Make Line)',
-        deviceRole: 'pos_terminal',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 14,
-        attachmentType: 'confirmed_direct',
-        portMacCount: 1,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.98,
-        evidenceSource: 'UniFi Integration API + Direct Port 14',
-        observedFrom: iso(-86400000 * 14),
-        observedTo: iso(0)
-      },
-      {
-        id: 'obs-gmb-kwick-c5',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-kwick-c5',
-        macAddress: '24:5E:BE:41:10:05',
-        ipAddress: '192.168.1.105',
-        hostname: 'c5',
-        alias: 'KwickPOS c5 (Cut Table / Dispatch)',
-        deviceRole: 'pos_terminal',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 15,
-        attachmentType: 'confirmed_direct',
-        portMacCount: 1,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.98,
-        evidenceSource: 'UniFi Integration API + Direct Port 15',
-        observedFrom: iso(-86400000 * 14),
-        observedTo: iso(0)
-      },
-      // SUNMI OrderPAD3 handhelds on Wi-Fi
-      {
-        id: 'obs-gmb-sunmi-1',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-sunmi-01',
-        macAddress: '7C:D9:5C:30:01:61',
-        ipAddress: '192.168.1.161',
-        hostname: 'OrderPAD3-01',
-        alias: 'SUNMI OrderPAD3 Handheld #1',
-        deviceRole: 'pos_tablet_sunmi',
-        isWired: false,
-        attachmentType: 'wireless_ap',
-        apId: 'ap-gmb-dining-u6pro',
-        apName: 'Dining-U6-Pro',
-        ssid: 'Gambinos-POS-Secure',
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        rssi: -54,
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.96,
-        evidenceSource: 'UniFi Wireless Client Table + SUNMI OUI',
-        observedFrom: iso(-86400000 * 5),
-        observedTo: iso(0)
-      },
-      {
-        id: 'obs-gmb-sunmi-2',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-sunmi-02',
-        macAddress: '7C:D9:5C:30:01:62',
-        ipAddress: '192.168.1.162',
-        hostname: 'OrderPAD3-02',
-        alias: 'SUNMI OrderPAD3 Handheld #2',
-        deviceRole: 'pos_tablet_sunmi',
-        isWired: false,
-        attachmentType: 'wireless_ap',
-        apId: 'ap-gmb-dining-u6pro',
-        apName: 'Dining-U6-Pro',
-        ssid: 'Gambinos-POS-Secure',
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        rssi: -58,
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 0.96,
-        evidenceSource: 'UniFi Wireless Client Table + SUNMI OUI',
-        observedFrom: iso(-86400000 * 5),
-        observedTo: iso(0)
-      },
-      // Backoffice Manager PC (Managed Endpoint)
-      {
-        id: 'obs-gmb-bo-pc',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'apex_agent',
-        providerClientId: 'unifi-bo-pc-140',
-        macAddress: 'F8:B1:56:9A:44:12',
-        ipAddress: '192.168.1.140',
-        hostname: 'gambinos-mgr-pc.local',
-        alias: 'GAMBINOS-BACKOFFICE-PC',
-        deviceRole: 'workstation',
-        serialNumber: 'DELL-GMB-7721',
-        isWired: true,
-        switchId: 'sw-us48poe500w-gmb',
-        switchName: 'US48PoE500W',
-        switchMac: '78:8A:20:48:50:01',
-        switchPort: 8,
-        attachmentType: 'confirmed_direct',
-        portMacCount: 1,
-        vlanId: 1,
-        networkName: 'Default / Store POS',
-        dhcpReserved: true,
-        isProtectedAsset: false,
-        confidence: 1.0,
-        evidenceSource: 'Apex Agent Heartbeat + UniFi Switch Port 8',
-        observedFrom: iso(-86400000 * 14),
-        observedTo: iso(0),
-        managedDeviceId: 'dev-gambinos-bo-pc'
-      },
-      // Temporal DHCP Lease Reuse Proof on 192.168.1.188:
-      // Window 1 (T-6h to T-2h): Contractor Laptop held 192.168.1.188 and triggered an IDS alert at T-4h
-      {
-        id: 'obs-gmb-dhcp-old-188',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_syslog',
-        providerClientId: 'unifi-dhcp-old-188',
-        macAddress: 'AA:BB:CC:11:22:01',
-        ipAddress: '192.168.1.188',
-        hostname: 'contractor-win-laptop',
-        alias: 'Transient Contractor Laptop (Historical Lease)',
-        deviceRole: 'guest_client',
-        isWired: false,
-        attachmentType: 'wireless_ap',
-        apId: 'ap-gmb-dining-u6pro',
-        apName: 'Dining-U6-Pro',
-        ssid: 'Gambinos-Guest',
-        vlanId: 20,
-        networkName: 'Guest Wi-Fi Isolated',
-        rssi: -67,
-        dhcpReserved: false,
-        isProtectedAsset: false,
-        confidence: 0.94,
-        evidenceSource: 'UniFi DHCPACK / Wi-Fi Assoc Log [T-6h .. T-2h]',
-        observedFrom: iso(-3600000 * 6),
-        observedTo: iso(-3600000 * 2)
-      },
-      // Window 2 (T-2h to now): Shift Lead iPad received 192.168.1.188 after contractor left
-      {
-        id: 'obs-gmb-dhcp-new-188',
-        orgId,
-        clientId: 'c-gambinos',
-        siteId: gambinosSiteId,
-        provider: 'unifi_local_api',
-        providerClientId: 'unifi-dhcp-new-188',
-        macAddress: 'AA:BB:CC:11:22:99',
-        ipAddress: '192.168.1.188',
-        hostname: 'shift-lead-ipad',
-        alias: 'Shift Lead Inventory iPad (Current Lease)',
-        deviceRole: 'guest_client',
-        isWired: false,
-        attachmentType: 'wireless_ap',
-        apId: 'ap-gmb-dining-u6pro',
-        apName: 'Dining-U6-Pro',
-        ssid: 'Gambinos-Guest',
-        vlanId: 20,
-        networkName: 'Guest Wi-Fi Isolated',
-        rssi: -49,
-        dhcpReserved: false,
-        isProtectedAsset: false,
-        confidence: 0.95,
-        evidenceSource: 'UniFi Live Client Table + DHCP Lease [T-2h .. now]',
-        observedFrom: iso(-3600000 * 2),
-        observedTo: iso(0)
-      },
-      // Cross-Tenant Overlapping IP Proof: Municipal Client ALSO uses 192.168.1.105 and 192.168.1.156 on its own site!
-      {
-        id: 'obs-muni-cad-105',
-        orgId,
-        clientId: 'c-municipality',
-        siteId: 'muni-city-hall',
-        provider: 'apex_agent',
-        providerClientId: 'muni-cad-105',
-        macAddress: '00:50:56:99:11:01',
-        ipAddress: '192.168.1.105',
-        hostname: 'muni-dispatch-cad01.cityhall.local',
-        alias: 'Municipal 911 CAD Server (.105)',
-        deviceRole: 'server',
-        serialNumber: 'HPE-MUNI-91101',
-        isWired: true,
-        switchId: 'sw-muni-core-01',
-        switchName: 'Muni-USW-Pro-48',
-        switchMac: '78:8A:20:91:10:01',
-        switchPort: 1,
-        attachmentType: 'confirmed_direct',
-        portMacCount: 1,
-        vlanId: 911,
-        networkName: 'CJIS / CAD Enclave',
-        dhcpReserved: true,
-        isProtectedAsset: true,
-        confidence: 1.0,
-        evidenceSource: 'Apex Agent + Municipal Core Switch Port 1',
-        observedFrom: iso(-86400000 * 30),
-        observedTo: iso(0),
-        managedDeviceId: 'dev-muni-cad-01'
-      }
-    ];
-
-    for (const obs of gambinosObservations) {
-      this.identityObservations.set(obs.id, obs);
     }
 
     // Seed Security Policies per client/site
@@ -1742,7 +612,7 @@ class DataStore {
         avRealtimeEnabled: true,
         avScanCadenceHours: 6,
         unifiIdsCorrelationEnabled: true,
-        autoIsolateWorkstationsOnCritical: false, // Municipal CJIS policy: human dual-approval required before host isolation
+        autoIsolateWorkstationsOnCritical: false,
         protectedAssetExclusions: {
           neverAutoIsolateRoles: ['server', 'gateway', 'switch', 'ap', 'pos_controller_candidate'],
           neverBlockSharedSwitchPorts: true,
@@ -1757,439 +627,17 @@ class DataStore {
     for (const p of policies) {
       this.securityPolicies.set(p.id, p);
     }
-
-    // Seed Correlated Detections & Incidents
-    const det1: SecurityDetection = {
-      id: 'det-gmb-001',
-      eventId: 'evt-gmb-shadow-001',
-      idempotencyKey: 'idem-gmb-shadow-001',
-      orgId,
-      clientId: 'c-gambinos',
-      clientName: 'Gambinos',
-      siteId: gambinosSiteId,
-      deviceId: 'dev-gambinos-bo-pc',
-      deviceName: 'GAMBINOS-BACKOFFICE-PC',
-      eventTime: iso(-1800000),
-      ingestTime: iso(-1799180), // 820ms ingest latency
-      sourceProvider: 'apex_agent',
-      ruleId: 'APEX-EDR-1001',
-      ruleName: 'Recovery Inhibition: Volume Shadow Copy Deletion Attempt (T1490)',
-      severity: 'critical',
-      confidence: 0.99,
-      category: 'recovery_inhibition',
-      summary: 'Blocked vssadmin.exe attempting to delete volume shadow copies spawned from suspicious invoice macro.',
-      process: {
-        pid: 6812,
-        ppid: 4120,
-        name: 'vssadmin.exe',
-        exePath: 'C:\\Windows\\System32\\vssadmin.exe',
-        cmdline: 'vssadmin.exe delete shadows /all /quiet',
-        sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-        user: 'GAMBINOS\\store_mgr',
-        signed: true,
-        signer: 'Microsoft Windows'
-      },
-      network: {
-        srcIp: '192.168.1.140',
-        unifiSiteId: gambinosSiteId,
-        vlanId: 1,
-        switchId: 'sw-us48poe500w-gmb',
-        switchPort: 8
-      },
-      rawEvidence: {
-        mitreTechnique: 'T1490',
-        reflexActionTaken: 'process_suspended_and_killed',
-        parentProcess: 'powershell.exe -enc UwB0AGEAcgB0AC0AUAByAG8AYwBlAHMAcwA='
-      },
-      incidentId: 'inc-gmb-1001',
-      evidencePointer: 's3://apex-soc-evidence/c-gambinos/det-gmb-001.json'
-    };
-
-    const det2: SecurityDetection = {
-      id: 'det-gmb-002',
-      eventId: 'evt-gmb-unifi-ids-002',
-      idempotencyKey: 'idem-gmb-unifi-ids-002',
-      orgId,
-      clientId: 'c-gambinos',
-      clientName: 'Gambinos',
-      siteId: gambinosSiteId,
-      deviceId: 'dev-gambinos-bo-pc',
-      deviceName: 'GAMBINOS-BACKOFFICE-PC',
-      eventTime: iso(-1795000),
-      ingestTime: iso(-1794350), // 650ms ingest latency
-      sourceProvider: 'unifi_ids',
-      ruleId: 'UNIFI-SURICATA-2029811',
-      ruleName: 'ET MALWARE Suspicious SMB Lateral Probe Toward POS Subnet',
-      severity: 'high',
-      confidence: 0.93,
-      category: 'lateral_movement',
-      summary: 'UniFi IDS detected SMBv2 connection burst from GAMBINOS-BACKOFFICE-PC (192.168.1.140) toward KwickPOS c1 (192.168.1.101:445).',
-      network: {
-        srcIp: '192.168.1.140',
-        srcPort: 54112,
-        dstIp: '192.168.1.101',
-        dstPort: 445,
-        proto: 'TCP',
-        unifiSiteId: gambinosSiteId,
-        vlanId: 1,
-        switchId: 'sw-us48poe500w-gmb',
-        switchPort: 8,
-        blocked: true
-      },
-      rawEvidence: {
-        cef: 'CEF:0|Ubiquiti|UniFi Network|8.6.9|2029811|ET MALWARE SMB Lateral Probe|8|src=192.168.1.140 dst=192.168.1.101 dpt=445 act=blocked'
-      },
-      incidentId: 'inc-gmb-1001',
-      evidencePointer: 's3://apex-soc-evidence/c-gambinos/det-gmb-002.json'
-    };
-
-    // Historical detection on 192.168.1.188 at T-4h (attributed to contractor-win-laptop AA:BB:CC:11:22:01, NOT shift-lead-ipad AA:BB:CC:11:22:99)
-    const det3: SecurityDetection = {
-      id: 'det-gmb-003',
-      eventId: 'evt-gmb-dhcp-hist-003',
-      idempotencyKey: 'idem-gmb-dhcp-hist-003',
-      orgId,
-      clientId: 'c-gambinos',
-      clientName: 'Gambinos',
-      siteId: gambinosSiteId,
-      deviceName: 'contractor-win-laptop (AA:BB:CC:11:22:01)',
-      eventTime: iso(-3600000 * 4), // T-4h (falls inside Window 1: T-6h..T-2h)
-      ingestTime: iso(-3600000 * 4 + 490),
-      sourceProvider: 'unifi_syslog',
-      ruleId: 'UNIFI-DNS-TI-401',
-      ruleName: 'Suspicious Dynamic DNS Beacon on Guest VLAN',
-      severity: 'medium',
-      confidence: 0.88,
-      category: 'network_ids',
-      summary: 'Guest client 192.168.1.188 (bound at event_time to MAC AA:BB:CC:11:22:01 contractor-win-laptop) queried known DGA domain.',
-      network: {
-        srcIp: '192.168.1.188',
-        dstIp: '185.199.108.153',
-        dstPort: 53,
-        proto: 'UDP',
-        domain: 'xk99-c2-sync.duckdns.org',
-        unifiSiteId: gambinosSiteId,
-        unifiClientId: 'unifi-dhcp-old-188',
-        vlanId: 20,
-        apId: 'ap-gmb-dining-u6pro',
-        ssid: 'Gambinos-Guest',
-        blocked: true
-      },
-      rawEvidence: {
-        resolvedTemporalIdentity: 'obs-gmb-dhcp-old-188',
-        resolvedMacAtEventTime: 'AA:BB:CC:11:22:01',
-        note: 'Temporal join prevented false attribution to current lease holder shift-lead-ipad (AA:BB:CC:11:22:99)'
-      }
-    };
-
-    this.securityDetections.set(det1.id, det1);
-    this.securityDetections.set(det2.id, det2);
-    this.securityDetections.set(det3.id, det3);
-
-    // Seed Security Incident correlated from det1 + det2 and linked to PSA Ticket
-    const secTicketId = 'tick-sec-1002';
-    if (!this.tickets.has(secTicketId)) {
-      this.tickets.set(secTicketId, {
-        id: secTicketId,
-        ticketNumber: 'TICK-1002',
-        title: '[SOC CRITICAL] Recovery Inhibition + SMB Lateral Probe on GAMBINOS-BACKOFFICE-PC',
-        description: 'Correlated Endpoint EDR (vssadmin shadow delete blocked) + UniFi IDS (SMB probe toward KwickPOS c1 192.168.1.101). PAX A35 terminals and US48PoE500W Port 43 are protected by Action Broker safety lock.',
-        clientId: 'c-gambinos',
-        clientName: 'Gambinos',
-        deviceId: 'dev-gambinos-bo-pc',
-        deviceName: 'GAMBINOS-BACKOFFICE-PC',
-        priority: 'urgent',
-        status: 'in_progress',
-        category: 'Security',
-        assignedTech: 'Chief MSP Operator',
-        createdAt: iso(-1799000),
-        updatedAt: iso(-1794000),
-        slaDueDate: iso(3600000),
-        slaBreached: false,
-        comments: [
-          {
-            id: uuidv4(),
-            author: 'Apex SOC Correlation Engine',
-            authorRole: 'ai_copilot',
-            timestamp: iso(-1794000),
-            content: 'Auto-correlated 2 detections (APEX-EDR-1001 + UNIFI-SURICATA-2029811) within 5s window. Action Broker queued host isolation for GAMBINOS-BACKOFFICE-PC while protecting KwickPOS c1-c5 and PAX A35 payment terminals.',
-            isInternal: true
-          }
-        ],
-        timeEntries: [],
-        aiSuggestedFix: 'Approve Action act-gmb-isolate-bo to isolate GAMBINOS-BACKOFFICE-PC (Port 8) while leaving US48PoE500W Port 43 and KwickPOS untouched.'
-      });
-    }
-
-    const inc1: SecurityIncident = {
-      id: 'inc-gmb-1001',
-      incidentNumber: 'INC-2026-1001',
-      orgId,
-      clientId: 'c-gambinos',
-      clientName: 'Gambinos',
-      siteId: gambinosSiteId,
-      siteName: 'Gambinos Main Store',
-      deviceId: 'dev-gambinos-bo-pc',
-      deviceName: 'GAMBINOS-BACKOFFICE-PC',
-      title: 'Ransomware Precursor: Shadow Copy Deletion Blocked + SMB Lateral Probe toward KwickPOS',
-      summary: 'Endpoint reflex sensor killed vssadmin.exe shadow deletion on GAMBINOS-BACKOFFICE-PC (192.168.1.140) 5 seconds before UniFi IDS blocked an SMB lateral probe toward KwickPOS controller c1 (192.168.1.101).',
-      severity: 'critical',
-      category: 'recovery_inhibition',
-      status: 'containment_pending',
-      confidence: 0.99,
-      detectionIds: ['det-gmb-001', 'det-gmb-002'],
-      ticketId: secTicketId,
-      copilotCaseUrl: 'https://soc.apexmsp.app/cases/INC-2026-1001',
-      velociraptorHuntId: 'H.GAMBINOS.20261025.01',
-      wazuhAlertIds: ['1729891001.4412', '1729891006.8819'],
-      assetCriticality: 'standard',
-      containmentState: 'requested',
-      firstEventTime: iso(-1800000),
-      lastEventTime: iso(-1795000),
-      ingestLatencyMs: 735,
-      createdAt: iso(-1799000),
-      updatedAt: iso(-1794000)
-    };
-    this.securityIncidents.set(inc1.id, inc1);
-
-    // Seed Action Broker records:
-    // 1) Pending approval to isolate GAMBINOS-BACKOFFICE-PC (Workstation on dedicated Port 8)
-    // 2) Blocked action demonstrating Protected Asset Lock on KwickPOS / PAX A35 shared Port 43
-    const act1: SecurityAction = {
-      id: 'act-gmb-isolate-bo',
-      orgId,
-      clientId: 'c-gambinos',
-      clientName: 'Gambinos',
-      siteId: gambinosSiteId,
-      incidentId: 'inc-gmb-1001',
-      targetDeviceId: 'dev-gambinos-bo-pc',
-      targetDeviceName: 'GAMBINOS-BACKOFFICE-PC',
-      targetUnifiClientMac: 'F8:B1:56:9A:44:12',
-      actionType: 'isolate_host',
-      reason: 'Isolate backoffice workstation after blocked vssadmin shadow copy deletion and SMB lateral probe toward KwickPOS c1',
-      requestedBy: 'Apex SOC Correlation Engine',
-      requestedAt: iso(-1790000),
-      requiresHumanApproval: true,
-      expiresAt: iso(3600000 * 4),
-      policyVersion: 'v2026.10.2',
-      status: 'pending_approval',
-      payload: {
-        deviceId: 'dev-gambinos-bo-pc',
-        switchId: 'sw-us48poe500w-gmb',
-        switchPort: 8,
-        attachmentType: 'confirmed_direct',
-        allowManagementPlaneOnly: true
-      }
-    };
-
-    const act2: SecurityAction = {
-      id: 'act-gmb-blocked-port43',
-      orgId,
-      clientId: 'c-gambinos',
-      clientName: 'Gambinos',
-      siteId: gambinosSiteId,
-      incidentId: 'inc-gmb-1001',
-      targetDeviceId: 'dev-gambinos-pos-ctrl',
-      targetDeviceName: 'GAMBINOS-KWICKPOS-C1',
-      targetUnifiClientMac: '24:5E:BE:41:10:01',
-      actionType: 'unifi_block_client',
-      reason: 'Automated containment test against SMB target 192.168.1.101 (KwickPOS c1 on US48PoE500W Port 43)',
-      requestedBy: 'Automated Playbook Dry-Run',
-      requestedAt: iso(-1785000),
-      requiresHumanApproval: true,
-      expiresAt: iso(3600000 * 2),
-      policyVersion: 'v2026.10.2',
-      status: 'blocked_protected_asset',
-      payload: {
-        switchId: 'sw-us48poe500w-gmb',
-        switchPort: 43,
-        portMacCount: 5,
-        deviceRole: 'pos_controller_candidate'
-      },
-      error: 'PROTECTED ASSET SAFETY LOCK: Target 24:5E:BE:41:10:01 (KwickPOS c1) is a protected POS asset AND resides on shared switch port US48PoE500W:43 (5 MACs attached including PAX A35 payment terminals .156, .173, .190). Auto-containment is strictly prohibited.'
-    };
-
-    this.securityActions.set(act1.id, act1);
-    this.securityActions.set(act2.id, act2);
   }
 
-  /**
-   * Automatically hydrates/merges live UniFi snapshot data from
-   * /Users/dev/apexmsp/fixtures/unifi/gambinos-live-snapshot.json or all-sites-capability-matrix.json
-   * if present on disk.
-   */
   public hydrateUnifiFixtures(): { hydratedFiles: string[]; observationsMerged: number; sitesMerged: number } {
-    const hydratedFiles: string[] = [];
-    let observationsMerged = 0;
-    let sitesMerged = 0;
-    const orgId = Array.from(this.orgs.values())[0]?.id || '00000000-0000-0000-0000-000000000001';
-    const fixtureDir = '/Users/dev/apexmsp/fixtures/unifi';
-
-    try {
-      const matrixPath = path.join(fixtureDir, 'all-sites-capability-matrix.json');
-      if (fs.existsSync(matrixPath)) {
-        const raw = JSON.parse(fs.readFileSync(matrixPath, 'utf8'));
-        const sitesList = Array.isArray(raw) ? raw : Array.isArray(raw.sites) ? raw.sites : [];
-        for (const s of sitesList) {
-          if (s && s.siteId) {
-            const existing = this.unifiSites.get(s.siteId);
-            this.unifiSites.set(s.siteId, { ...(existing || {}), ...s });
-            sitesMerged++;
-          }
-        }
-        hydratedFiles.push(matrixPath);
-      }
-
-      const gambinosPath = path.join(fixtureDir, 'gambinos-live-snapshot.json');
-      if (fs.existsSync(gambinosPath)) {
-        const snap = JSON.parse(fs.readFileSync(gambinosPath, 'utf8'));
-        const siteId = snap.siteId || '88f7af54-98f8-306a-a1c7-c9349722b1f6';
-
-        if (snap.capability && typeof snap.capability === 'object') {
-          const existing = this.unifiSites.get(siteId);
-          this.unifiSites.set(siteId, { ...(existing || {}), ...snap.capability, siteId, lastSyncedAt: new Date().toISOString() });
-          sitesMerged++;
-        }
-
-        const obsList = Array.isArray(snap.observations)
-          ? snap.observations
-          : Array.isArray(snap.clients)
-            ? snap.clients
-            : [];
-
-        for (const item of obsList) {
-          if (!item) continue;
-          const mac = String(item.macAddress || item.mac || '').toUpperCase();
-          if (!mac) continue;
-          const id = item.id || `obs-live-${mac.replace(/[^A-F0-9]/g, '').toLowerCase()}`;
-          const existing = this.identityObservations.get(id);
-          const merged: TemporalIdentityObservation = {
-            id,
-            orgId: item.orgId || orgId,
-            clientId: item.clientId || 'c-gambinos',
-            siteId: item.siteId || siteId,
-            provider: item.provider || 'unifi_cloud_sitemanager',
-            providerClientId: item.providerClientId || item.id || id,
-            macAddress: mac,
-            ipAddress: item.ipAddress || item.ip || existing?.ipAddress,
-            hostname: item.hostname || item.name || existing?.hostname,
-            alias: item.alias || item.name || existing?.alias,
-            deviceRole: item.deviceRole || existing?.deviceRole || 'unknown',
-            serialNumber: item.serialNumber || existing?.serialNumber,
-            isWired: typeof item.isWired === 'boolean' ? item.isWired : (existing?.isWired ?? true),
-            switchId: item.switchId || existing?.switchId,
-            switchName: item.switchName || existing?.switchName,
-            switchMac: item.switchMac || existing?.switchMac,
-            switchPort: typeof item.switchPort === 'number' ? item.switchPort : existing?.switchPort,
-            attachmentType: item.attachmentType || existing?.attachmentType || 'inferred',
-            portMacCount: typeof item.portMacCount === 'number' ? item.portMacCount : (existing?.portMacCount ?? 1),
-            apId: item.apId || existing?.apId,
-            apName: item.apName || existing?.apName,
-            ssid: item.ssid || existing?.ssid,
-            vlanId: typeof item.vlanId === 'number' ? item.vlanId : (existing?.vlanId ?? 1),
-            networkName: item.networkName || existing?.networkName || 'Default',
-            rssi: typeof item.rssi === 'number' ? item.rssi : existing?.rssi,
-            dhcpReserved: typeof item.dhcpReserved === 'boolean' ? item.dhcpReserved : (existing?.dhcpReserved ?? false),
-            isProtectedAsset: typeof item.isProtectedAsset === 'boolean' ? item.isProtectedAsset : (existing?.isProtectedAsset ?? false),
-            confidence: typeof item.confidence === 'number' ? item.confidence : (existing?.confidence ?? 0.95),
-            evidenceSource: item.evidenceSource || 'gambinos-live-snapshot.json',
-            observedFrom: item.observedFrom || existing?.observedFrom || new Date(Date.now() - 3600000).toISOString(),
-            observedTo: item.observedTo || new Date().toISOString(),
-            managedDeviceId: item.managedDeviceId || existing?.managedDeviceId
-          };
-          this.identityObservations.set(id, merged);
-          observationsMerged++;
-        }
-        hydratedFiles.push(gambinosPath);
-      }
-    } catch (e) {
-      console.warn('[store] hydrateUnifiFixtures warning:', (e as Error).message);
-    }
-
-    return { hydratedFiles, observationsMerged, sitesMerged };
+    return { hydratedFiles: [], observationsMerged: 0, sitesMerged: 0 };
   }
 
   public seedBackupDefaults() {
     const orgId = Array.from(this.orgs.values())[0]?.id || '00000000-0000-0000-0000-000000000001';
     const now = Date.now();
     const iso = (msOffset = 0) => new Date(now + msOffset).toISOString();
-
-    // Ensure ACME-EXEC-PC (dev-win-01) and Brandons-MacBook-Pro.local (dev-mac-7c8a43) exist in devices map
-    if (!this.devices.has('dev-win-01')) {
-      this.devices.set('dev-win-01', {
-        id: 'dev-win-01',
-        name: 'ACME-EXEC-PC',
-        hostname: 'acme-exec-pc.apexmsp.local',
-        clientId: 'c-brandon-ray',
-        clientName: 'Brandon Ray',
-        siteId: 'Primary',
-        siteName: 'Primary',
-        os: 'windows',
-        osVersion: 'Windows 11 Pro 24H2',
-        serialNumber: 'WIN-EXEC-00192',
-        ipAddress: '192.168.4.145',
-        publicIp: '98.42.110.14',
-        macAddress: 'D8:BB:C1:44:01:45',
-        health: 'healthy',
-        metrics: { cpuUsage: 18, ramUsage: 52, diskUsage: 46, uptimeDays: 14.3, lastSeen: iso(-10000) },
-        rustDeskId: '719000145',
-        rustDeskOnline: true,
-        agentVersion: '2.0.4',
-        arch: 'amd64',
-        mdmEnrolled: true,
-        encryptionStatus: 'encrypted',
-        patchCompliance: 100,
-        pendingPatchesCount: 0,
-        installedApps: [],
-        services: [],
-        eventLogs: [],
-        tags: ['executive', 'bare-metal-protected', 'vss-enabled'],
-        loggedInUser: 'APEX\\brandon',
-        domain: 'APEXMSP.LOCAL',
-        createdAt: iso(-86400000 * 60),
-        updatedAt: iso(-10000)
-      });
-    }
-
-    if (!this.devices.has('dev-mac-7c8a43')) {
-      this.devices.set('dev-mac-7c8a43', {
-        id: 'dev-mac-7c8a43',
-        name: 'Brandons-MacBook-Pro.local',
-        hostname: 'Brandons-MacBook-Pro.local',
-        clientId: 'c-brandon-ray',
-        clientName: 'Brandon Ray',
-        siteId: 'Primary',
-        siteName: 'Primary',
-        os: 'macos',
-        osVersion: 'macOS Sequoia 15.3.1',
-        serialNumber: 'C02X90887C8A',
-        ipAddress: '192.168.4.122',
-        publicIp: '98.42.110.14',
-        macAddress: 'F0:18:98:7C:8A:43',
-        health: 'healthy',
-        metrics: { cpuUsage: 14, ramUsage: 48, diskUsage: 41, uptimeDays: 21.8, lastSeen: iso(-8000) },
-        rustDeskId: '719000122',
-        rustDeskOnline: true,
-        agentVersion: '2.0.4',
-        arch: 'arm64',
-        mdmEnrolled: true,
-        encryptionStatus: 'encrypted',
-        patchCompliance: 100,
-        pendingPatchesCount: 0,
-        installedApps: [],
-        services: [],
-        eventLogs: [],
-        tags: ['executive', 'apfs-snapshot', 'site-collector'],
-        loggedInUser: 'dev',
-        createdAt: iso(-86400000 * 60),
-        updatedAt: iso(-8000)
-      });
-    }
-
-    // 1. Seed 2 Backup Storage Vaults (UniFi UNAS Pro + Backblaze B2)
     const TB = 1024 ** 4;
-    const GB = 1024 ** 3;
-    const MB = 1024 ** 2;
 
     const vaultUnifi: BackupStorageVault = {
       id: 'vault-unifi-nas-01',
@@ -2209,16 +657,14 @@ class DataStore {
       chunkSplitter: 'DYNAMIC-4M-BUZHASH',
       compressionAlgorithm: 'zstd',
       capacityBytes: Math.round(32 * TB),
-      logicalProtectedBytes: Math.round(4.85 * TB),
-      storedDeduplicatedBytes: Math.round(1.18 * TB),
-      dedupRatio: 4.11,
+      logicalProtectedBytes: 0,
+      storedDeduplicatedBytes: 0,
+      dedupRatio: 1,
       online: true,
-      connectedAgentsCount: 7,
-      totalSnapshotsCount: 6,
-      lastSyncToCloudAt: iso(-1800000),
-      lastVerifiedAt: iso(-3600000),
+      connectedAgentsCount: 0,
+      totalSnapshotsCount: 0,
       createdAt: iso(-86400000 * 60),
-      updatedAt: iso(-300000)
+      updatedAt: iso(0)
     };
 
     const vaultB2: BackupStorageVault = {
@@ -2240,22 +686,19 @@ class DataStore {
       chunkSplitter: 'DYNAMIC-4M-BUZHASH',
       compressionAlgorithm: 'zstd',
       capacityBytes: Math.round(100 * TB),
-      logicalProtectedBytes: Math.round(4.85 * TB),
-      storedDeduplicatedBytes: Math.round(1.18 * TB),
-      dedupRatio: 4.11,
+      logicalProtectedBytes: 0,
+      storedDeduplicatedBytes: 0,
+      dedupRatio: 1,
       online: true,
-      connectedAgentsCount: 7,
-      totalSnapshotsCount: 6,
-      lastSyncToCloudAt: iso(-1800000),
-      lastVerifiedAt: iso(-3600000),
+      connectedAgentsCount: 0,
+      totalSnapshotsCount: 0,
       createdAt: iso(-86400000 * 60),
-      updatedAt: iso(-1800000)
+      updatedAt: iso(0)
     };
 
     this.backupVaults.set(vaultUnifi.id, vaultUnifi);
     this.backupVaults.set(vaultB2.id, vaultB2);
 
-    // 2. Seed 3 Backup Policies (Phase 1 File Dedup, Phase 2 VSS/APFS Snapshot, Phase 3 Bare-Metal Image)
     const policies: BackupPolicy[] = [
       {
         id: 'pol-backup-files-dedup',
@@ -2304,7 +747,7 @@ class DataStore {
         },
         immutableLockDays: 30,
         autoVerifyWeekly: true,
-        assignedDeviceIds: ['dev-mac-7c8a43', 'dev-gambinos-bo-pc', 'dev-raytreat-clin-01'],
+        assignedDeviceIds: [],
         updatedAt: iso(-3600000 * 6)
       },
       {
@@ -2351,7 +794,7 @@ class DataStore {
         },
         immutableLockDays: 30,
         autoVerifyWeekly: true,
-        assignedDeviceIds: ['dev-win-01', 'dev-gambinos-pos-ctrl', 'dev-tbi-pos-srv', 'dev-mac-7c8a43'],
+        assignedDeviceIds: [],
         updatedAt: iso(-3600000 * 4)
       },
       {
@@ -2395,7 +838,7 @@ class DataStore {
         },
         immutableLockDays: 30,
         autoVerifyWeekly: true,
-        assignedDeviceIds: ['dev-win-01', 'dev-muni-cad-01', 'dev-tbi-pos-srv'],
+        assignedDeviceIds: [],
         updatedAt: iso(-3600000 * 2)
       }
     ];
@@ -2404,377 +847,7 @@ class DataStore {
       this.backupPolicies.set(p.id, p);
     }
 
-    // 3. Seed 6 Realistic Snapshots across the seeded devices covering all 3 modes
-    const immutableDate = iso(86400000 * 30);
-    const snapshots: BackupSnapshot[] = [
-      {
-        id: 'snap-win01-baremetal-001',
-        manifestId: 'k8f92a10c4b3e7d1902a5f6c8d1e4b3a',
-        orgId,
-        clientId: 'c-brandon-ray',
-        clientName: 'Brandon Ray',
-        siteId: 'Primary',
-        deviceId: 'dev-win-01',
-        deviceName: 'ACME-EXEC-PC',
-        os: 'windows',
-        policyId: 'pol-backup-baremetal',
-        policyName: 'Critical Server & Executive Bare-Metal Image (VHDX + EFI/GPT)',
-        vaultId: 'vault-unifi-nas-01',
-        vaultName: vaultUnifi.name,
-        mode: 'bare_metal_image',
-        status: 'verified',
-        logicalBytes: Math.round(482 * GB),
-        storedDeduplicatedBytes: Math.round(112.4 * GB),
-        dedupSavingsPct: 76.7,
-        fileCount: 314820,
-        dirCount: 41205,
-        vssShadowCopyUsed: true,
-        vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy14',
-        partitionLayoutCaptured: true,
-        bootEfiCaptured: true,
-        replicatedToB2: true,
-        immutableUntil: immutableDate,
-        verificationStatus: 'verified_ok',
-        sha256RootHash: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-        startedAt: iso(-3600000 * 5),
-        completedAt: iso(-3600000 * 5 + 412000),
-        durationMs: 412000,
-        filesPreview: [
-          { path: '/efi-system-partition/EFI/Microsoft/Boot/bootmgfw.efi', sizeBytes: 1642496, modTime: iso(-86400000 * 12), type: 'file', sha256: '4a8b9c112233445566778899aabbccddeeff00112233445566778899aabbccdd', chunksCount: 1 },
-          { path: '/partition-table-gpt.json', sizeBytes: 18432, modTime: iso(-3600000 * 5), type: 'partition_table', sha256: '7c9d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d', chunksCount: 1 },
-          { path: '/volumes/C_OS_NVMe0n1p3.vhdx.kopia-blocks', sizeBytes: Math.round(468 * GB), modTime: iso(-3600000 * 5), type: 'vhdx_block', sha256: 'e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70', chunksCount: 119808 },
-          { path: 'C:/Users/brandon/Documents/Q4-Board-Financial-Model.xlsx', sizeBytes: 14829104, modTime: iso(-3600000 * 7), type: 'file', sha256: '3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a', chunksCount: 4 },
-          { path: 'C:/Users/brandon/Desktop/ApexMSP-Master-Architecture.pdf', sizeBytes: 8421376, modTime: iso(-3600000 * 12), type: 'file', sha256: '6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e', chunksCount: 3 }
-        ]
-      },
-      {
-        id: 'snap-mac01-apfs-002',
-        manifestId: 'k3c71b88e2a9f40156d8c3a2b1e0f9d4',
-        orgId,
-        clientId: 'c-brandon-ray',
-        clientName: 'Brandon Ray',
-        siteId: 'Primary',
-        deviceId: 'dev-mac-7c8a43',
-        deviceName: 'Brandons-MacBook-Pro.local',
-        os: 'macos',
-        policyId: 'pol-backup-vss-snapshot',
-        policyName: 'Executive & POS Atomic Volume Snapshot (VSS / APFS)',
-        vaultId: 'vault-unifi-nas-01',
-        vaultName: vaultUnifi.name,
-        mode: 'volume_snapshot_vss',
-        status: 'verified',
-        logicalBytes: Math.round(318 * GB),
-        storedDeduplicatedBytes: Math.round(78.2 * GB),
-        dedupSavingsPct: 75.4,
-        fileCount: 482910,
-        dirCount: 64110,
-        vssShadowCopyUsed: true,
-        vssShadowCopyPath: 'com.apple.TimeMachine.2026-10-30-160001.local@/dev/disk3s5',
-        partitionLayoutCaptured: true,
-        bootEfiCaptured: false,
-        replicatedToB2: true,
-        immutableUntil: immutableDate,
-        verificationStatus: 'verified_ok',
-        sha256RootHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
-        startedAt: iso(-3600000 * 3),
-        completedAt: iso(-3600000 * 3 + 168000),
-        durationMs: 168000,
-        filesPreview: [
-          { path: '/Users/dev/Development/openmsp-workspace', sizeBytes: 184549376, modTime: iso(-3600000 * 3), type: 'dir', chunksCount: 48 },
-          { path: '/Users/dev/.ssh/config', sizeBytes: 2048, modTime: iso(-86400000 * 10), type: 'file', sha256: '11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff', chunksCount: 1 },
-          { path: '/Users/dev/Documents/ApexMSP-Contracts-2026.pdf', sizeBytes: 6291456, modTime: iso(-86400000 * 2), type: 'file', sha256: 'ffeeddccbbaa00998877665544332211ffeeddccbbaa00998877665544332211', chunksCount: 2 }
-        ]
-      },
-      {
-        id: 'snap-gambinos-pos-003',
-        manifestId: 'k9d44e12a7c8b3091f2e5d6c7b8a9012',
-        orgId,
-        clientId: 'c-gambinos',
-        clientName: 'Gambinos',
-        siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-        deviceId: 'dev-gambinos-pos-ctrl',
-        deviceName: 'GAMBINOS-KWICKPOS-C1',
-        os: 'linux',
-        policyId: 'pol-backup-vss-snapshot',
-        policyName: 'Executive & POS Atomic Volume Snapshot (VSS / APFS)',
-        vaultId: 'vault-unifi-nas-01',
-        vaultName: vaultUnifi.name,
-        mode: 'volume_snapshot_vss',
-        status: 'verified',
-        logicalBytes: Math.round(145 * GB),
-        storedDeduplicatedBytes: Math.round(34.8 * GB),
-        dedupSavingsPct: 76.0,
-        fileCount: 192400,
-        dirCount: 18920,
-        vssShadowCopyUsed: true,
-        vssShadowCopyPath: '/dev/mapper/vg_kwickpos-lv_root_snap_20261030',
-        partitionLayoutCaptured: true,
-        bootEfiCaptured: true,
-        replicatedToB2: true,
-        immutableUntil: immutableDate,
-        verificationStatus: 'verified_ok',
-        sha256RootHash: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8',
-        startedAt: iso(-3600000 * 2),
-        completedAt: iso(-3600000 * 2 + 94000),
-        durationMs: 94000,
-        filesPreview: [
-          { path: '/var/lib/kwickpos/orders_2026_10.ibd', sizeBytes: 4294967296, modTime: iso(-3600000 * 2), type: 'file', sha256: 'aa11bb22cc33dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900', chunksCount: 1024 },
-          { path: '/etc/kwickpos/pax_terminals_sitemanager.json', sizeBytes: 16384, modTime: iso(-86400000 * 5), type: 'file', sha256: 'bb22cc33dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900aa11', chunksCount: 1 },
-          { path: '/partition-table-lvm.json', sizeBytes: 12288, modTime: iso(-3600000 * 2), type: 'partition_table', chunksCount: 1 }
-        ]
-      },
-      {
-        id: 'snap-gambinos-bopc-004',
-        manifestId: 'k7b19c04d5e6f8123a4b5c6d7e8f901a',
-        orgId,
-        clientId: 'c-gambinos',
-        clientName: 'Gambinos',
-        siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-        deviceId: 'dev-gambinos-bo-pc',
-        deviceName: 'GAMBINOS-BACKOFFICE-PC',
-        os: 'windows',
-        policyId: 'pol-backup-files-dedup',
-        policyName: 'Workstation File & Object Dedup (Hourly -> UniFi NAS + B2)',
-        vaultId: 'vault-unifi-nas-01',
-        vaultName: vaultUnifi.name,
-        mode: 'file_object_dedup',
-        status: 'verified',
-        logicalBytes: Math.round(92.5 * GB),
-        storedDeduplicatedBytes: Math.round(28.1 * GB),
-        dedupSavingsPct: 69.6,
-        fileCount: 84310,
-        dirCount: 9120,
-        vssShadowCopyUsed: true,
-        vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy9',
-        partitionLayoutCaptured: false,
-        bootEfiCaptured: false,
-        replicatedToB2: true,
-        immutableUntil: immutableDate,
-        verificationStatus: 'verified_ok',
-        sha256RootHash: 'cd2eb0837c9b4c962c22d2ff8b5441b7b45805887f051d39bf133b583baf6860',
-        startedAt: iso(-3600000 * 1),
-        completedAt: iso(-3600000 * 1 + 52000),
-        durationMs: 52000,
-        filesPreview: [
-          { path: 'C:/QuickBooksData/Gambinos_Store1_2026.QBW', sizeBytes: 854589440, modTime: iso(-3600000 * 1), type: 'file', sha256: 'cc33dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900aa11bb22', chunksCount: 204 },
-          { path: 'C:/Users/store_mgr/Documents/Weekly_Payroll_Oct2026.xlsx', sizeBytes: 4194304, modTime: iso(-3600000 * 4), type: 'file', sha256: 'dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900aa11bb22cc33', chunksCount: 1 }
-        ]
-      },
-      {
-        id: 'snap-muni-cad-005',
-        manifestId: 'k5a88f31c9d0e2471b3c4d5e6f7a8b9c',
-        orgId,
-        clientId: 'c-municipality',
-        clientName: 'Municipal Client (City Hall & Public Safety)',
-        siteId: 'muni-city-hall',
-        deviceId: 'dev-muni-cad-01',
-        deviceName: 'MUNI-DISPATCH-CAD-01',
-        os: 'windows',
-        policyId: 'pol-backup-baremetal',
-        policyName: 'Critical Server & Executive Bare-Metal Image (VHDX + EFI/GPT)',
-        vaultId: 'vault-unifi-nas-01',
-        vaultName: vaultUnifi.name,
-        mode: 'bare_metal_image',
-        status: 'verified',
-        logicalBytes: Math.round(1.24 * TB),
-        storedDeduplicatedBytes: Math.round(284 * GB),
-        dedupSavingsPct: 77.6,
-        fileCount: 612900,
-        dirCount: 58400,
-        vssShadowCopyUsed: true,
-        vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy22',
-        partitionLayoutCaptured: true,
-        bootEfiCaptured: true,
-        replicatedToB2: true,
-        immutableUntil: immutableDate,
-        verificationStatus: 'verified_ok',
-        sha256RootHash: 'ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f',
-        startedAt: iso(-3600000 * 6),
-        completedAt: iso(-3600000 * 6 + 685000),
-        durationMs: 685000,
-        filesPreview: [
-          { path: '/efi-system-partition/EFI/Microsoft/Boot/BCD', sizeBytes: 65536, modTime: iso(-86400000 * 30), type: 'file', chunksCount: 1 },
-          { path: '/partition-table-gpt.json', sizeBytes: 24576, modTime: iso(-3600000 * 6), type: 'partition_table', chunksCount: 1 },
-          { path: '/volumes/C_Server2022_Datacenter.vhdx.kopia-blocks', sizeBytes: Math.round(420 * GB), modTime: iso(-3600000 * 6), type: 'vhdx_block', chunksCount: 107520 },
-          { path: '/volumes/D_CAD_Database_CJIS.vhdx.kopia-blocks', sizeBytes: Math.round(820 * GB), modTime: iso(-3600000 * 6), type: 'vhdx_block', chunksCount: 209920 }
-        ]
-      },
-      {
-        id: 'snap-tbi-pos-006',
-        manifestId: 'k2e61d90f4a8c7231e5f6a7b8c9d0e1f',
-        orgId,
-        clientId: 'c-tbi',
-        clientName: 'TBI',
-        siteId: 'TBI-Main',
-        deviceId: 'dev-tbi-pos-srv',
-        deviceName: 'TBI-POS-MASTER',
-        os: 'windows',
-        policyId: 'pol-backup-baremetal',
-        policyName: 'Critical Server & Executive Bare-Metal Image (VHDX + EFI/GPT)',
-        vaultId: 'vault-unifi-nas-01',
-        vaultName: vaultUnifi.name,
-        mode: 'bare_metal_image',
-        status: 'verified',
-        logicalBytes: Math.round(380 * GB),
-        storedDeduplicatedBytes: Math.round(98.5 * GB),
-        dedupSavingsPct: 74.1,
-        fileCount: 245100,
-        dirCount: 29400,
-        vssShadowCopyUsed: true,
-        vssShadowCopyPath: '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy11',
-        partitionLayoutCaptured: true,
-        bootEfiCaptured: true,
-        replicatedToB2: true,
-        immutableUntil: immutableDate,
-        verificationStatus: 'verified_ok',
-        sha256RootHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',
-        startedAt: iso(-3600000 * 4),
-        completedAt: iso(-3600000 * 4 + 310000),
-        durationMs: 310000,
-        filesPreview: [
-          { path: '/partition-table-gpt.json', sizeBytes: 16384, modTime: iso(-3600000 * 4), type: 'partition_table', chunksCount: 1 },
-          { path: '/volumes/C_TBI_POS_Master.vhdx.kopia-blocks', sizeBytes: Math.round(380 * GB), modTime: iso(-3600000 * 4), type: 'vhdx_block', chunksCount: 97280 },
-          { path: 'C:/POS/Database/TBI_Transactions_2026.mdf', sizeBytes: 12884901888, modTime: iso(-3600000 * 4), type: 'file', chunksCount: 3072 }
-        ]
-      }
-    ];
-
-    for (const s of snapshots) {
-      this.backupSnapshots.set(s.id, s);
-    }
-
-    // 4. Seed Backup Jobs
-    const jobs: BackupJob[] = [
-      {
-        id: 'job-bkp-1001',
-        jobNumber: 'BKP-1001',
-        orgId,
-        clientId: 'c-brandon-ray',
-        clientName: 'Brandon Ray',
-        deviceId: 'dev-win-01',
-        deviceName: 'ACME-EXEC-PC',
-        vaultId: 'vault-unifi-nas-01',
-        vaultName: vaultUnifi.name,
-        policyId: 'pol-backup-baremetal',
-        jobType: 'backup_bare_metal',
-        mode: 'bare_metal_image',
-        status: 'completed',
-        progressPct: 100,
-        transferRateMbps: 1840,
-        logicalBytesProcessed: Math.round(482 * GB),
-        deduplicatedBytesWritten: Math.round(14.2 * GB),
-        snapshotId: 'snap-win01-baremetal-001',
-        details: 'VSS atomic freeze + wbadmin VHDX block stream + EFI/GPT partition table captured and deduplicated via Dynamic-4M Buzhash (76.7% savings).',
-        startedAt: iso(-3600000 * 5),
-        completedAt: iso(-3600000 * 5 + 412000)
-      },
-      {
-        id: 'job-bkp-1002',
-        jobNumber: 'BKP-1002',
-        orgId,
-        clientId: 'c-gambinos',
-        clientName: 'Gambinos',
-        deviceId: 'dev-gambinos-pos-ctrl',
-        deviceName: 'GAMBINOS-KWICKPOS-C1',
-        vaultId: 'vault-unifi-nas-01',
-        vaultName: vaultUnifi.name,
-        policyId: 'pol-backup-vss-snapshot',
-        jobType: 'backup_full_snapshot',
-        mode: 'volume_snapshot_vss',
-        status: 'completed',
-        progressPct: 100,
-        transferRateMbps: 1290,
-        logicalBytesProcessed: Math.round(145 * GB),
-        deduplicatedBytesWritten: Math.round(3.8 * GB),
-        snapshotId: 'snap-gambinos-pos-003',
-        details: 'LVM atomic snapshot freeze of KwickPOS database & PAX configuration completed with zero POS transaction pause.',
-        startedAt: iso(-3600000 * 2),
-        completedAt: iso(-3600000 * 2 + 94000)
-      },
-      {
-        id: 'job-bkp-1003',
-        jobNumber: 'BKP-1003',
-        orgId,
-        clientId: 'c-brandon-ray',
-        clientName: 'Brandon Ray',
-        vaultId: 'vault-b2-cloud-01',
-        vaultName: vaultB2.name,
-        jobType: 'sync_unifi_to_b2',
-        mode: 'bare_metal_image',
-        status: 'completed',
-        progressPct: 100,
-        transferRateMbps: 920,
-        logicalBytesProcessed: Math.round(4.85 * TB),
-        deduplicatedBytesWritten: Math.round(18.6 * GB),
-        details: '3-2-1 replication from UniFi UNAS Pro (192.168.11.50) to Backblaze B2 (apexmsp-immutable-vault-prod) completed with COMPLIANCE Object Lock.',
-        startedAt: iso(-1920000),
-        completedAt: iso(-1800000)
-      }
-    ];
-    this.backupJobSeq = 1004;
-    for (const j of jobs) {
-      this.backupJobs.set(j.id, j);
-    }
-
-    // 5. Seed Bare-Metal Recovery Session (Ready for WinPE / Alpine Live ISO or Proxmox P2V instant boot)
-    const bmSession: BareMetalRecoverySession = {
-      id: 'bmr-session-001',
-      pairingCode: '849-204',
-      orgId,
-      clientId: 'c-brandon-ray',
-      clientName: 'Brandon Ray',
-      sourceDeviceId: 'dev-win-01',
-      sourceDeviceName: 'ACME-EXEC-PC',
-      sourceOs: 'windows',
-      snapshotId: 'snap-win01-baremetal-001',
-      manifestId: 'k8f92a10c4b3e7d1902a5f6c8d1e4b3a',
-      vaultId: 'vault-unifi-nas-01',
-      vaultEndpoint: 'https://backup-gw.apexmsp.app:51515',
-      targetHardwareProfile: 'proxmox_vm_p2v',
-      bootloaderType: 'uefi_gpt',
-      partitionLayoutSummary: 'GPT Disk 0 (512 GB NVMe): Partition 1 EFI System (260 MB FAT32) | Partition 2 MSR (16 MB) | Partition 3 Windows 11 Pro OS (510.8 GB NTFS) | Partition 4 WinRE (924 MB)',
-      injectVirtioDrivers: true,
-      status: 'awaiting_iso_boot',
-      progressPct: 0,
-      expiresAt: iso(3600000 * 12),
-      createdAt: iso(-1800000)
-    };
-    this.bareMetalSessions.set(bmSession.id, bmSession);
-
-    // 6. Seed BackupAgentReports for all seeded devices
-    for (const d of this.devices.values()) {
-      const devSnaps = snapshots.filter((s) => s.deviceId === d.id);
-      const latestSnap = devSnaps[0];
-      const isWin = d.os === 'windows';
-      const isMac = d.os === 'macos';
-      const isLin = d.os === 'linux';
-      const logical = latestSnap ? latestSnap.logicalBytes : Math.round(120 * GB);
-      const dedup = latestSnap ? latestSnap.storedDeduplicatedBytes : Math.round(31 * GB);
-
-      this.deviceBackupReports.set(d.id, {
-        kopiaInstalled: true,
-        kopiaVersion: '0.18.2',
-        kopiaBinaryPath: isWin
-          ? 'C:\\ProgramData\\ApexMSP\\bin\\kopia.exe'
-          : '/Library/Application Support/ApexMSP/bin/kopia',
-        kopiaSha256Verified: true,
-        repositoryConnected: true,
-        vaultEndpoint: 'https://backup-gw.apexmsp.app:51515',
-        appendOnlyMode: true,
-        vssAvailable: isWin,
-        apfsSnapshotAvailable: isMac,
-        lvmSnapshotAvailable: isLin,
-        lastSnapshotId: latestSnap?.id || 'snap-win01-baremetal-001',
-        lastSnapshotAt: latestSnap?.completedAt || iso(-3600000 * 2),
-        logicalBytesTotal: logical,
-        deduplicatedBytesTotal: dedup,
-        dedupRatio: Number((logical / Math.max(1, dedup)).toFixed(2)),
-        status: 'idle',
-        reportedAt: iso(-15000)
-      });
-    }
-
-    // 7. Ensure Vaultwarden BackBlaze B2 reference item is present in OpenMSP Vault
+    // Ensure Vaultwarden BackBlaze B2 reference item is present in OpenMSP Vault
     this.vaultItems.set('v-b2-apexbckup', {
       id: 'v-b2-apexbckup',
       clientId: 'c-brandon-ray',
@@ -2790,6 +863,191 @@ class DataStore {
       strengthScore: 98,
       lastModified: iso(0)
     });
+  }
+
+  public purgeSeededData(): void {
+    const seededDevices = [
+      'dev-gambinos-pos-ctrl',
+      'dev-gambinos-bo-pc',
+      'dev-muni-cad-01',
+      'dev-raytreat-clin-01',
+      'dev-tbi-pos-srv',
+      'dev-win-01'
+    ];
+    for (const id of seededDevices) {
+      this.devices.delete(id);
+      this.securityPostures.delete(id);
+      this.deviceBackupReports.delete(id);
+    }
+
+    // Remove any securityPostures generated by old defaultSensors seed loop
+    for (const [devId, posture] of this.securityPostures.entries()) {
+      const hasSeededWazuh = Array.isArray(posture?.sensors) && posture.sensors.some(
+        (s) => s.provider === 'wazuh' && s.version === '4.9.2' && s.signatureVersion === 'ruleset-2026.10'
+      );
+      if (hasSeededWazuh || !this.devices.has(devId)) {
+        this.securityPostures.delete(devId);
+        const dev = this.devices.get(devId);
+        if (dev && (dev as any).securityPosture) {
+          const dHasSeeded = Array.isArray((dev as any).securityPosture?.sensors) && (dev as any).securityPosture.sensors.some(
+            (s: any) => s.provider === 'wazuh' && s.version === '4.9.2' && s.signatureVersion === 'ruleset-2026.10'
+          );
+          if (dHasSeeded) {
+            delete (dev as any).securityPosture;
+            this.devices.set(devId, dev);
+          }
+        }
+      }
+    }
+
+    const seededTickets = [
+      'tick-001',
+      'tick-sec-1002',
+      'tick-cd29af2e',
+      'tick-8316df0a',
+      'tick-feb13507',
+      'tick-e30ae7c8'
+    ];
+    for (const id of seededTickets) {
+      this.tickets.delete(id);
+    }
+
+    for (const id of ['patch-kb5034441', 'patch-macos-15-3-1']) {
+      this.patches.delete(id);
+    }
+
+    this.vaultItems.delete('v-001');
+
+    const seededDetections = new Set([
+      'det-gmb-001',
+      'det-gmb-002',
+      'det-gmb-003',
+      'det-5bf5e96f',
+      'det-17d9d8f0',
+      'det-5c88286f',
+      'det-9ce84f3b'
+    ]);
+    for (const id of Array.from(this.securityDetections.keys())) {
+      if (seededDetections.has(id) || id.startsWith('det-gmb-') || id.startsWith('det-sim-')) {
+        this.securityDetections.delete(id);
+      }
+    }
+
+    for (const id of Array.from(this.securityIncidents.keys())) {
+      if (id === 'inc-gmb-1001' || id.startsWith('inc-gmb-') || id.startsWith('inc-sim-')) {
+        this.securityIncidents.delete(id);
+      }
+    }
+
+    for (const id of Array.from(this.securityActions.keys())) {
+      if (
+        id === 'act-gmb-isolate-bo' ||
+        id === 'act-gmb-blocked-port43' ||
+        id.startsWith('act-gmb-') ||
+        id.startsWith('act-sim-')
+      ) {
+        this.securityActions.delete(id);
+      }
+    }
+
+    for (const id of Array.from(this.identityObservations.keys())) {
+      if (
+        id.startsWith('obs-gmb-') ||
+        id.startsWith('obs-muni-') ||
+        id.startsWith('obs-live-') ||
+        id.startsWith('obs-sim-')
+      ) {
+        this.identityObservations.delete(id);
+      }
+    }
+
+    const seededUnifiSites = [
+      '88f7af54-98f8-306a-a1c7-c9349722b1f6',
+      'Primary',
+      'Raytreat-HQ',
+      'TBI-Main',
+      'SOS-Complex',
+      'muni-city-hall'
+    ];
+    for (const siteId of seededUnifiSites) {
+      this.unifiSites.delete(siteId);
+    }
+
+    const seededSnapshots = new Set([
+      'snap-win01-baremetal-001',
+      'snap-mac01-apfs-002',
+      'snap-gambinos-pos-003',
+      'snap-gambinos-bopc-004',
+      'snap-muni-cad-005',
+      'snap-tbi-pos-006'
+    ]);
+    for (const id of seededSnapshots) {
+      this.backupSnapshots.delete(id);
+    }
+
+    for (const id of ['job-bkp-1001', 'job-bkp-1002', 'job-bkp-1003']) {
+      this.backupJobs.delete(id);
+    }
+
+    this.bareMetalSessions.delete('bmr-session-001');
+
+    for (const [devId, report] of this.deviceBackupReports.entries()) {
+      if (!this.devices.has(devId) || (report.lastSnapshotId && seededSnapshots.has(report.lastSnapshotId))) {
+        this.deviceBackupReports.delete(devId);
+      }
+    }
+
+    for (const [polId, pol] of this.backupPolicies.entries()) {
+      if (Array.isArray(pol.assignedDeviceIds)) {
+        pol.assignedDeviceIds = pol.assignedDeviceIds.filter((id) => this.devices.has(id) && !seededDevices.includes(id));
+        this.backupPolicies.set(polId, pol);
+      }
+    }
+
+    // Recompute backupVaults metrics from real remaining snapshots and agent reports
+    const allSnaps = Array.from(this.backupSnapshots.values());
+    const logicalSum = allSnaps.reduce((acc, s) => acc + (s.logicalBytes || 0), 0);
+    const dedupSum = allSnaps.reduce((acc, s) => acc + (s.storedDeduplicatedBytes || 0), 0);
+    const connectedCount = Array.from(this.deviceBackupReports.values()).filter((r) => r.repositoryConnected).length;
+    for (const [vId, v] of this.backupVaults.entries()) {
+      const vaultSnaps = v.backendType === 'backblaze_b2'
+        ? allSnaps.filter((s) => s.replicatedToB2 || s.vaultId === v.id)
+        : allSnaps.filter((s) => s.vaultId === v.id);
+      v.totalSnapshotsCount = vaultSnaps.length;
+      v.logicalProtectedBytes = vaultSnaps.length > 0 ? logicalSum : 0;
+      v.storedDeduplicatedBytes = vaultSnaps.length > 0 ? dedupSum : 0;
+      v.dedupRatio = v.storedDeduplicatedBytes > 0 ? Number((v.logicalProtectedBytes / v.storedDeduplicatedBytes).toFixed(2)) : 1;
+      v.connectedAgentsCount = connectedCount;
+      if (vaultSnaps.length === 0) {
+        delete v.lastSyncToCloudAt;
+        delete v.lastVerifiedAt;
+      }
+      this.backupVaults.set(vId, v);
+    }
+
+    // Reset seeded automation counters if no real logs exist
+    if (this.automationLogs.length === 0) {
+      for (const [rId, rule] of this.automations.entries()) {
+        if ((rId === 'rule-spooler-restart' && rule.executionsCount === 3) || (rId === 'rule-disk-alert' && rule.executionsCount === 1)) {
+          rule.executionsCount = 0;
+          delete rule.lastExecuted;
+          this.automations.set(rId, rule);
+        }
+      }
+    }
+
+    // Recompute client device and open ticket counts from real remaining records
+    for (const [cId, client] of this.clients.entries()) {
+      const devCount = Array.from(this.devices.values()).filter((d) => d.clientId === cId).length;
+      const openTickCount = Array.from(this.tickets.values()).filter(
+        (t) => t.clientId === cId && t.status !== 'resolved' && t.status !== 'closed'
+      ).length;
+      client.totalDevices = devCount;
+      client.openTickets = openTickCount;
+      this.clients.set(cId, client);
+    }
+
+    this.persist();
   }
 
   public recordAudit(event: Omit<AuditEvent, 'id' | 'createdAt'>): AuditEvent {

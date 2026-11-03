@@ -168,16 +168,16 @@ export const SecuritySocView: React.FC = () => {
       const activeSite =
         sitesRes.sites.find(s => s.siteId === selectedSiteId)?.siteId ||
         sitesRes.sites[0]?.siteId ||
-        '88f7af54-98f8-306a-a1c7-c9349722b1f6';
+        '';
 
       const activeTimelineDevice =
         devRes.devices.find(d => d.deviceId === selectedTimelineDeviceId)?.deviceId ||
         devRes.devices[0]?.deviceId ||
-        selectedTimelineDeviceId;
+        '';
 
       const [topoRes, tlRes] = await Promise.all([
-        api.unifi.getSiteTopology(activeSite),
-        api.security.getDeviceTimeline(activeTimelineDevice)
+        activeSite ? api.unifi.getSiteTopology(activeSite) : Promise.resolve(null),
+        activeTimelineDevice ? api.security.getDeviceTimeline(activeTimelineDevice) : Promise.resolve(null)
       ]);
       setSiteTopology(topoRes);
       setTimelineData(tlRes);

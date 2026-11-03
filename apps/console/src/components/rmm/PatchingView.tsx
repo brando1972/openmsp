@@ -28,7 +28,15 @@ export const PatchingView: React.FC = () => {
 
         <div className="text-right text-xs">
           <div className="text-slate-500 font-medium">Fleet Patch Compliance</div>
-          <div className="text-2xl font-black text-emerald-600">92.4%</div>
+          <div className="text-2xl font-black text-emerald-600">
+            {patches.length === 0
+              ? '100%'
+              : `${Math.round(
+                  (patches.reduce((sum, p) => sum + p.installedDevicesCount, 0) /
+                    Math.max(1, patches.reduce((sum, p) => sum + p.affectedDevicesCount, 0))) *
+                    100
+                )}%`}
+          </div>
         </div>
       </div>
 

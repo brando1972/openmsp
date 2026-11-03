@@ -168,86 +168,18 @@ router.get('/sites/:siteId/topology', (req: AuthenticatedRequest, res) => {
 
   const switchPorts = Array.from(portMap.values()).sort((a, b) => a.switchPort - b.switchPort);
 
-  const infrastructureDevices =
-    siteId === GAMBINOS_SITE_ID
-      ? [
-          {
-            id: 'gw-gmb-ucg-max',
-            name: 'Gambinos-UCG-Max',
-            model: 'UCG-Max',
-            role: 'gateway',
-            macAddress: '78:8A:20:00:01:01',
-            ipAddress: '192.168.1.1',
-            status: 'online',
-            firmwareVersion: '4.0.20'
-          },
-          {
-            id: 'sw-us48poe500w-gmb',
-            name: 'US48PoE500W',
-            model: 'US-48-500W',
-            role: 'switch',
-            macAddress: '78:8A:20:48:50:01',
-            ipAddress: '192.168.1.2',
-            status: 'online',
-            firmwareVersion: '7.0.50',
-            totalPorts: 48,
-            activePorts: switchPorts.length,
-            sharedPorts: switchPorts.filter((p) => p.sharedPortWarning).map((p) => p.switchPort)
-          },
-          {
-            id: 'ap-gmb-dining-u6pro',
-            name: 'Dining-U6-Pro',
-            model: 'U6-Pro',
-            role: 'ap',
-            macAddress: '78:8A:20:60:10:01',
-            ipAddress: '192.168.1.11',
-            status: 'online',
-            firmwareVersion: '6.6.77'
-          },
-          {
-            id: 'ap-gmb-counter-u6lr',
-            name: 'Counter-U6-LR',
-            model: 'U6-LR',
-            role: 'ap',
-            macAddress: '78:8A:20:60:10:02',
-            ipAddress: '192.168.1.12',
-            status: 'online',
-            firmwareVersion: '6.6.77'
-          },
-          {
-            id: 'ap-gmb-drivethru-acm',
-            name: 'DriveThru-UAP-AC-M',
-            model: 'UAP-AC-M',
-            role: 'ap',
-            macAddress: '78:8A:20:60:10:03',
-            ipAddress: '192.168.1.13',
-            status: 'online',
-            firmwareVersion: '6.6.73'
-          },
-          {
-            id: 'ap-gmb-kitchen-acpro',
-            name: 'Kitchen-UAP-AC-Pro',
-            model: 'UAP-AC-Pro',
-            role: 'ap',
-            macAddress: '78:8A:20:60:10:04',
-            ipAddress: '192.168.1.14',
-            status: 'offline',
-            firmwareVersion: '6.6.73',
-            warning: 'AP reported offline — inspect PoE injector/port'
-          }
-        ]
-      : [
-          {
-            id: `gw-${siteId}`,
-            name: site.consoleName,
-            model: site.consoleModel,
-            role: 'gateway',
-            macAddress: '78:8A:20:AA:00:01',
-            ipAddress: '10.0.0.1',
-            status: site.online ? 'online' : 'offline',
-            firmwareVersion: site.firmwareVersion
-          }
-        ];
+  const infrastructureDevices = [
+    {
+      id: `gw-${siteId}`,
+      name: site.consoleName,
+      model: site.consoleModel,
+      role: 'gateway',
+      macAddress: '—',
+      ipAddress: '—',
+      status: site.online ? 'online' : 'offline',
+      firmwareVersion: site.firmwareVersion
+    }
+  ];
 
   res.json({
     site,
@@ -823,70 +755,18 @@ router.get(['/unpoller/gambinos', '/unpoller/:siteId', '/unpoller'], async (_req
     },
     grafanaDashboards,
     gambinosMetricsSummary: {
-      wanRxMbps: 84.6,
-      wanTxMbps: 19.4,
-      wanLatencyMs: 11.2,
-      udmCpuPct: 24.8,
-      udmMemPct: 61.5,
-      us48PoeTotalWatts: 118.4,
-      port43PoeWatts: 14.2,
-      port43MacCount: 5,
-      activeWirelessClients: 38,
-      activeWiredClients: 27,
-      topClientsByTraffic: [
-        {
-          name: 'GAMBINOS-KWICKPOS-C1 (Primary POS Controller)',
-          ipAddress: '192.168.1.101',
-          macAddress: '24:5E:BE:41:10:01',
-          switchPort: 'US48PoE500W Port 43 (Shared 5-MAC Hub)',
-          rxMbps: 18.4,
-          txMbps: 9.2,
-          isProtectedAsset: true
-        },
-        {
-          name: 'GAMBINOS-BACKOFFICE-PC (Manager Workstation)',
-          ipAddress: '192.168.1.140',
-          macAddress: 'F8:B1:56:9A:44:12',
-          switchPort: 'US48PoE500W Port 8 (Dedicated)',
-          rxMbps: 14.1,
-          txMbps: 3.8,
-          isProtectedAsset: false
-        },
-        {
-          name: 'PAX A35 Counter 1 (.156)',
-          ipAddress: '192.168.1.156',
-          macAddress: '90:6D:78:A3:51:56',
-          switchPort: 'US48PoE500W Port 43 (Shared 5-MAC Hub)',
-          rxMbps: 1.8,
-          txMbps: 1.4,
-          isProtectedAsset: true
-        },
-        {
-          name: 'SUNMI OrderPAD3 Handheld #1',
-          ipAddress: '192.168.1.161',
-          macAddress: '7C:D9:5C:30:01:61',
-          apName: 'Dining-U6-Pro (SSID: Gambinos-POS-Secure)',
-          rxMbps: 4.5,
-          txMbps: 2.1,
-          isProtectedAsset: true
-        },
-        {
-          name: 'PAX A35 Drive-Thru (.190)',
-          ipAddress: '192.168.1.190',
-          macAddress: '90:6D:78:A3:51:90',
-          switchPort: 'US48PoE500W Port 43 (Shared 5-MAC Hub)',
-          rxMbps: 1.6,
-          txMbps: 1.2,
-          isProtectedAsset: true
-        }
-      ],
-      dpiCategories: [
-        { category: 'Payment Processing & EMV TLS (PAX / Card Connect)', rxGb24h: 4.82, txGb24h: 1.94, pctOfTraffic: 28.4 },
-        { category: 'KwickPOS Order Sync & Kitchen Display', rxGb24h: 6.15, txGb24h: 3.10, pctOfTraffic: 38.9 },
-        { category: '3CX / VoIP SIP & RTP Audio', rxGb24h: 2.10, txGb24h: 2.05, pctOfTraffic: 17.4 },
-        { category: 'Cloud Management & SOC Telemetry (UnPoller/Wazuh)', rxGb24h: 1.25, txGb24h: 0.98, pctOfTraffic: 9.4 },
-        { category: 'Customer Guest Wi-Fi (Isolated VLAN 20)', rxGb24h: 1.12, txGb24h: 0.28, pctOfTraffic: 5.9 }
-      ]
+      wanRxMbps: 0,
+      wanTxMbps: 0,
+      wanLatencyMs: 0,
+      udmCpuPct: 0,
+      udmMemPct: 0,
+      us48PoeTotalWatts: 0,
+      port43PoeWatts: 0,
+      port43MacCount: 0,
+      activeWirelessClients: 0,
+      activeWiredClients: 0,
+      topClientsByTraffic: [],
+      dpiCategories: []
     }
   });
 });

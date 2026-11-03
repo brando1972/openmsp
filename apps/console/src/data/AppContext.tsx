@@ -195,7 +195,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return 'tab-security-soc';
   });
 
-  const [activeTimersCount, setActiveTimersCount] = useState<number>(3);
+  const [activeTimersCount, setActiveTimersCount] = useState<number>(0);
   const [activeSubRailView, setActiveSubRailView] = useState<string>('all');
   const [isSubRailCollapsed, setIsSubRailCollapsed] = useState<boolean>(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
@@ -349,6 +349,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return INITIAL_DEVICES;
   });
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+
+  if (typeof window !== 'undefined' && !localStorage.getItem('apex_seeded_purged_v1')) {
+    localStorage.removeItem('apex_patches');
+    localStorage.removeItem('apex_automations');
+    localStorage.removeItem('apex_automation_logs');
+    localStorage.removeItem('apex_tickets');
+    localStorage.removeItem('apex_vault_items');
+    localStorage.removeItem('apex_devices');
+    localStorage.setItem('apex_seeded_purged_v1', 'true');
+  }
 
   const [patches, setPatches] = useState<PatchItem[]>(() => {
     const saved = localStorage.getItem('apex_patches');
@@ -537,19 +547,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } catch { /* ignore */ }
 
         setDevices(initialDevices);
-        if (fetchedTickets.status === 'fulfilled' && Array.isArray(fetchedTickets.value) && fetchedTickets.value.length > 0) {
+        if (fetchedTickets.status === 'fulfilled' && Array.isArray(fetchedTickets.value)) {
           setTickets(fetchedTickets.value);
         }
-        if (fetchedPatches.status === 'fulfilled' && Array.isArray(fetchedPatches.value) && fetchedPatches.value.length > 0) {
+        if (fetchedPatches.status === 'fulfilled' && Array.isArray(fetchedPatches.value)) {
           setPatches(fetchedPatches.value);
         }
-        if (fetchedAutomations.status === 'fulfilled' && Array.isArray(fetchedAutomations.value) && fetchedAutomations.value.length > 0) {
+        if (fetchedAutomations.status === 'fulfilled' && Array.isArray(fetchedAutomations.value)) {
           setAutomations(fetchedAutomations.value);
         }
-        if (fetchedLogs.status === 'fulfilled' && Array.isArray(fetchedLogs.value) && fetchedLogs.value.length > 0) {
+        if (fetchedLogs.status === 'fulfilled' && Array.isArray(fetchedLogs.value)) {
           setAutomationLogs(fetchedLogs.value);
         }
-        if (fetchedVault.status === 'fulfilled' && Array.isArray(fetchedVault.value) && fetchedVault.value.length > 0) {
+        if (fetchedVault.status === 'fulfilled' && Array.isArray(fetchedVault.value)) {
           setVaultItems(fetchedVault.value);
         }
         if (fetchedRemoteConfig.status === 'fulfilled' && fetchedRemoteConfig.value) {
@@ -741,21 +751,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const remaining = 30 - (Math.floor(Date.now() / 1000) % 30);
         const totpCode = generateTOTPCode(v.totpSecret);
         return { ...v, totpRemainingSeconds: remaining, totpCode };
-      }));
-
-      // Slight CPU/RAM jitter for real-time feel
-      setDevices(prev => prev.map(d => {
-        if (d.health === 'offline') return d;
-        const cpuJitter = Math.min(100, Math.max(5, d.metrics.cpuUsage + Math.floor(Math.random() * 5) - 2));
-        const ramJitter = Math.min(100, Math.max(10, d.metrics.ramUsage + Math.floor(Math.random() * 3) - 1));
-        return {
-          ...d,
-          metrics: {
-            ...d.metrics,
-            cpuUsage: cpuJitter,
-            ramUsage: ramJitter
-          }
-        };
       }));
     }, 2000);
 

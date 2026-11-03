@@ -609,24 +609,7 @@ router.get('/overview', (req: AuthenticatedRequest, res) => {
 
   for (const d of devices) {
     if (!d.id || d.id === 'test-device' || !d.name) continue;
-    let posture = store.securityPostures.get(d.id);
-    if (!posture && d.id.startsWith('dev-') && !d.id.includes('unmanaged')) {
-      posture = upsertDeviceSecurityPosture(
-        d.id,
-        {
-          coverageState: 'preventive_active',
-          preventiveAvName: d.os === 'macos' ? 'Apple XProtect + Gatekeeper' : d.os === 'windows' ? 'Microsoft Defender Antivirus' : 'ClamAV Real-Time Daemon',
-          preventiveAvActive: true,
-          tamperProtectionEnabled: true,
-          canaryFilesDeployed: true,
-          recoveryInhibitionGuardActive: true,
-          supervisorCpuPct: 0.4,
-          telemetryCpuPct: 1.1,
-          scannerMemoryMb: 42
-        } as any,
-        '00000000-0000-0000-0000-000000000001'
-      );
-    }
+    const posture = store.securityPostures.get(d.id);
     if (!posture) {
       coverageByState.unknown += 1;
       continue;
@@ -942,63 +925,14 @@ export interface SharkFinDevicePolicy {
 }
 
 const sharkFinPolicies = new Map<string, SharkFinDevicePolicy>();
-const recentScanReports: ScanExecutionReport[] = [
-  {
-    scanId: 'scan-gmb-init-001',
-    deviceId: 'dev-gambinos-bo-pc',
-    deviceName: 'GAMBINOS-BACKOFFICE-PC',
-    clientId: 'c-gambinos',
-    scanType: 'quick_av_yara',
-    targetPath: 'C:\\Users\\store_mgr\\Downloads',
-    initiatedBy: 'end_user_sharkfin',
-    startedAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 25 * 60 * 1000 + 640).toISOString(),
-    durationMs: 640,
-    enginesUsed: [
-      'YARA-X v0.10.0 (BSD-3-Clause)',
-      'ClamAV clamd 1.4.1',
-      'ApexMSP Canary SHA-256 Verifier',
-      'Go EDR Process Reflex'
-    ],
-    filesScannedCount: 1428,
-    bytesScanned: 184520960,
-    canaryFilesVerified: 3,
-    threatsFound: 0,
-    status: 'clean',
-    summary: 'Quick AV + YARA-X memory & Downloads sweep completed cleanly. Verified 3/3 ransomware canary tripwire files intact.'
-  },
-  {
-    scanId: 'scan-gmb-init-002',
-    deviceId: 'dev-gambinos-pos-ctrl',
-    deviceName: 'GAMBINOS-KWICKPOS-C1',
-    clientId: 'c-gambinos',
-    scanType: 'canary_verify_reseed',
-    targetPath: '/opt/kwickpos',
-    initiatedBy: 'soc_admin',
-    startedAt: new Date(Date.now() - 55 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 55 * 60 * 1000 + 410).toISOString(),
-    durationMs: 410,
-    enginesUsed: [
-      'YARA-X v0.10.0 (BSD-3-Clause)',
-      'ClamAV clamd 1.4.1',
-      'ApexMSP Canary SHA-256 Verifier',
-      'Go EDR Process Reflex'
-    ],
-    filesScannedCount: 892,
-    bytesScanned: 94210000,
-    canaryFilesVerified: 3,
-    threatsFound: 0,
-    status: 'clean',
-    summary: 'Verified SHA-256 integrity of 3 canary decoy files and scanned KwickPOS binaries. 0 threats detected.'
-  }
-];
+const recentScanReports: ScanExecutionReport[] = [];
 
 export function getOrInitSharkFinPolicy(deviceId: string): SharkFinDevicePolicy {
   const existing = sharkFinPolicies.get(deviceId);
   if (existing) return existing;
 
   const posture = store.securityPostures.get(deviceId);
-  const lastReport = recentScanReports.find((r) => r.deviceId === deviceId) || recentScanReports[0] || null;
+  const lastReport = recentScanReports.find((r) => r.deviceId === deviceId) || null;
 
   const initial: SharkFinDevicePolicy = {
     deviceId,
@@ -1031,24 +965,7 @@ router.get('/devices', (req: AuthenticatedRequest, res) => {
   const enriched = devices
     .filter((d) => d && d.id && d.id !== 'test-device' && d.name)
     .map((d) => {
-      let posture = store.securityPostures.get(d.id);
-      if (!posture && d.id.startsWith('dev-') && !d.id.includes('unmanaged')) {
-        posture = upsertDeviceSecurityPosture(
-          d.id,
-          {
-            coverageState: 'preventive_active',
-            preventiveAvName: d.os === 'macos' ? 'Apple XProtect + Gatekeeper' : d.os === 'windows' ? 'Microsoft Defender Antivirus' : 'ClamAV Real-Time Daemon',
-            preventiveAvActive: true,
-            tamperProtectionEnabled: true,
-            canaryFilesDeployed: true,
-            recoveryInhibitionGuardActive: true,
-            supervisorCpuPct: 0.4,
-            telemetryCpuPct: 1.1,
-            scannerMemoryMb: 42
-          } as any,
-          '00000000-0000-0000-0000-000000000001'
-        );
-      }
+      const posture = store.securityPostures.get(d.id);
     const sharkFinPolicy = getOrInitSharkFinPolicy(d.id);
     const observations = Array.from(store.identityObservations.values()).filter(
       (obs) => obs.clientId === d.clientId && (obs.managedDeviceId === d.id || normalizeMac(obs.macAddress) === normalizeMac(d.macAddress))
@@ -2239,7 +2156,7 @@ const soarPlaybooks: ShufflePlaybook[] = [
     enabled: true,
     runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
     triggerType: 'Webhook: APEX-EDR-1001 / Wazuh Rule 100510',
-    runs24h: 4,
+    runs24h: 0,
     successRatePct: 100,
     avgLatencyMs: 385,
     lastRunAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
@@ -2298,7 +2215,7 @@ const soarPlaybooks: ShufflePlaybook[] = [
     enabled: true,
     runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
     triggerType: 'UniFi Topology / CEF SMB Lateral Alert',
-    runs24h: 3,
+    runs24h: 0,
     successRatePct: 100,
     avgLatencyMs: 340,
     lastRunAt: new Date(Date.now() - 29 * 60 * 1000).toISOString(),
@@ -2357,7 +2274,7 @@ const soarPlaybooks: ShufflePlaybook[] = [
     enabled: true,
     runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
     triggerType: 'UniFi CEF Syslog Stream (unifi-cef-v1.2.0)',
-    runs24h: 5,
+    runs24h: 0,
     successRatePct: 100,
     avgLatencyMs: 448,
     lastRunAt: new Date(Date.now() - 44 * 60 * 1000).toISOString(),
@@ -2416,7 +2333,7 @@ const soarPlaybooks: ShufflePlaybook[] = [
     enabled: true,
     runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
     triggerType: 'Canary File Write/Rename (APEX-CANARY-2001)',
-    runs24h: 2,
+    runs24h: 0,
     successRatePct: 100,
     avgLatencyMs: 465,
     lastRunAt: new Date(Date.now() - 95 * 60 * 1000).toISOString(),
@@ -2475,7 +2392,7 @@ const soarPlaybooks: ShufflePlaybook[] = [
     enabled: true,
     runtime: 'Shuffle Go Backend + Orborus Worker v1.4',
     triggerType: 'Low/Medium Severity VSS or Scheduled Maintenance Alert',
-    runs24h: 4,
+    runs24h: 0,
     successRatePct: 100,
     avgLatencyMs: 295,
     lastRunAt: new Date(Date.now() - 52 * 60 * 1000).toISOString(),
@@ -2640,211 +2557,9 @@ const cortexAnalyzersCatalog = [
   }
 ];
 
-const theHiveCasesCatalog = [
-  {
-    id: 'thehive-case-401',
-    caseNumber: '#THEHIVE-401',
-    title: 'Gambinos Backoffice VSS Shadow-Copy Deletion (T1490) + SMB Lateral Probe toward KwickPOS c1',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    linkedIncidentId: 'inc-gmb-1001',
-    linkedTicketNumber: 'TICK-1002',
-    tlp: 'TLP:AMBER',
-    pap: 'PAP:AMBER',
-    severity: 'critical',
-    status: 'InProgress',
-    assignee: 'Chief MSP Operator',
-    createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
-    ttps: [
-      { id: 'T1490', tactic: 'Impact', name: 'Inhibit System Recovery (vssadmin delete shadows)' },
-      { id: 'T1021.002', tactic: 'Lateral Movement', name: 'Remote Services: SMB/Windows Admin Shares (port 445)' }
-    ],
-    tasks: [
-      { id: 'th-task-1', title: 'Verify endpoint reflex termination of PID 6812 (vssadmin.exe)', status: 'Completed', owner: 'Shuffle Orborus Worker' },
-      { id: 'th-task-2', title: 'Enforce Protected Asset Safety Lock on KwickPOS c1 (.101) & Port 43', status: 'Completed', owner: 'Apex Action Broker' },
-      { id: 'th-task-3', title: 'Approve workstation isolation on GAMBINOS-BACKOFFICE-PC (Port 8)', status: 'Waiting', owner: 'Chief MSP Operator' }
-    ],
-    observables: [
-      {
-        id: 'obs-th-1',
-        dataType: 'cmdline',
-        data: 'vssadmin.exe delete shadows /all /quiet',
-        tlp: 'TLP:AMBER',
-        ioc: true,
-        sighted: true,
-        taxonomies: [
-          { level: 'malicious', namespace: 'MITRE', predicate: 'T1490', value: 'Inhibit System Recovery' },
-          { level: 'malicious', namespace: 'YARA_X', predicate: 'Rule', value: 'ApexMSP_Ransomware_Note_or_Recovery_Inhibition' }
-        ]
-      },
-      {
-        id: 'obs-th-2',
-        dataType: 'ip',
-        data: '192.168.1.140',
-        tlp: 'TLP:AMBER',
-        ioc: false,
-        sighted: true,
-        taxonomies: [
-          { level: 'suspicious', namespace: 'UniFi_IDS', predicate: 'SMB_Lateral_Probe', value: 'src=192.168.1.140 -> dst=192.168.1.101:445' },
-          { level: 'info', namespace: 'UniFi_Port', predicate: 'ConfirmedDirect', value: 'US48PoE500W:8 (1 MAC — Safe to Isolate)' }
-        ]
-      },
-      {
-        id: 'obs-th-3',
-        dataType: 'ip',
-        data: '192.168.1.101',
-        tlp: 'TLP:AMBER',
-        ioc: false,
-        sighted: true,
-        taxonomies: [
-          { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'KwickPOS c1 Primary Controller' },
-          { level: 'suspicious', namespace: 'UniFi_Port43', predicate: 'SharedUplink', value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden' }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'thehive-case-402',
-    caseNumber: '#THEHIVE-402',
-    title: 'Gambinos US48PoE500W Port 43 Shared Hub Audit (5 POS & PAX Payment MACs on Single Switch Port)',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    siteId: '88f7af54-98f8-306a-a1c7-c9349722b1f6',
-    tlp: 'TLP:AMBER',
-    pap: 'PAP:GREEN',
-    severity: 'high',
-    status: 'Open',
-    assignee: 'Network & SOC Team',
-    createdAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 29 * 60 * 1000).toISOString(),
-    ttps: [
-      { id: 'T1200', tactic: 'Initial Access', name: 'Hardware Additions / Unmanaged Downstream Switch on Port 43' }
-    ],
-    tasks: [
-      { id: 'th-task-4', title: 'Lock automated port shutdown on US48PoE500W Port 43', status: 'Completed', owner: 'Apex Action Broker' },
-      { id: 'th-task-5', title: 'Plan dedicated PCI VLAN 10 migration for PAX A35 terminals (.156, .173, .190, .196, .227)', status: 'InProgress', owner: 'Network Engineering' }
-    ],
-    observables: [
-      {
-        id: 'obs-th-4',
-        dataType: 'ip',
-        data: '192.168.2.190',
-        tlp: 'TLP:AMBER',
-        ioc: false,
-        sighted: true,
-        taxonomies: [
-          { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'PAX A35 Payment Terminal' },
-          { level: 'suspicious', namespace: 'UniFi_Port43', predicate: 'Topology', value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden' }
-        ]
-      },
-      {
-        id: 'obs-th-5',
-        dataType: 'mac',
-        data: '58:9c:fc:01:43:90',
-        tlp: 'TLP:AMBER',
-        ioc: false,
-        sighted: true,
-        taxonomies: [
-          { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'PAX A35 Payment Terminal' },
-          { level: 'suspicious', namespace: 'UniFi_Port43', predicate: 'Topology', value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden' }
-        ]
-      }
-    ]
-  },
-  {
-    id: 'thehive-case-403',
-    caseNumber: '#THEHIVE-403',
-    title: 'Municipal 911 CAD Server Recovery-Inhibition Verification & CJIS Dual-Custody Containment Hold',
-    clientId: 'c-municipality',
-    clientName: 'Municipal Client (City Hall & Public Safety)',
-    siteId: 'muni-city-hall',
-    tlp: 'TLP:RED',
-    pap: 'PAP:RED',
-    severity: 'high',
-    status: 'InProgress',
-    assignee: 'Municipal CJIS Officer',
-    createdAt: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 50 * 60 * 1000).toISOString(),
-    ttps: [
-      { id: 'T1490', tactic: 'Impact', name: 'Inhibit System Recovery (VSS Writer Verification)' }
-    ],
-    tasks: [
-      { id: 'th-task-6', title: 'Verify signed Veeam backup writer on MUNI-DISPATCH-CAD-01 (192.168.1.105)', status: 'Completed', owner: 'Shuffle Orborus Worker' },
-      { id: 'th-task-7', title: 'Confirm zero cross-tenant correlation with Gambinos 192.168.1.105 (KwickPOS c5)', status: 'Completed', owner: 'Temporal Identity Graph' }
-    ],
-    observables: [
-      {
-        id: 'obs-th-6',
-        dataType: 'cmdline',
-        data: 'C:\\Program Files\\Veeam\\Backup and Replication\\Veeam.Backup.Agent.exe',
-        tlp: 'TLP:RED',
-        ioc: false,
-        sighted: true,
-        taxonomies: [
-          { level: 'safe', namespace: 'Allowlist', predicate: 'SignedBackup', value: 'Verified Veeam Backup Service' },
-          { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'Municipal 911 CAD Server (CJIS Enclave)' }
-        ]
-      }
-    ]
-  }
-];
+const theHiveCasesCatalog: any[] = [];
 
-const recentSoarExecutions: ShuffleExecutionRecord[] = [
-  {
-    id: 'exec-shuffle-9001',
-    playbookId: 'pb-shuffle-ransomware-vss',
-    playbookName: 'Ransomware Shadow-Copy Inhibition (vssadmin) -> Cortex Hash & Process Tree -> TheHive Case -> Protected-Asset Gate -> Go Orborus Isolate',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    targetDeviceId: 'dev-gambinos-bo-pc',
-    observableValue: 'vssadmin.exe delete shadows /all /quiet',
-    status: 'awaiting_approval',
-    totalDurationMs: 385,
-    startedAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 18 * 60 * 1000 + 385).toISOString(),
-    theHiveCaseId: '#THEHIVE-401',
-    actionBrokerStatus: 'pending_approval (act-gmb-isolate-bo on dedicated Port 8)',
-    cortexTaxonomies: [
-      { level: 'malicious', namespace: 'MITRE', predicate: 'T1490', value: 'Inhibit System Recovery' },
-      { level: 'malicious', namespace: 'YARA_X', predicate: 'Rule', value: 'ApexMSP_Ransomware_Note_or_Recovery_Inhibition' }
-    ],
-    stepResults: [
-      { nodeId: 'node-1', nodeType: 'trigger', label: 'Wazuh / Go Agent Reflex Webhook', status: 'success', durationMs: 14, outputSummary: 'Ingested event evt-gmb-shadow-001 from GAMBINOS-BACKOFFICE-PC' },
-      { nodeId: 'node-2', nodeType: 'cortex_analyzer', label: 'Cortex: Velociraptor ProcessTree + YARA-X', status: 'success', durationMs: 168, outputSummary: 'Verdict: MALICIOUS (MITRE:T1490="Inhibit System Recovery")' },
-      { nodeId: 'node-3', nodeType: 'thehive_case', label: 'TheHive: Upsert Case #THEHIVE-401', status: 'success', durationMs: 74, outputSummary: 'Attached 3 observables & linked PSA Ticket TICK-1002' },
-      { nodeId: 'node-4', nodeType: 'action_broker_gate', label: 'Apex Action Broker Gate', status: 'success', durationMs: 39, outputSummary: 'Verified Port 8 is confirmed_direct (1 MAC); queued human approval act-gmb-isolate-bo' },
-      { nodeId: 'node-5', nodeType: 'orborus_go_agent_worker', label: 'Orborus Go Worker', status: 'queued', durationMs: 90, outputSummary: 'Velociraptor triage hunt H.GAMBINOS.20261025.01 launched' }
-    ]
-  },
-  {
-    id: 'exec-shuffle-9002',
-    playbookId: 'pb-shuffle-gambinos-port43',
-    playbookName: 'Gambinos Switch Port 43 Multi-MAC Anomaly -> Cortex OUI & UniFi Topology Analyzer -> Shared-Port Guard Lock (mac_count=5) -> TheHive Alert',
-    clientId: 'c-gambinos',
-    clientName: 'Gambinos',
-    targetDeviceId: 'dev-gambinos-pos-ctrl',
-    observableValue: '192.168.2.190 (PAX A35 / US48PoE500W Port 43)',
-    status: 'blocked_protected_asset',
-    totalDurationMs: 340,
-    startedAt: new Date(Date.now() - 29 * 60 * 1000).toISOString(),
-    completedAt: new Date(Date.now() - 29 * 60 * 1000 + 340).toISOString(),
-    theHiveCaseId: '#THEHIVE-402',
-    actionBrokerStatus: 'blocked_protected_asset (Shared Port 43 with 5 POS/PAX MACs)',
-    cortexTaxonomies: [
-      { level: 'info', namespace: 'Cortex', predicate: 'ProtectedAsset', value: 'PAX A35 Payment Terminal' },
-      { level: 'suspicious', namespace: 'UniFi_Port43', predicate: 'Topology', value: 'Shared Uplink (5 MACs) — Auto-Block Forbidden' }
-    ],
-    stepResults: [
-      { nodeId: 'node-1', nodeType: 'trigger', label: 'UniFi Switch Port Anomaly Trigger', status: 'success', durationMs: 12, outputSummary: 'Detected containment test targeting US48PoE500W Port 43' },
-      { nodeId: 'node-2', nodeType: 'cortex_analyzer', label: 'Cortex: UniFi_Port43_Topology_Analyzer', status: 'success', durationMs: 142, outputSummary: 'Detected 5 MACs on Port 43 (PAX A35 .156/.173/.190 + KwickPOS c1/c2)' },
-      { nodeId: 'node-3', nodeType: 'action_broker_gate', label: 'Apex Action Broker Safety Lock', status: 'blocked_safety_lock', durationMs: 31, outputSummary: 'BLOCKED: Shared Port 43 (mac_count=5) & PAX A35 payment terminal lock' },
-      { nodeId: 'node-4', nodeType: 'thehive_case', label: 'TheHive: Escalate Case #THEHIVE-402', status: 'success', durationMs: 82, outputSummary: 'Logged safety lock intervention to #THEHIVE-402' },
-      { nodeId: 'node-5', nodeType: 'orborus_go_agent_worker', label: 'Orborus Go Worker', status: 'success', durationMs: 73, outputSummary: 'Notified SOC console via WebSocket security.action' }
-    ]
-  }
-];
+const recentSoarExecutions: ShuffleExecutionRecord[] = [];
 
 export function evaluateCortexObservable(params: {
   dataType: 'ip' | 'hash' | 'mac' | 'domain' | 'cmdline' | string;

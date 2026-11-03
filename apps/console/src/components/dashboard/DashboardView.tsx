@@ -45,49 +45,16 @@ export const DashboardView: React.FC = () => {
   const myTicketsCount = filteredTickets.filter(t => t.assignedTech.includes('Rivera') || t.assignedTech.includes('Ray') || t.status === 'new').length;
   const criticalDevices = filteredDevices.filter(d => d.health === 'critical' || d.health === 'warning');
 
-  // Simulated SuperOps alerts from live endpoints
-  const alertsList = [
-    {
-      id: 'al-1',
-      occurrences: 1,
-      message: 'High CPU Usage (>85%)',
-      assetName: filteredDevices[0]?.name || "Brandons-MacBook-Pro.local",
-      assetId: filteredDevices[0]?.id || 'dev-1',
-      description: 'Actual CPU usage exceeded 85% threshold continuously for 5 mins',
-      createdTime: 'Today 14:59',
-      clientName: filteredDevices[0]?.clientName || 'Richs'
-    },
-    {
-      id: 'al-2',
-      occurrences: 1,
-      message: 'Service Spooler Stopped',
-      assetName: filteredDevices[1]?.name || "Michael's Desktop",
-      assetId: filteredDevices[1]?.id || 'dev-2',
-      description: 'Print spooler service terminated unexpectedly',
-      createdTime: 'Today 13:40',
-      clientName: filteredDevices[1]?.clientName || 'Dunder Mifflin'
-    },
-    {
-      id: 'al-3',
-      occurrences: 2,
-      message: 'Process Usage Alert',
-      assetName: filteredDevices[2]?.name || "Winslow's Desktop",
-      assetId: filteredDevices[2]?.id || 'dev-3',
-      description: 'Excessive memory paging on main volume',
-      createdTime: 'Yesterday 17:15',
-      clientName: filteredDevices[2]?.clientName || 'Globex Corporation'
-    },
-    {
-      id: 'al-4',
-      occurrences: 1,
-      message: 'Missing Critical OS Patch',
-      assetName: filteredDevices[0]?.name || "Brandons-MacBook-Pro.local",
-      assetId: filteredDevices[0]?.id || 'dev-1',
-      description: 'macOS Security Update 2026-003 pending installation',
-      createdTime: 'Sep 10, 2026',
-      clientName: filteredDevices[0]?.clientName || 'Richs'
-    }
-  ];
+  const alertsList = criticalDevices.map((d) => ({
+    id: `al-${d.id}`,
+    occurrences: 1,
+    message: d.health === 'critical' ? 'Critical Endpoint Health Alert' : 'Endpoint Warning Alert',
+    assetName: d.name,
+    assetId: d.id,
+    description: `CPU ${d.metrics?.cpuUsage ?? 0}% • RAM ${d.metrics?.ramUsage ?? 0}% • Disk ${d.metrics?.diskUsage ?? 0}%`,
+    createdTime: d.metrics?.lastSeen || 'Recent',
+    clientName: d.clientName
+  }));
 
   const handleOpenAsset = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
@@ -170,7 +137,7 @@ export const DashboardView: React.FC = () => {
             🩹
           </div>
           <div className="mt-2 text-center">
-            <div className="text-3xl font-bold text-[#212b36]">{patches.length || 5}</div>
+            <div className="text-3xl font-bold text-[#212b36]">{patches.length}</div>
             <div className="text-[11px] text-slate-500 font-medium mt-0.5">All Patches</div>
           </div>
         </div>
@@ -212,7 +179,7 @@ export const DashboardView: React.FC = () => {
             👣
           </div>
           <div className="mt-2 text-center">
-            <div className="text-3xl font-bold text-[#212b36]">1</div>
+            <div className="text-3xl font-bold text-[#212b36]">{filteredTickets.length}</div>
             <div className="text-[11px] text-slate-500 font-medium mt-0.5">Tickets I'm Following</div>
           </div>
         </div>
@@ -360,7 +327,7 @@ export const DashboardView: React.FC = () => {
                     </button>
                   </td>
                   <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">
-                    {d.serialNumber || 'K4R17CLX2R'}
+                    {d.serialNumber || '—'}
                   </td>
                   <td className="py-3 px-4 text-slate-600">
                     {d.os === 'macos' ? 'Apple Inc.' : 'Dell Inc.'}

@@ -267,7 +267,7 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
   // Check if a Mac-to-Mac Direct Ethernet Cable Migration (2015 MBP TB2 <-> M5 MBP USB-C) is reporting live telemetry
   const macSync = (globalThis as any).__apexMacCableSyncStatus;
   let macResult: Record<string, any> | null = null;
-  if (macSync && typeof macSync.receivedAtMs === 'number' && Date.now() - macSync.receivedAtMs < 30 * 60 * 1000) {
+  if (macSync && macSync.sessionId === 'mac-cable-2015-to-m5' && typeof macSync.receivedAtMs === 'number' && Date.now() - macSync.receivedAtMs < 30 * 60 * 1000) {
     const mFilesDisc = Math.max(1, Number(macSync.filesDiscovered) || 0, Number(macSync.filesSynced) || 0);
     const mBytesDisc = Math.max(1, Number(macSync.bytesDiscovered) || 0, Number(macSync.bytesSynced) || 0);
     const mFilesSynced = Number(macSync.filesSynced) || 0;
@@ -336,7 +336,9 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
   if (!sync) return macResult;
 
   const filesDiscovered = Math.max(9511, sync.filesDiscovered || 0, sync.filesSynced || 0);
-  const bytesDiscovered = Math.max(14252512051, sync.bytesDiscovered || 0, sync.bytesSynced || 0);
+  const bytesDiscovered = Math.max(16705574630, sync.bytesDiscovered || 0, sync.bytesSynced || 0);
+  const isSyncCompleted = Boolean(sync.completed) && (sync.filesSynced || 0) >= filesDiscovered;
+  const syncPhase = isSyncCompleted ? 'completed' : 'streaming';
   const filesProgressPct = Number(Math.min(100, ((sync.filesSynced || 0) / filesDiscovered) * 100).toFixed(1));
   const bytesProgressPct = Number(Math.min(100, ((sync.bytesSynced || 0) / bytesDiscovered) * 100).toFixed(2));
   const speedMbps = Number((sync.averageSpeedMbps || 0).toFixed(2));
@@ -356,15 +358,15 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     vaultName: 'Direct TLS Tunnel Sync (C:\\Users\\joshg → C:\\Users\\BackOffice)',
     jobType: 'restore_files',
     mode: 'file_object_dedup',
-    status: sync.completed ? 'completed' : 'running',
-    progressPct: sync.completed ? 100 : Math.max(1, Math.round(filesProgressPct)),
+    status: isSyncCompleted ? 'completed' : 'running',
+    progressPct: isSyncCompleted ? 100 : Math.max(1, Math.round(filesProgressPct)),
     transferRateMbps: speedMbps,
     logicalBytesProcessed: bytesDiscovered,
     deduplicatedBytesWritten: sync.bytesSynced || 0,
     targetRestorePath: 'C:\\Users\\BackOffice',
     details: `Live Desktop File Sync (DESKTOP-MEIEF6N\\joshg → DESKTOP-QSHMDDK\\BackOffice): ${(sync.filesSynced || 0).toLocaleString()} / ${filesDiscovered.toLocaleString()} files (${((sync.bytesSynced || 0) / (1024 * 1024)).toFixed(1)} MB / ${(bytesDiscovered / (1024 ** 3)).toFixed(2)} GB) • Writing: ${winCurrentFile}`,
     startedAt: sync.startedAt || new Date().toISOString(),
-    completedAt: sync.completed ? sync.updatedAt : undefined
+    completedAt: isSyncCompleted ? sync.updatedAt : undefined
   };
   store.backupJobs.set(liveJobId, liveJob);
 
@@ -388,7 +390,7 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     dedupRatio: meiefSnap && meiefSnap.storedDeduplicatedBytes > 0
       ? Number((meiefSnap.logicalBytes / meiefSnap.storedDeduplicatedBytes).toFixed(2))
       : 1.39,
-    status: sync.completed ? 'idle' : 'running_backup',
+    status: isSyncCompleted ? 'idle' : 'running_backup',
     reportedAt: sync.updatedAt || new Date().toISOString()
   });
 
@@ -406,18 +408,18 @@ async function pollLiveFileSyncStatus(): Promise<Record<string, any> | null> {
     logicalBytesTotal: bytesDiscovered,
     deduplicatedBytesTotal: sync.bytesSynced || 0,
     dedupRatio: 1.0,
-    status: sync.completed ? 'idle' : 'running_restore',
+    status: isSyncCompleted ? 'idle' : 'running_restore',
     reportedAt: sync.updatedAt || new Date().toISOString()
   });
 
-  if (macResult) {
+  if (macResult && Number(macResult.filesSynced) > 0) {
     return macResult;
   }
 
   return {
-    active: !sync.completed,
-    completed: Boolean(sync.completed),
-    phase: sync.phase || 'streaming',
+    active: !isSyncCompleted,
+    completed: isSyncCompleted,
+    phase: syncPhase,
     sourceDeviceId: 'dev-win-meief6n',
     sourceDeviceName: 'DESKTOP-MEIEF6N (C:\\Users\\joshg)',
     sourcePath: 'C:\\Users\\joshg',
