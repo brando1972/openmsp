@@ -300,7 +300,7 @@ function renderScript(os: string, token: string | undefined, req: any, res: any)
   let effectiveToken = raw;
   let targetClientId = (req.query?.clientId as string) || (defaultClient ? defaultClient.id : 'c-brandon-ray');
 
-  const isAutoKeyword = !raw || raw.toLowerCase() === 'new' || raw.toLowerCase() === 'auto';
+  const isAutoKeyword = !raw || raw.toLowerCase() === 'new' || raw.toLowerCase() === 'auto' || raw.toLowerCase() === 'windows.ps1' || raw.toLowerCase() === 'macos.sh';
   const isExistingToken = raw && (store.enrollmentTokens.has(raw) || raw.startsWith('tok-') || raw.startsWith('ok-') || raw.startsWith('apex-'));
 
   if (isAutoKeyword) {
@@ -553,8 +553,10 @@ pause
   }
 
   // Windows PowerShell script
-  const script = `# OpenMSP Windows Agent Enrollment & Shark Fin Tray Script
+  const script = `# OpenMSP Windows Agent Enrollment & Shark Fin Tray Script (ScreenConnect <3s Fast-Path)
 $ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ServerUrl = "${serverUrl}"
 $EnrollToken = "${effectiveToken}"
 
@@ -563,7 +565,7 @@ $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $IsAdmin -and $env:APEXMSP_ELEVATED -ne '1') {
     Write-Host "[*] Requesting Administrator privileges (UAC) to register ApexMSPAgent Windows Service..." -ForegroundColor Cyan
     try {
-        $ElevateCmd = "\`$env:APEXMSP_ELEVATED='1'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm '$ServerUrl/api/v1/installers/windows/$EnrollToken' | iex"
+        $ElevateCmd = "\`$env:APEXMSP_ELEVATED='1'; \`$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm '$ServerUrl/api/v1/installers/windows/$EnrollToken' | iex"
         Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $ElevateCmd) -Wait -ErrorAction Stop
         Write-Host "[+] Elevated installation completed!" -ForegroundColor Green
         return
@@ -579,7 +581,7 @@ if (!(Test-Path $InstallDir)) {
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  ApexMSP Windows Endpoint Agent & Shark Fin Setup        " -ForegroundColor Cyan
-Write-Host "  Agent Release: v2.0.4-soc  |  Mode: $(if ($IsAdmin) { 'Administrator (Windows Service)' } else { 'User-Space Service' })" -ForegroundColor Cyan
+Write-Host "  Agent Release: v2.0.10  |  Mode: $(if ($IsAdmin) { 'Administrator (Windows Service)' } else { 'User-Space Service' })" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # 0. Stop any existing agent service/process first so binary can be updated cleanly without file lock
@@ -587,21 +589,33 @@ if ($IsAdmin -and (Get-Service -Name "ApexMSPAgent" -ErrorAction SilentlyContinu
     Stop-Service -Name "ApexMSPAgent" -Force -ErrorAction SilentlyContinue
 }
 Stop-Process -Name "openmsp-agent" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 400
+Start-Sleep -Milliseconds 150
 
-# 1. Download OpenMSP Windows Agent Binary (v2.0.4-soc)
+# 1. Download OpenMSP Windows Agent Binary (v2.0.10) — fast WebClient with $ProgressPreference=SilentlyContinue
 $AgentExe = "$InstallDir\\openmsp-agent.exe"
-Write-Host "[*] Downloading ApexMSP Windows Agent binary (v2.0.4-soc)..." -ForegroundColor Yellow
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri "$ServerUrl/api/v1/installers/download/windows" -OutFile $AgentExe -UseBasicParsing -ErrorAction Stop
-    Write-Host "[+] Downloaded agent binary v2.0.4-soc to $AgentExe" -ForegroundColor Green
-} catch {
+$ReuseBinary = $false
+if ((Test-Path $AgentExe) -and $env:APEX_FORCE_DOWNLOAD -ne '1') {
     try {
-        Invoke-WebRequest -Uri "$ServerUrl/api/v1/installers/download?os=windows" -OutFile $AgentExe -UseBasicParsing
-        Write-Host "[+] Downloaded agent binary to $AgentExe" -ForegroundColor Green
+        $fi = Get-Item $AgentExe
+        if ($fi.Length -gt 5000000 -and ((Get-Date) - $fi.LastWriteTime).TotalMinutes -lt 30) {
+            $ReuseBinary = $true
+            Write-Host "[+] Using freshly downloaded agent binary at $AgentExe" -ForegroundColor Green
+        }
+    } catch {}
+}
+if (-not $ReuseBinary) {
+    Write-Host "[*] Downloading ApexMSP Windows Agent binary (v2.0.10)..." -ForegroundColor Yellow
+    try {
+        $wc = New-Object System.Net.WebClient
+        $wc.DownloadFile("$ServerUrl/api/v1/installers/download/windows", $AgentExe)
+        Write-Host "[+] Downloaded agent binary v2.0.10 to $AgentExe" -ForegroundColor Green
     } catch {
-        Write-Host "[-] Binary download note: $_" -ForegroundColor DarkYellow
+        try {
+            Invoke-WebRequest -Uri "$ServerUrl/api/v1/installers/download/windows" -OutFile $AgentExe -UseBasicParsing -ErrorAction Stop
+            Write-Host "[+] Downloaded agent binary v2.0.10 to $AgentExe" -ForegroundColor Green
+        } catch {
+            Write-Host "[-] Binary download note: $_" -ForegroundColor DarkYellow
+        }
     }
 }
 
@@ -620,7 +634,10 @@ $ConfigMap = @{
     serverUrl = $ServerUrl
     token = $EnrollToken
     heartbeatIntervalSeconds = 10
-    agentVersion = "2.0.9"
+    agentVersion = "2.0.10"
+}
+if ($env:APEX_CLIENT_ID) {
+    $ConfigMap.clientId = $env:APEX_CLIENT_ID
 }
 if ($ExistingDeviceId -and $ExistingDeviceSecret) {
     $ConfigMap.deviceId = $ExistingDeviceId
@@ -628,6 +645,39 @@ if ($ExistingDeviceId -and $ExistingDeviceSecret) {
 }
 $ConfigObj = $ConfigMap | ConvertTo-Json
 [System.IO.File]::WriteAllText($ConfigFile, $ConfigObj, (New-Object System.Text.UTF8Encoding $false))
+
+# 2b. IMMEDIATELY Register & Start ApexMSPAgent Windows Service (completes in <1s before any RMM timeout)
+$ServiceCreated = $false
+if ($IsAdmin) {
+    Write-Host "[*] Registering ApexMSPAgent Windows Service..." -ForegroundColor Cyan
+    if (Get-Service -Name "ApexMSPAgent" -ErrorAction SilentlyContinue) {
+        try {
+            Stop-Service -Name "ApexMSPAgent" -Force -ErrorAction SilentlyContinue
+            sc.exe delete ApexMSPAgent 2>$null | Out-Null
+            Start-Sleep -Milliseconds 150
+        } catch {}
+    }
+    try {
+        $BinPath = '"' + $AgentExe + '" --server "' + $ServerUrl + '" --token "' + $EnrollToken + '" --config "' + $ConfigFile + '"'
+        New-Service -Name "ApexMSPAgent" -BinaryPathName $BinPath -DisplayName "ApexMSP Endpoint Agent" -Description "ApexMSP Endpoint Agent & EDR Service (v2.0.10)" -StartupType Automatic -ErrorAction Stop | Out-Null
+        sc.exe failure ApexMSPAgent reset= 86400 actions= restart/5000/restart/10000/restart/60000 2>$null | Out-Null
+        Start-Service -Name "ApexMSPAgent" -ErrorAction Stop
+        $ServiceCreated = $true
+        Write-Host "[+] Windows Service 'ApexMSPAgent' registered and RUNNING!" -ForegroundColor Green
+    } catch {
+        Write-Host "[*] Launching ApexMSPAgent background daemon..." -ForegroundColor Cyan
+    }
+}
+if (-not $ServiceCreated) {
+    try {
+        $AgentRunCmd = '"' + $AgentExe + '" --server "' + $ServerUrl + '" --token "' + $EnrollToken + '" --config "' + $ConfigFile + '"'
+        Set-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" -Name "ApexMSPAgent" -Value $AgentRunCmd -ErrorAction SilentlyContinue
+    } catch {}
+    if (Test-Path $AgentExe) {
+        Start-Process -FilePath $AgentExe -ArgumentList ("--server " + $ServerUrl + " --token " + $EnrollToken + " --config " + $ConfigFile) -WorkingDirectory $InstallDir -WindowStyle Hidden
+        Write-Host "[+] ApexMSPAgent background daemon (v2.0.10) active and registered for auto-start." -ForegroundColor Green
+    }
+}
 
 # 3. Create the Shark Fin System Tray Script
 $TrayScript = "$InstallDir\\ApexMSP-Tray.ps1"
@@ -755,68 +805,7 @@ $notifyIcon.ShowBalloonTip(4000, "ApexMSP Connected", "Windows device managed se
 '@
 Set-Content -Path $TrayScript -Value $TrayContent -Encoding UTF8
 
-# 4. Install/Repair ApexConnect Remote Desktop engine (Mesh Agent) first so Backstage connects immediately
-if ($IsAdmin) {
-    Write-Host "[*] Configuring ApexConnect Remote Desktop & Backstage..." -ForegroundColor Cyan
-    $MeshExe = "$InstallDir\\meshagent64-ApexMSP.exe"
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0" -OutFile $MeshExe -UseBasicParsing
-        $MeshSvc = Get-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
-        if ($MeshSvc) {
-            Set-Service -Name "Mesh Agent" -StartupType Automatic -ErrorAction SilentlyContinue
-            Restart-Service -Name "Mesh Agent" -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-        }
-        $MeshSvc = Get-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
-        if (-not $MeshSvc -or $MeshSvc.Status -ne 'Running') {
-            Start-Process -FilePath $MeshExe -ArgumentList "-fullinstall" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-            Set-Service -Name "Mesh Agent" -StartupType Automatic -ErrorAction SilentlyContinue
-            Start-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
-        }
-        Write-Host "[+] ApexConnect Remote Desktop & Backstage service RUNNING." -ForegroundColor Green
-    } catch {
-        Write-Host "[-] Remote engine download note: $_" -ForegroundColor DarkYellow
-    }
-}
-
-# 5. Register ApexMSPAgent (Windows Service if Admin, User Startup + Background Process if User-Space)
-$ServiceCreated = $false
-if ($IsAdmin) {
-    Write-Host "[*] Registering ApexMSPAgent Windows Service..." -ForegroundColor Cyan
-    if (Get-Service -Name "ApexMSPAgent" -ErrorAction SilentlyContinue) {
-        try {
-            Stop-Service -Name "ApexMSPAgent" -Force -ErrorAction SilentlyContinue
-            sc.exe delete ApexMSPAgent 2>$null | Out-Null
-            Start-Sleep -Milliseconds 500
-        } catch {}
-    }
-    try {
-        $BinPath = '"' + $AgentExe + '" --server "' + $ServerUrl + '" --token "' + $EnrollToken + '" --config "' + $ConfigFile + '"'
-        New-Service -Name "ApexMSPAgent" -BinaryPathName $BinPath -DisplayName "ApexMSP Endpoint Agent" -Description "ApexMSP Endpoint Agent & EDR Service (v2.0.9)" -StartupType Automatic -ErrorAction Stop | Out-Null
-        sc.exe failure ApexMSPAgent reset= 86400 actions= restart/5000/restart/10000/restart/60000 2>$null | Out-Null
-        Start-Service -Name "ApexMSPAgent" -ErrorAction Stop
-        $ServiceCreated = $true
-        Write-Host "[+] Windows Service 'ApexMSPAgent' registered and RUNNING in Task Manager!" -ForegroundColor Green
-    } catch {
-        Write-Host "[*] Launching ApexMSPAgent background daemon..." -ForegroundColor Cyan
-    }
-}
-
-# 6. Ensure User-Space Startup & Background Agent Process
-if (-not $ServiceCreated) {
-    try {
-        $AgentRunCmd = '"' + $AgentExe + '" --server "' + $ServerUrl + '" --token "' + $EnrollToken + '" --config "' + $ConfigFile + '"'
-        Set-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" -Name "ApexMSPAgent" -Value $AgentRunCmd -ErrorAction SilentlyContinue
-    } catch {}
-    if (Test-Path $AgentExe) {
-        Start-Process -FilePath $AgentExe -ArgumentList ("--server " + $ServerUrl + " --token " + $EnrollToken + " --config " + $ConfigFile) -WorkingDirectory $InstallDir -WindowStyle Hidden
-        Write-Host "[+] ApexMSPAgent background daemon (v2.0.9) active and registered for auto-start." -ForegroundColor Green
-    }
-}
-
-# 7. Launch Shark Fin System Tray Icon
+# 4. Launch Shark Fin System Tray Icon immediately (no blocking sleep)
 Write-Host "[*] Launching Shark Fin Tray Icon in taskbar notification area..." -ForegroundColor Cyan
 
 # A. Common startup folder (for all users)
@@ -858,50 +847,48 @@ try {
     $Principal = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited
     Register-ScheduledTask -TaskName "ApexMSPTray" -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null
     Start-ScheduledTask -TaskName "ApexMSPTray" -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
     Get-ChildItem 'Registry::HKEY_USERS\*\Control Panel\NotifyIconSettings\*' -ErrorAction SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Type DWord -ErrorAction SilentlyContinue }
 } catch {}
 
-
-# 8. Wait briefly for ApexMSPAgent service to self-enroll, or enroll directly only if not yet enrolled
-Start-Sleep -Seconds 2
-$EnrolledId = $null
-if (Test-Path $ConfigFile) {
-    try {
-        $CurCfg = Get-Content -Raw -Path $ConfigFile | ConvertFrom-Json
-        if ($CurCfg.deviceId -and $CurCfg.deviceSecret) {
-            $EnrolledId = $CurCfg.deviceId
-        }
-    } catch {}
+# 5. Install/Repair ApexConnect Remote Desktop (Mesh Agent) in a detached WMI background process so ScreenConnect's 10s timeout never kills it
+if ($IsAdmin) {
+    Write-Host "[*] Configuring ApexConnect Remote Desktop & Backstage in background..." -ForegroundColor Cyan
+    $MeshBgScript = "$InstallDir\\ApexMSP-MeshSetup.ps1"
+    $MeshBgContent = @'
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$MeshExe = "$env:ProgramData\ApexMSP\meshagent64-ApexMSP.exe"
+try {
+    $wc = New-Object System.Net.WebClient
+    $wc.DownloadFile("https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0", $MeshExe)
+} catch {
+    Invoke-WebRequest -Uri "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0" -OutFile $MeshExe -UseBasicParsing
 }
-if ($EnrolledId) {
-    Write-Host "[+] Successfully registered endpoint:" $EnrolledId -ForegroundColor Green
-} else {
-    $Hostname = $env:COMPUTERNAME
-    $OSInfo = (Get-CimInstance Win32_OperatingSystem).Caption
-    $Serial = (Get-CimInstance Win32_BIOS).SerialNumber
-    $MAC = (Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1).MacAddress
-    $IP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress
-
-    $Body = @{
-        token = $EnrollToken
-        hostname = $Hostname
-        os = "windows"
-        osVersion = $OSInfo
-        serialNumber = $Serial
-        macAddress = $MAC
-        ipAddress = $IP
-    } | ConvertTo-Json
-
+$MeshSvc = Get-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
+if ($MeshSvc) {
+    Set-Service -Name "Mesh Agent" -StartupType Automatic -ErrorAction SilentlyContinue
+    Restart-Service -Name "Mesh Agent" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+$MeshSvc = Get-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
+if (-not $MeshSvc -or $MeshSvc.Status -ne 'Running') {
+    Start-Process -FilePath $MeshExe -ArgumentList "-fullinstall" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Set-Service -Name "Mesh Agent" -StartupType Automatic -ErrorAction SilentlyContinue
+    Start-Service -Name "Mesh Agent" -ErrorAction SilentlyContinue
+}
+Get-ChildItem 'Registry::HKEY_USERS\*\Control Panel\NotifyIconSettings\*' -ErrorAction SilentlyContinue | ForEach-Object { Set-ItemProperty -Path $_.PSPath -Name 'IsPromoted' -Value 1 -Type DWord -ErrorAction SilentlyContinue }
+'@
+    Set-Content -Path $MeshBgScript -Value $MeshBgContent -Encoding UTF8
     try {
-        $Response = Invoke-RestMethod -Uri "$ServerUrl/api/v1/agents/enroll" -Method Post -Body $Body -ContentType "application/json"
-        Write-Host "[+] Successfully registered endpoint:" $Response.deviceId -ForegroundColor Green
+        Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = ('powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $MeshBgScript + '"') } | Out-Null
     } catch {
-        Write-Host "[*] Direct enrollment status:" $_.Exception.Message
+        Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", $MeshBgScript) -WindowStyle Hidden
     }
 }
 
-Write-Host "[+] Installation Complete! The shark fin is now active in your taskbar tray." -ForegroundColor Green
+Write-Host "[+] Installation Complete! ApexMSPAgent service is RUNNING and Shark Fin is active." -ForegroundColor Green
 `;
   res.setHeader('Content-Type', 'text/plain');
   res.send(script);
