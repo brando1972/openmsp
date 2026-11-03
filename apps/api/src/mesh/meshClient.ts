@@ -415,7 +415,7 @@ class MeshClient {
    * tells the agent to connect its relay side. Returns everything the browser
    * needs to open the meshrelay WebSocket and speak the protocol directly.
    */
-  public async openDesktopSession(nodeid: string, protocol = 2): Promise<{
+  public async openDesktopSession(nodeid: string, protocol = 2, isBackgroundThumb = false): Promise<{
     relayUrl: string;
     nodeid: string;
     tunnelid: string;
@@ -423,6 +423,9 @@ class MeshClient {
     protocol: number;
   }> {
     await this.ensureReady();
+    if (!isBackgroundThumb && protocol === 2) {
+      this.markLiveSession(nodeid);
+    }
     const { cookie, rcookie } = await this.mintAuthCookie();
     const tunnelid = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
     // Instruct the agent (via the server) to open its relay side with the matching id.
@@ -436,13 +439,32 @@ class MeshClient {
   private thumbs = new Map<string, { buf: Buffer; ts: number }>();
   private capturing = new Set<string>();
   private thumbTimer: ReturnType<typeof setInterval> | null = null;
+  private activeLiveNodes = new Map<string, number>();
+
+  public markLiveSession(nodeid: string): void {
+    this.activeLiveNodes.set(nodeid, Date.now());
+  }
+
+  public clearLiveSession(nodeid: string): void {
+    this.activeLiveNodes.delete(nodeid);
+  }
+
+  public isNodeLive(nodeid: string): boolean {
+    const ts = this.activeLiveNodes.get(nodeid);
+    return !!(ts && Date.now() - ts < 10 * 60 * 1000);
+  }
 
   public getThumb(nodeid: string): { buf: Buffer; ts: number } | null {
     return this.thumbs.get(nodeid) || null;
   }
 
-  /** Grab one desktop frame over KVM and store a JPEG thumbnail. Returns the cached buffer on failure. */
-  public async captureThumbnail(nodeid: string, scaling = 256): Promise<{ buf: Buffer; ts: number } | null> {
+  /**
+   * Grab one desktop frame over KVM and store a JPEG thumbnail. Returns the cached buffer on failure.
+   * IMPORTANT: Always use scaling = 1024 (100% native resolution) because MeshCentral's C KVM encoder
+   * shares scaling state globally across all active sessions on the endpoint. Requesting scaling = 256
+   * downscales any live operator session to 25% (e.g. 480x270). Server-side sharp handles downscaling.
+   */
+  public async captureThumbnail(nodeid: string, scaling = 1024): Promise<{ buf: Buffer; ts: number } | null> {
     const node = this.nodes.get(nodeid);
     // Skip Protocol 2 KVM thumbnail probing on legacy macOS 10.13 High Sierra (2021 x86_64 agentId=16),
     // where background KVM stream creation crashes mac_kvm.c / WindowServer.
@@ -454,10 +476,14 @@ class MeshClient {
     ) {
       return this.thumbs.get(nodeid) || null;
     }
+    // Never open a competing KVM thumbnail stream while an operator has an active live desktop session
+    if (this.isNodeLive(nodeid)) {
+      return this.thumbs.get(nodeid) || null;
+    }
     if (this.capturing.has(nodeid)) return this.thumbs.get(nodeid) || null;
     this.capturing.add(nodeid);
     try {
-      const session = await this.openDesktopSession(nodeid, 2);
+      const session = await this.openDesktopSession(nodeid, 2, true);
       const frame = await this.collectFrame(session, scaling);
       if (frame && frame.tiles.length > 0) {
         const buf = await this.compositeFrame(frame);

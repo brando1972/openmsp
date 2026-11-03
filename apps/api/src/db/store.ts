@@ -54,6 +54,30 @@ export interface DBOrg {
   createdAt: string;
 }
 
+export interface TrustedOperatorMachine {
+  id: string;
+  name: string;
+  operatorId: string;
+  operatorEmail: string;
+  operatorName: string;
+  publicKeySpkiB64: string;
+  fingerprintSha256: string;
+  platform: string;
+  userAgent: string;
+  lastIp: string;
+  status: 'active' | 'revoked';
+  enrolledAt: string;
+  lastHandshakeAt: string | null;
+  handshakeCount: number;
+}
+
+export interface MachineHandshakeConfig {
+  enforceStrictLock: boolean;
+  enrollmentPin: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
 class DataStore {
   public orgs: Map<string, DBOrg> = new Map();
   public users: Map<string, DBUser> = new Map();
@@ -83,6 +107,13 @@ class DataStore {
   public meshNodes: Map<string, string> = new Map();
   // MeshCentral nodeid -> client org.
   public meshNodeClients: Map<string, { clientId: string; clientName: string }> = new Map();
+  // Trusted operator machines for cryptographic remote session handshake (ECDSA P-256 + ECDH P-256)
+  public trustedMachines: Map<string, TrustedOperatorMachine> = new Map();
+  public machineHandshakeConfig: MachineHandshakeConfig = {
+    enforceStrictLock: false,
+    enrollmentPin: 'APEX-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase(),
+    updatedAt: new Date().toISOString()
+  };
   // siteId → network-scan config (enable, cadence, SNMP creds).
   public netScan: Map<string, import('@openmsp/api-types').NetScanConfig> = new Map();
 
@@ -137,7 +168,7 @@ class DataStore {
   private readonly dataFile = path.join(process.env.DATA_DIR || path.resolve(process.cwd(), '.data'), 'store.json');
   private readonly mapNames = [
     'orgs', 'users', 'clients', 'devices', 'deviceCommands', 'enrollmentTokens',
-    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients', 'netScan',
+    'tickets', 'automations', 'patches', 'vaultItems', 'rustDeskSessions', 'mdmClients', 'meshNodes', 'meshNodeClients', 'trustedMachines', 'netScan',
     'dispatchJobs', 'jobMessages', 'techLocations', 'techShifts',
     'stagedApps', 'deviceStagedDeployments',
     'securityPostures', 'identityObservations', 'securityDetections',
@@ -259,6 +290,7 @@ class DataStore {
       if (Array.isArray(snap.automationLogs)) this.automationLogs = snap.automationLogs;
       if (Array.isArray(snap.auditEvents)) this.auditEvents = snap.auditEvents;
       if (snap.rustDeskConfig) this.rustDeskConfig = snap.rustDeskConfig;
+      if (snap.machineHandshakeConfig) this.machineHandshakeConfig = snap.machineHandshakeConfig;
       const hasData = this.users.size > 0 || this.orgs.size > 0;
       if (hasData) {
         console.log(`[store] restored from ${this.dataFile}: ${this.devices.size} devices, ${this.users.size} users, ${this.clients.size} clients`);
@@ -279,6 +311,7 @@ class DataStore {
       snap.automationLogs = this.automationLogs;
       snap.auditEvents = this.auditEvents;
       snap.rustDeskConfig = this.rustDeskConfig;
+      snap.machineHandshakeConfig = this.machineHandshakeConfig;
       fs.mkdirSync(path.dirname(this.dataFile), { recursive: true });
       const tmp = this.dataFile + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(snap));

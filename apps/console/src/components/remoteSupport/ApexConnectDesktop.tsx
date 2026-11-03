@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Monitor, X, RefreshCw, Maximize2, Keyboard, Loader2, AlertTriangle, Wifi, ClipboardPaste } from 'lucide-react';
+import { Monitor, X, RefreshCw, Maximize2, Keyboard, Loader2, AlertTriangle, Wifi, ClipboardPaste, ShieldCheck, Lock } from 'lucide-react';
 import { mesh, type MeshSession } from '../../services/api';
 
 /**
@@ -87,8 +87,8 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
   }, []);
 
   const sendStartup = useCallback(() => {
-    // compression: type=1 JPEG, level=50, scaling=1024, frametimer=100ms
-    send([0x00, 0x05, 0x00, 0x0a, 0x01, 0x32, 0x04, 0x00, 0x00, 0x64]);
+    // compression: type=1 JPEG, level=70 (0x46), scaling=1024 (0x0400 = 100% native resolution), frametimer=50ms (0x32)
+    send([0x00, 0x05, 0x00, 0x0a, 0x01, 0x46, 0x04, 0x00, 0x00, 0x32]);
     send([0x00, 0x08, 0x00, 0x05, 0x00]); // unpause
     send([0x00, 0x06, 0x00, 0x04]);       // refresh
   }, [send]);
@@ -118,6 +118,12 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
       const w = (view[4] << 8) + view[5];
       const h = (view[6] << 8) + view[7];
       if (w > 0 && h > 0) {
+        // Guard against background thumbnail downscaling (e.g. scaling=256 -> 480x270):
+        // if the remote KVM agent reports a downscaled width < 800px, immediately force scaling=1024 (100% native)
+        if (w < 800) {
+          send([0x00, 0x05, 0x00, 0x0a, 0x01, 0x46, 0x04, 0x00, 0x00, 0x32]);
+          send([0x00, 0x06, 0x00, 0x04]);
+        }
         screenRef.current = { w, h };
         const canvas = canvasRef.current;
         if (canvas && (canvas.width !== w || canvas.height !== h)) {
@@ -139,7 +145,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
         setCursorStyle(MOUSE_CURSORS[idx]);
       }
     }
-  }, [drawTile]);
+  }, [drawTile, send]);
 
   const feed = useCallback((chunk: Uint8Array) => {
     // append to accumulator
@@ -271,11 +277,14 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
     }
   }, [cleanup, deviceId, nodeid, openRelay, scheduleReconnect]);
 
-  // Keep the relay busy so idle-timeout proxies don't cut it. Re-sending
-  // "unpause" is a no-op for the agent but counts as traffic both ways.
+  // Keep the relay busy so idle-timeout proxies don't cut it, and continuously
+  // enforce 100% native resolution (scaling=1024) so the desktop never shrinks.
   useEffect(() => {
     if (phase !== 'live') return;
-    const id = setInterval(() => send([0x00, 0x08, 0x00, 0x05, 0x00]), KEEPALIVE_MS);
+    const id = setInterval(() => {
+      send([0x00, 0x05, 0x00, 0x0a, 0x01, 0x46, 0x04, 0x00, 0x00, 0x32]);
+      send([0x00, 0x08, 0x00, 0x05, 0x00]);
+    }, KEEPALIVE_MS);
     return () => clearInterval(id);
   }, [phase, send]);
 
@@ -301,8 +310,14 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
     if (!canvas || !w || !h) return null;
     const rect = canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
-    let x = Math.round((clientX - rect.left) * (w / rect.width));
-    let y = Math.round((clientY - rect.top) * (h / rect.height));
+    // Compute exact rendered content box inside object-fit: contain
+    const scale = Math.min(rect.width / w, rect.height / h);
+    const drawW = w * scale;
+    const drawH = h * scale;
+    const offsetX = (rect.width - drawW) / 2;
+    const offsetY = (rect.height - drawH) / 2;
+    let x = Math.round((clientX - rect.left - offsetX) / scale);
+    let y = Math.round((clientY - rect.top - offsetY) / scale);
     x = Math.max(0, Math.min(w - 1, x));
     y = Math.max(0, Math.min(h - 1, y));
     return { x, y };
@@ -498,6 +513,15 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
             </div>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {session?.handshake?.verified && (
+              <span
+                title={`Cryptographic Machine Handshake Verified\nWorkstation: ${session.handshake.machineName}\nKey Fingerprint (SHA-256): ${session.handshake.fingerprintSha256}\nCipher: ${session.handshake.sessionCipher}\nSession Proof: ${session.handshake.handshakeProof}`}
+                className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold tracking-tight"
+              >
+                <Lock className="w-3 h-3 text-emerald-400" />
+                <span>Handshake Verified · {session.handshake.handshakeProof.slice(0, 8)}</span>
+              </span>
+            )}
             <span className="hidden sm:flex text-[11px] font-semibold mr-1">{statusPill()}</span>
             <button
               onClick={pasteFromButton}
@@ -538,7 +562,7 @@ export const ApexConnectDesktop: React.FC<Props> = ({ deviceId, nodeid, deviceNa
           />
           <canvas
             ref={canvasRef}
-            className={`max-w-full max-h-full ${phase === 'live' ? '' : phase === 'reconnecting' ? 'opacity-30' : 'opacity-0'}`}
+            className={`w-full h-full max-w-full max-h-full object-contain ${phase === 'live' ? '' : phase === 'reconnecting' ? 'opacity-30' : 'opacity-0'}`}
             style={{ imageRendering: 'auto', objectFit: 'contain', cursor: phase === 'live' ? cursorStyle : 'default' }}
             onMouseMove={(e) => phase === 'live' && sendMouse(e.clientX, e.clientY, 0x00)}
             onMouseDown={(e) => { if (phase === 'live') { e.preventDefault(); focusPasteSink(); sendMouse(e.clientX, e.clientY, btnDown(e.button)); } }}

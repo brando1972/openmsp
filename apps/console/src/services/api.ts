@@ -861,6 +861,43 @@ export interface MeshNodeInfo {
   agents?: MeshAgentStatus;
   thumbAt?: number | null;
 }
+import {
+  getLocalMachineIdentity,
+  signMachineHandshakeChallenge,
+  type LocalMachineIdentity
+} from '../lib/machineHandshake';
+
+export interface MeshSessionHandshake {
+  verified: boolean;
+  machineId: string;
+  machineName: string;
+  fingerprintSha256: string;
+  sessionCipher: string;
+  handshakeProof: string;
+  strictLock: boolean;
+}
+export interface TrustedOperatorMachine {
+  id: string;
+  name: string;
+  operatorId: string;
+  operatorEmail: string;
+  operatorName: string;
+  publicKeySpkiB64: string;
+  fingerprintSha256: string;
+  platform: string;
+  userAgent: string;
+  lastIp: string;
+  status: 'active' | 'revoked';
+  enrolledAt: string;
+  lastHandshakeAt: string | null;
+  handshakeCount: number;
+}
+export interface MachineHandshakePolicy {
+  enforceStrictLock: boolean;
+  enrollmentPin?: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
 export interface MeshSession {
   relayUrl: string;
   nodeid: string;
@@ -869,6 +906,7 @@ export interface MeshSession {
   protocol: number;
   deviceName: string;
   online: boolean;
+  handshake?: MeshSessionHandshake | null;
 }
 export interface MeshHealth {
   configured: boolean;
@@ -882,8 +920,87 @@ export const mesh = {
   health: async (): Promise<MeshHealth> => request<MeshHealth>('/mesh/health'),
   nodes: async (): Promise<{ configured: boolean; connected: boolean; error?: string; nodes: MeshNodeInfo[] }> =>
     request('/mesh/nodes'),
-  startSession: async (opts: { deviceId?: string; nodeid?: string; protocol?: number }): Promise<MeshSession> =>
-    request<MeshSession>('/mesh/session', { method: 'POST', body: JSON.stringify(opts) }),
+  localMachineIdentity: async (): Promise<LocalMachineIdentity> => getLocalMachineIdentity(),
+  machines: async (): Promise<{ machines: TrustedOperatorMachine[]; policy: MachineHandshakePolicy }> =>
+    request('/mesh/machines'),
+  enrollCurrentMachine: async (opts?: { name?: string; enrollmentPin?: string }): Promise<{ ok: boolean; machine: TrustedOperatorMachine; alreadyEnrolled?: boolean }> => {
+    const id = await getLocalMachineIdentity();
+    return request('/mesh/machines/enroll', {
+      method: 'POST',
+      body: JSON.stringify({
+        machineId: id.machineId,
+        publicKeySpkiB64: id.publicKeySpkiB64,
+        name: opts?.name || id.name,
+        platform: id.platform,
+        enrollmentPin: opts?.enrollmentPin
+      })
+    });
+  },
+  updateMachinePolicy: async (opts: { enforceStrictLock?: boolean; rotatePin?: boolean }): Promise<{ ok: boolean; policy: MachineHandshakePolicy }> =>
+    request('/mesh/machines/policy', { method: 'PATCH', body: JSON.stringify(opts) }),
+  revokeMachine: async (id: string): Promise<{ ok: boolean; id: string; enforceStrictLock: boolean }> =>
+    request(`/mesh/machines/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  startSession: async (opts: { deviceId?: string; nodeid?: string; protocol?: number }): Promise<MeshSession> => {
+    let handshakePayload:
+      | {
+          machineId: string;
+          challengeId: string;
+          timestamp: number;
+          signatureB64: string;
+          clientEcdhPubSpkiB64: string;
+        }
+      | undefined;
+
+    if (typeof window !== 'undefined' && window.crypto?.subtle && typeof indexedDB !== 'undefined') {
+      try {
+        const local = await getLocalMachineIdentity();
+        const targetKey = opts.deviceId || opts.nodeid || 'any';
+        let challenge = await request<{
+          challengeId: string;
+          challengeNonce: string;
+          serverEcdhPubSpkiB64: string;
+          enrolled: boolean;
+          strictLock: boolean;
+        }>('/mesh/handshake/challenge', {
+          method: 'POST',
+          body: JSON.stringify({ machineId: local.machineId, targetId: targetKey })
+        });
+
+        // If this machine isn't enrolled yet and strict lock is not blocking auto-enrollment, enroll it transparently
+        if (!challenge.enrolled && !challenge.strictLock) {
+          await request('/mesh/machines/enroll', {
+            method: 'POST',
+            body: JSON.stringify({
+              machineId: local.machineId,
+              publicKeySpkiB64: local.publicKeySpkiB64,
+              name: local.name,
+              platform: local.platform
+            })
+          });
+          challenge = await request('/mesh/handshake/challenge', {
+            method: 'POST',
+            body: JSON.stringify({ machineId: local.machineId, targetId: targetKey })
+          });
+        }
+
+        handshakePayload = await signMachineHandshakeChallenge({
+          challengeId: challenge.challengeId,
+          challengeNonce: challenge.challengeNonce,
+          targetKey
+        });
+      } catch (hsErr) {
+        // If the server explicitly rejected the machine due to Strict Lock, surface that error immediately
+        if (hsErr instanceof Error && /Untrusted Operator Machine|Strict Machine Lock/i.test(hsErr.message)) {
+          throw hsErr;
+        }
+      }
+    }
+
+    return request<MeshSession>('/mesh/session', {
+      method: 'POST',
+      body: JSON.stringify({ ...opts, handshake: handshakePayload })
+    });
+  },
   // Assign a mesh node (no RMM agent) to a client org; clientId '' clears it.
   assignClient: async (nodeid: string, clientId: string): Promise<{ ok: boolean; clientId: string | null; clientName: string }> =>
     request(`/mesh/nodes/${encodeURIComponent(nodeid)}/client`, { method: 'PATCH', body: JSON.stringify({ clientId }) }),

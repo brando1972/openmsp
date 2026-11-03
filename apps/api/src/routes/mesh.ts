@@ -1,11 +1,51 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { authenticate, type AuthenticatedRequest } from '../middleware/auth.js';
-import { store } from '../db/store.js';
+import { store, type TrustedOperatorMachine } from '../db/store.js';
 import { meshClient, type MeshNode } from '../mesh/meshClient.js';
 import { repairAgent, type HealAgent } from '../mesh/heal.js';
 import type { ManagedDevice } from '@openmsp/api-types';
 
 const RMM_STALE_MS = 10 * 60 * 1000;
+const HANDSHAKE_TTL_MS = 45 * 1000;
+
+interface PendingHandshakeChallenge {
+  challengeId: string;
+  challengeNonce: string;
+  machineId: string;
+  targetId: string;
+  operatorId: string;
+  serverEcdhPrivateKey: crypto.KeyObject;
+  serverEcdhPubSpkiB64: string;
+  expiresAt: number;
+}
+
+const pendingChallenges = new Map<string, PendingHandshakeChallenge>();
+
+function computeSpkiFingerprint(spkiB64: string): string {
+  const der = Buffer.from(spkiB64, 'base64');
+  const hex = crypto.createHash('sha256').update(der).digest('hex').toUpperCase();
+  return hex.match(/.{1,2}/g)?.slice(0, 16).join(':') || hex;
+}
+
+function verifyMachineSignature(publicKeySpkiB64: string, canonicalPayload: string, signatureB64: string): boolean {
+  try {
+    const pubKey = crypto.createPublicKey({
+      key: Buffer.from(publicKeySpkiB64, 'base64'),
+      format: 'der',
+      type: 'spki'
+    });
+    const data = Buffer.from(canonicalPayload, 'utf8');
+    const sig = Buffer.from(signatureB64, 'base64');
+    // WebCrypto ECDSA outputs raw 64-byte IEEE P1363 (r || s); also accept ASN.1 DER
+    return (
+      crypto.verify('sha256', data, { key: pubKey, dsaEncoding: 'ieee-p1363' }, sig) ||
+      crypto.verify('sha256', data, pubKey, sig)
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Native ApexConnect remote-desktop control plane + device monitoring.
@@ -147,7 +187,233 @@ router.post('/nodes/:nodeid/repair', async (req: AuthenticatedRequest, res) => {
   res.status(result.ok ? 200 : 409).json(result);
 });
 
-// POST /api/v1/mesh/session — start a native remote-desktop session
+// ---------------------------------------------------------------------------
+// Zero-Trust Cryptographic Machine Handshake (ECDSA P-256 + ECDH P-256)
+// ---------------------------------------------------------------------------
+
+// GET /api/v1/mesh/machines — list trusted operator machines + strict lock policy
+router.get('/machines', (req: AuthenticatedRequest, res) => {
+  const machines = Array.from(store.trustedMachines.values()).sort(
+    (a, b) => Date.parse(b.lastHandshakeAt || b.enrolledAt) - Date.parse(a.lastHandshakeAt || a.enrolledAt)
+  );
+  res.json({
+    machines,
+    policy: {
+      enforceStrictLock: store.machineHandshakeConfig.enforceStrictLock,
+      enrollmentPin: req.user?.role === 'owner' || req.user?.role === 'admin'
+        ? store.machineHandshakeConfig.enrollmentPin
+        : undefined,
+      updatedAt: store.machineHandshakeConfig.updatedAt,
+      updatedBy: store.machineHandshakeConfig.updatedBy
+    }
+  });
+});
+
+// POST /api/v1/mesh/machines/enroll — register an operator workstation's non-exportable ECDSA P-256 public key
+router.post('/machines/enroll', (req: AuthenticatedRequest, res) => {
+  const machineId = typeof req.body?.machineId === 'string' ? req.body.machineId.trim() : '';
+  const publicKeySpkiB64 = typeof req.body?.publicKeySpkiB64 === 'string' ? req.body.publicKeySpkiB64.trim() : '';
+  const name = typeof req.body?.name === 'string' && req.body.name.trim()
+    ? req.body.name.trim()
+    : `${req.user!.name}'s Workstation`;
+  const platform = typeof req.body?.platform === 'string' ? req.body.platform : 'Unknown OS';
+  const enrollmentPin = typeof req.body?.enrollmentPin === 'string' ? req.body.enrollmentPin.trim() : '';
+
+  if (!machineId || !publicKeySpkiB64) {
+    res.status(400).json({ error: 'machineId and publicKeySpkiB64 are required' });
+    return;
+  }
+
+  // Validate SPKI public key is a valid EC public key
+  let fingerprintSha256 = '';
+  try {
+    const pubKey = crypto.createPublicKey({
+      key: Buffer.from(publicKeySpkiB64, 'base64'),
+      format: 'der',
+      type: 'spki'
+    });
+    if (pubKey.asymmetricKeyType !== 'ec') {
+      res.status(400).json({ error: 'Public key must be an ECDSA P-256 key' });
+      return;
+    }
+    fingerprintSha256 = computeSpkiFingerprint(publicKeySpkiB64);
+  } catch {
+    res.status(400).json({ error: 'Invalid SPKI public key format' });
+    return;
+  }
+
+  const existing = store.trustedMachines.get(machineId);
+  if (existing && existing.status === 'active' && existing.publicKeySpkiB64 === publicKeySpkiB64) {
+    existing.lastIp = req.ip || existing.lastIp;
+    store.trustedMachines.set(machineId, existing);
+    res.json({ ok: true, machine: existing, alreadyEnrolled: true });
+    return;
+  }
+
+  const activeMachines = Array.from(store.trustedMachines.values()).filter((m) => m.status === 'active');
+  if (store.machineHandshakeConfig.enforceStrictLock && activeMachines.length > 0) {
+    if (!enrollmentPin || enrollmentPin.toUpperCase() !== store.machineHandshakeConfig.enrollmentPin.toUpperCase()) {
+      res.status(403).json({
+        error: 'Strict Machine Lock is active. Enter the Owner Enrollment PIN from an already-trusted machine to authorize this workstation.',
+        code: 'STRICT_LOCK_PIN_REQUIRED'
+      });
+      return;
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const machine: TrustedOperatorMachine = {
+    id: machineId,
+    name,
+    operatorId: req.user!.id,
+    operatorEmail: req.user!.email,
+    operatorName: req.user!.name,
+    publicKeySpkiB64,
+    fingerprintSha256,
+    platform,
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 180),
+    lastIp: req.ip || 'unknown',
+    status: 'active',
+    enrolledAt: existing?.enrolledAt || nowIso,
+    lastHandshakeAt: existing?.lastHandshakeAt || null,
+    handshakeCount: existing?.handshakeCount || 0
+  };
+
+  store.trustedMachines.set(machineId, machine);
+  store.persist();
+
+  store.recordAudit({
+    orgId: req.user!.orgId,
+    userId: req.user!.id,
+    actorName: req.user!.name,
+    action: 'remote.machine_enrolled',
+    targetType: 'system',
+    targetId: machineId,
+    details: { name: machine.name, fingerprintSha256, platform },
+    ipAddress: req.ip
+  });
+
+  res.json({ ok: true, machine });
+});
+
+// PATCH /api/v1/mesh/machines/policy — toggle enforceStrictLock or rotate enrollmentPin
+router.patch('/machines/policy', (req: AuthenticatedRequest, res) => {
+  if (typeof req.body?.enforceStrictLock === 'boolean') {
+    const activeCount = Array.from(store.trustedMachines.values()).filter((m) => m.status === 'active').length;
+    if (req.body.enforceStrictLock && activeCount === 0) {
+      res.status(400).json({ error: 'Enroll your current workstation first before enabling Strict Machine Lock.' });
+      return;
+    }
+    store.machineHandshakeConfig.enforceStrictLock = req.body.enforceStrictLock;
+  }
+  if (req.body?.rotatePin === true) {
+    store.machineHandshakeConfig.enrollmentPin =
+      'APEX-' +
+      Math.random().toString(36).substring(2, 6).toUpperCase() +
+      '-' +
+      Math.random().toString(36).substring(2, 6).toUpperCase();
+  }
+  store.machineHandshakeConfig.updatedAt = new Date().toISOString();
+  store.machineHandshakeConfig.updatedBy = req.user!.email;
+  store.persist();
+
+  store.recordAudit({
+    orgId: req.user!.orgId,
+    userId: req.user!.id,
+    actorName: req.user!.name,
+    action: 'remote.machine_policy_update',
+    targetType: 'system',
+    targetId: 'machine-handshake-policy',
+    details: { enforceStrictLock: store.machineHandshakeConfig.enforceStrictLock },
+    ipAddress: req.ip
+  });
+
+  res.json({ ok: true, policy: store.machineHandshakeConfig });
+});
+
+// DELETE /api/v1/mesh/machines/:id — revoke or remove a trusted operator machine
+router.delete('/machines/:id', (req: AuthenticatedRequest, res) => {
+  const id = String(req.params.id);
+  const m = store.trustedMachines.get(id);
+  if (!m) {
+    res.status(404).json({ error: 'Trusted machine not found' });
+    return;
+  }
+  store.trustedMachines.delete(id);
+  // If no active machines remain, automatically disable strict lock so the owner isn't locked out
+  const remainingActive = Array.from(store.trustedMachines.values()).filter((x) => x.status === 'active').length;
+  if (remainingActive === 0) {
+    store.machineHandshakeConfig.enforceStrictLock = false;
+  }
+  store.persist();
+
+  store.recordAudit({
+    orgId: req.user!.orgId,
+    userId: req.user!.id,
+    actorName: req.user!.name,
+    action: 'remote.machine_revoked',
+    targetType: 'system',
+    targetId: id,
+    details: { name: m.name, fingerprintSha256: m.fingerprintSha256 },
+    ipAddress: req.ip
+  });
+
+  res.json({ ok: true, id, enforceStrictLock: store.machineHandshakeConfig.enforceStrictLock });
+});
+
+// POST /api/v1/mesh/handshake/challenge — issue a single-use cryptographic challenge + ephemeral ECDH P-256 key
+router.post('/handshake/challenge', (req: AuthenticatedRequest, res) => {
+  const machineId = typeof req.body?.machineId === 'string' ? req.body.machineId.trim() : '';
+  const targetId = typeof req.body?.targetId === 'string' ? req.body.targetId.trim() : 'any';
+  if (!machineId) {
+    res.status(400).json({ error: 'machineId is required for cryptographic handshake challenge' });
+    return;
+  }
+
+  // Prune expired challenges
+  const now = Date.now();
+  for (const [cid, ch] of pendingChallenges.entries()) {
+    if (ch.expiresAt < now) pendingChallenges.delete(cid);
+  }
+
+  const machine = store.trustedMachines.get(machineId);
+  const activeCount = Array.from(store.trustedMachines.values()).filter((m) => m.status === 'active').length;
+  if ((!machine || machine.status !== 'active') && store.machineHandshakeConfig.enforceStrictLock && activeCount > 0) {
+    res.status(403).json({
+      error: 'Untrusted Operator Machine: This computer is not enrolled in the Trusted Machine Registry and Strict Machine Lock is active.',
+      code: 'MACHINE_NOT_ENROLLED',
+      strictLock: true
+    });
+    return;
+  }
+
+  const challengeId = 'chk-' + crypto.randomBytes(12).toString('hex');
+  const challengeNonce = crypto.randomBytes(32).toString('hex');
+  const ecdhPair = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const serverEcdhPubSpkiB64 = (ecdhPair.publicKey.export({ type: 'spki', format: 'der' }) as Buffer).toString('base64');
+
+  pendingChallenges.set(challengeId, {
+    challengeId,
+    challengeNonce,
+    machineId,
+    targetId,
+    operatorId: req.user!.id,
+    serverEcdhPrivateKey: ecdhPair.privateKey,
+    serverEcdhPubSpkiB64,
+    expiresAt: now + HANDSHAKE_TTL_MS
+  });
+
+  res.json({
+    challengeId,
+    challengeNonce,
+    serverEcdhPubSpkiB64,
+    expiresAt: new Date(now + HANDSHAKE_TTL_MS).toISOString(),
+    enrolled: !!(machine && machine.status === 'active'),
+    strictLock: store.machineHandshakeConfig.enforceStrictLock
+  });
+});
+
+// POST /api/v1/mesh/session — start a native remote-desktop session (requires cryptographic machine handshake when enrolled/locked)
 router.post('/session', async (req: AuthenticatedRequest, res) => {
   if (!meshClient.configured()) { res.status(503).json({ error: 'ApexConnect remote engine not configured' }); return; }
   const deviceId = typeof req.body?.deviceId === 'string' ? req.body.deviceId : '';
@@ -174,15 +440,160 @@ router.post('/session', async (req: AuthenticatedRequest, res) => {
     });
     return;
   }
+
+  // ---- Verify Cryptographic Machine Handshake ----
+  const hs = req.body?.handshake as {
+    machineId?: string;
+    challengeId?: string;
+    timestamp?: number;
+    signatureB64?: string;
+    clientEcdhPubSpkiB64?: string;
+  } | undefined;
+
+  const activeMachines = Array.from(store.trustedMachines.values()).filter((m) => m.status === 'active');
+  let verifiedHandshake: {
+    verified: boolean;
+    machineId: string;
+    machineName: string;
+    fingerprintSha256: string;
+    sessionCipher: string;
+    handshakeProof: string;
+    strictLock: boolean;
+  } | null = null;
+
+  if (hs && hs.machineId && hs.challengeId && hs.signatureB64) {
+    const challenge = pendingChallenges.get(hs.challengeId);
+    pendingChallenges.delete(hs.challengeId); // single-use challenge consumption
+
+    if (!challenge || challenge.expiresAt < Date.now() || challenge.machineId !== hs.machineId) {
+      res.status(403).json({
+        error: 'Cryptographic Machine Handshake expired or invalid challenge nonce. Re-initiating handshake…',
+        code: 'HANDSHAKE_CHALLENGE_INVALID'
+      });
+      return;
+    }
+
+    const machine = store.trustedMachines.get(hs.machineId);
+    if (!machine || machine.status !== 'active') {
+      res.status(403).json({
+        error: 'Untrusted Operator Machine: This workstation is not enrolled or has been revoked.',
+        code: 'MACHINE_UNTRUSTED'
+      });
+      return;
+    }
+
+    const targetKey = deviceId || explicit || nodeid;
+    const canonical = `apexmsp-handshake-v1:${challenge.challengeId}:${challenge.challengeNonce}:${targetKey}:${hs.timestamp || 0}:${hs.clientEcdhPubSpkiB64 || ''}`;
+    const sigOk = verifyMachineSignature(machine.publicKeySpkiB64, canonical, hs.signatureB64);
+    if (!sigOk) {
+      store.recordAudit({
+        orgId: req.user!.orgId,
+        userId: req.user!.id,
+        actorName: req.user!.name,
+        action: 'remote.handshake_failed',
+        targetType: 'device',
+        targetId: deviceId || nodeid,
+        details: { machineId: hs.machineId, reason: 'ECDSA_P256_SIGNATURE_MISMATCH', deviceName },
+        ipAddress: req.ip
+      });
+      res.status(403).json({
+        error: 'Cryptographic Machine Handshake failed: ECDSA P-256 hardware key signature verification failed.',
+        code: 'HANDSHAKE_SIGNATURE_INVALID'
+      });
+      return;
+    }
+
+    // Derive mutual ECDH P-256 session proof
+    let handshakeProof = crypto
+      .createHash('sha256')
+      .update(`${challenge.challengeNonce}:${machine.fingerprintSha256}`)
+      .digest('hex')
+      .slice(0, 16)
+      .toUpperCase();
+
+    if (hs.clientEcdhPubSpkiB64) {
+      try {
+        const clientEcdhPub = crypto.createPublicKey({
+          key: Buffer.from(hs.clientEcdhPubSpkiB64, 'base64'),
+          format: 'der',
+          type: 'spki'
+        });
+        const sharedSecret = crypto.diffieHellman({
+          privateKey: challenge.serverEcdhPrivateKey,
+          publicKey: clientEcdhPub
+        });
+        handshakeProof = crypto
+          .createHash('sha256')
+          .update(Buffer.concat([sharedSecret, Buffer.from(challenge.challengeNonce, 'utf8')]))
+          .digest('hex')
+          .slice(0, 16)
+          .toUpperCase();
+      } catch {
+        // Fallback proof already computed
+      }
+    }
+
+    machine.lastHandshakeAt = new Date().toISOString();
+    machine.lastIp = req.ip || machine.lastIp;
+    machine.handshakeCount = (machine.handshakeCount || 0) + 1;
+    store.trustedMachines.set(machine.id, machine);
+
+    verifiedHandshake = {
+      verified: true,
+      machineId: machine.id,
+      machineName: machine.name,
+      fingerprintSha256: machine.fingerprintSha256,
+      sessionCipher: 'ECDSA-P256 + ECDH-P256-SHA256',
+      handshakeProof,
+      strictLock: store.machineHandshakeConfig.enforceStrictLock
+    };
+  } else if (store.machineHandshakeConfig.enforceStrictLock && activeMachines.length > 0) {
+    store.recordAudit({
+      orgId: req.user!.orgId,
+      userId: req.user!.id,
+      actorName: req.user!.name,
+      action: 'remote.handshake_blocked',
+      targetType: 'device',
+      targetId: deviceId || nodeid,
+      details: { reason: 'MISSING_MACHINE_HANDSHAKE', deviceName },
+      ipAddress: req.ip
+    });
+    res.status(403).json({
+      error: 'Untrusted Operator Machine: Cryptographic Machine Handshake is required to connect to client devices.',
+      code: 'HANDSHAKE_REQUIRED'
+    });
+    return;
+  }
+
   try {
     const session = await meshClient.openDesktopSession(nodeid, protocol);
     store.recordAudit({
       orgId: req.user!.orgId, userId: req.user!.id, actorName: req.user!.name,
       action: protocol === 2 ? 'remote.desktop_start' : protocol === 6 ? 'remote.powershell_start' : protocol === 5 ? 'remote.files_start' : 'remote.terminal_start',
       targetType: 'device', targetId: deviceId || nodeid,
-      details: { nodeid, transport: 'apexconnect-native', deviceName, protocol }, ipAddress: req.ip
+      details: {
+        nodeid,
+        transport: 'apexconnect-native',
+        deviceName,
+        protocol,
+        machineHandshake: verifiedHandshake
+          ? {
+              verified: true,
+              machineId: verifiedHandshake.machineId,
+              machineName: verifiedHandshake.machineName,
+              fingerprintSha256: verifiedHandshake.fingerprintSha256,
+              handshakeProof: verifiedHandshake.handshakeProof
+            }
+          : { verified: false }
+      },
+      ipAddress: req.ip
     });
-    res.json({ ...session, deviceName, online: node ? node.online : true });
+    res.json({
+      ...session,
+      deviceName,
+      online: node ? node.online : true,
+      handshake: verifiedHandshake
+    });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : 'failed to open remote session' });
   }
