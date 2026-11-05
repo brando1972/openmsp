@@ -2,6 +2,7 @@
   "name": "openmsp-workspace",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "pnpm --parallel run dev",
     "build": "pnpm install --prod=false --no-frozen-lockfile && pnpm --filter @openmsp/api-types run build && pnpm --filter @openmsp/api run build && pnpm --filter @openmsp/console run build",
