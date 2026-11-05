@@ -60,7 +60,7 @@ import path from 'path';
 import { getTargetTabletUrl, setTargetTabletUrl, recordTabletHeartbeat, getMdmDevice, updateMdmDevice, queueTabletCommand, drainTabletCommands } from './db/mdmStore.js';
 
 // Health check
-app.get('/health', (req, res) => {
+app.get(['/', '/health'], (req, res) => {
   res.json({ status: 'ok', service: 'OpenMSP Control Plane', timestamp: new Date().toISOString() });
 });
 
