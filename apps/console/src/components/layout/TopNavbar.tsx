@@ -31,6 +31,9 @@ export const TopNavbar: React.FC = () => {
     clients,
     selectedClientId,
     setSelectedClientId,
+    createClient,
+    isAddClientModalOpen,
+    setIsAddClientModalOpen,
     setIsCommandPaletteOpen,
     setIsAiDrawerOpen,
     rustDeskConfig,
@@ -52,6 +55,54 @@ export const TopNavbar: React.FC = () => {
   const [showTabMenu, setShowTabMenu] = useState(false);
   const [showNewTabMenu, setShowNewTabMenu] = useState(false);
   const [refreshingTabId, setRefreshingTabId] = useState<string | null>(null);
+
+  // Add New Client Organization Modal state
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientSite, setNewClientSite] = useState('Main Office');
+  const [newClientDomain, setNewClientDomain] = useState('');
+  const [newClientContactName, setNewClientContactName] = useState('');
+  const [newClientContactEmail, setNewClientContactEmail] = useState('');
+  const [newClientContactPhone, setNewClientContactPhone] = useState('');
+  const [newClientSla, setNewClientSla] = useState<'Gold 24/7' | 'Silver 8/5' | 'Bronze Best Effort'>('Gold 24/7');
+  const [isCreatingClient, setIsCreatingClient] = useState(false);
+  const [clientCreateError, setClientCreateError] = useState<string | null>(null);
+
+  const handleCreateClientSubmit = async (openAssetsAfter: boolean) => {
+    if (!newClientName.trim()) {
+      setClientCreateError('Client organization name is required.');
+      return;
+    }
+    setClientCreateError(null);
+    setIsCreatingClient(true);
+    try {
+      const created = await createClient({
+        name: newClientName.trim(),
+        domain: newClientDomain.trim(),
+        contactName: newClientContactName.trim(),
+        contactEmail: newClientContactEmail.trim(),
+        contactPhone: newClientContactPhone.trim(),
+        sites: [newClientSite.trim() || 'Main Office'],
+        activeContract: 'Standard Managed Care',
+        monthlySlaTier: newClientSla
+      });
+      setSelectedClientId(created.id);
+      setIsAddClientModalOpen(false);
+      setNewClientName('');
+      setNewClientSite('Main Office');
+      setNewClientDomain('');
+      setNewClientContactName('');
+      setNewClientContactEmail('');
+      setNewClientContactPhone('');
+      if (openAssetsAfter) {
+        setActiveTab('rmm');
+        window.dispatchEvent(new CustomEvent('apex:open-enroll-modal', { detail: { clientId: created.id } }));
+      }
+    } catch (err: any) {
+      setClientCreateError(err?.message || 'Failed to create client organization.');
+    } finally {
+      setIsCreatingClient(false);
+    }
+  };
 
   const getTabIcon = (type: string) => {
     switch (type) {
@@ -136,10 +187,16 @@ export const TopNavbar: React.FC = () => {
         {/* Right: Tenant, Relay Dot, Quick Ticket & AI */}
         <div className="flex items-center gap-2">
           {/* Compact Tenant Selector */}
-          <div className="flex items-center text-[11px] text-white/80 bg-white/10 border border-white/15 px-2 py-1 rounded max-w-[120px]">
+          <div className="flex items-center gap-1 text-[11px] text-white/80 bg-white/10 border border-white/15 px-2 py-1 rounded max-w-[140px]">
             <select
               value={selectedClientId}
-              onChange={(e) => setSelectedClientId(e.target.value)}
+              onChange={(e) => {
+                if (e.target.value === '__add_new__') {
+                  setIsAddClientModalOpen(true);
+                  return;
+                }
+                setSelectedClientId(e.target.value);
+              }}
               className="bg-transparent text-white font-medium outline-none cursor-pointer text-[11px] truncate w-full"
             >
               <option value="all" className="bg-slate-900 text-white">All Clients</option>
@@ -148,8 +205,18 @@ export const TopNavbar: React.FC = () => {
                   {c.name}
                 </option>
               ))}
+              <option value="__add_new__" className="bg-slate-900 text-emerald-400 font-bold">
+                + Add New Client...
+              </option>
             </select>
           </div>
+          <button
+            onClick={() => setIsAddClientModalOpen(true)}
+            className="w-7 h-7 rounded bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/30 text-sky-300 flex items-center justify-center transition cursor-pointer shrink-0"
+            title="Add New Client Organization"
+          >
+            <Building2 className="w-3.5 h-3.5" />
+          </button>
 
           {/* RustDesk Relay Online Dot */}
           <span
@@ -363,20 +430,39 @@ export const TopNavbar: React.FC = () => {
           </div>
 
           {/* Client Tenant Selector */}
-          <div className="flex items-center gap-1.5 text-xs text-white/80 bg-white/10 border border-white/15 px-2.5 py-1 rounded-md">
-            <Building2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-            <select
-              value={selectedClientId}
-              onChange={(e) => setSelectedClientId(e.target.value)}
-              className="bg-transparent text-white font-semibold outline-none cursor-pointer text-xs"
-            >
-              <option value="all" className="bg-slate-900 text-slate-100">All MSP Clients ({clients.reduce((s, c) => s + (c.totalDevices || 0), 0)} Devices)</option>
-              {clients.map(c => (
-                <option key={c.id} value={c.id} className="bg-slate-900 text-slate-100">
-                  {c.name} ({c.totalDevices} Devices)
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 text-xs text-white/80 bg-white/10 border border-white/15 px-2.5 py-1 rounded-md">
+              <Building2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <select
+                value={selectedClientId}
+                onChange={(e) => {
+                  if (e.target.value === '__add_new__') {
+                    setIsAddClientModalOpen(true);
+                    return;
+                  }
+                  setSelectedClientId(e.target.value);
+                }}
+                className="bg-transparent text-white font-semibold outline-none cursor-pointer text-xs"
+              >
+                <option value="all" className="bg-slate-900 text-slate-100">All MSP Clients ({clients.reduce((s, c) => s + (c.totalDevices || 0), 0)} Devices)</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id} className="bg-slate-900 text-slate-100">
+                    {c.name} ({c.totalDevices} Devices)
+                  </option>
+                ))}
+                <option value="__add_new__" className="bg-slate-900 text-emerald-400 font-bold">
+                  + Add New Client...
                 </option>
-              ))}
-            </select>
+              </select>
+            </div>
+            <button
+              onClick={() => setIsAddClientModalOpen(true)}
+              className="bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/30 text-sky-300 hover:text-white font-semibold text-xs px-2.5 py-1 rounded-md transition flex items-center gap-1 cursor-pointer"
+              title="Add New Client Organization"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Client</span>
+            </button>
           </div>
 
           {/* RustDesk Relay Status Pill */}
@@ -422,6 +508,149 @@ export const TopNavbar: React.FC = () => {
           </span>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* ADD NEW CLIENT ORGANIZATION MODAL                                         */}
+      {/* ========================================================================= */}
+      {isAddClientModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white border border-slate-200 rounded-xl p-5 sm:p-6 space-y-4 shadow-2xl text-slate-900 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-sky-50 text-sky-600 border border-sky-100">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-900 text-base">Add New Client Organization</h2>
+                  <p className="text-slate-500 text-xs">Create a customer tenant to enroll assets, policies, and tickets</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddClientModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {clientCreateError && (
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                {clientCreateError}
+              </div>
+            )}
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Client / Organization Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newClientName}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                    placeholder="e.g., Southern Tech Support"
+                    autoFocus
+                    className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Primary Site / Location</label>
+                  <input
+                    type="text"
+                    value={newClientSite}
+                    onChange={(e) => setNewClientSite(e.target.value)}
+                    placeholder="e.g., Main Office"
+                    className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Domain / Website</label>
+                  <input
+                    type="text"
+                    value={newClientDomain}
+                    onChange={(e) => setNewClientDomain(e.target.value)}
+                    placeholder="e.g., southerntechsupport.com"
+                    className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">SLA Service Tier</label>
+                  <select
+                    value={newClientSla}
+                    onChange={(e) => setNewClientSla(e.target.value as any)}
+                    className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 outline-none focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="Gold 24/7">Gold 24/7 Managed</option>
+                    <option value="Silver 8/5">Silver 8/5 Standard</option>
+                    <option value="Bronze Best Effort">Bronze Break/Fix</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Primary Contact</label>
+                  <input
+                    type="text"
+                    value={newClientContactName}
+                    onChange={(e) => setNewClientContactName(e.target.value)}
+                    placeholder="Contact Name"
+                    className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Contact Email</label>
+                  <input
+                    type="email"
+                    value={newClientContactEmail}
+                    onChange={(e) => setNewClientContactEmail(e.target.value)}
+                    placeholder="contact@client.com"
+                    className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={newClientContactPhone}
+                    onChange={(e) => setNewClientContactPhone(e.target.value)}
+                    placeholder="555-0100"
+                    className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2">
+              <button
+                onClick={() => setIsAddClientModalOpen(false)}
+                className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-semibold text-xs transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={isCreatingClient || !newClientName.trim()}
+                onClick={() => handleCreateClientSubmit(false)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs transition disabled:opacity-50 cursor-pointer"
+              >
+                {isCreatingClient ? 'Creating...' : 'Create Client'}
+              </button>
+              <button
+                disabled={isCreatingClient || !newClientName.trim()}
+                onClick={() => handleCreateClientSubmit(true)}
+                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{isCreatingClient ? 'Creating...' : 'Create & Add Asset →'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

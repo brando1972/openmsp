@@ -75,6 +75,9 @@ interface AppContextType {
   clients: ClientTenant[];
   selectedClientId: string | 'all';
   setSelectedClientId: (id: string | 'all') => void;
+  createClient: (data: Partial<ClientTenant>) => Promise<ClientTenant>;
+  isAddClientModalOpen: boolean;
+  setIsAddClientModalOpen: (open: boolean) => void;
   
   // Devices
   devices: ManagedDevice[];
@@ -220,7 +223,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
   const [activeTab, setActiveTabState] = useState<NavigationTab>('security-soc');
-  const [clients, setClients] = useState<ClientTenant[]>(INITIAL_CLIENTS);
+  const [clients, setClients] = useState<ClientTenant[]>(() => {
+    const saved = localStorage.getItem('apex_clients');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch { /* ignore */ }
+    }
+    return INITIAL_CLIENTS;
+  });
+  const [isAddClientModalOpen, setIsAddClientModalOpen] = useState<boolean>(false);
 
   // Dynamic Workspace Tabs (SuperOps Multi-Tab Mode)
   const [tabbedNavigationEnabled, setTabbedNavigationEnabledState] = useState<boolean>(() => {
@@ -477,6 +490,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('apex_devices', JSON.stringify(sanitized));
   }, [devices]);
 
+  useEffect(() => { localStorage.setItem('apex_clients', JSON.stringify(clients)); }, [clients]);
   useEffect(() => { localStorage.setItem('apex_patches', JSON.stringify(patches)); }, [patches]);
   useEffect(() => { localStorage.setItem('apex_automations', JSON.stringify(automations)); }, [automations]);
   useEffect(() => { localStorage.setItem('apex_automation_logs', JSON.stringify(automationLogs)); }, [automationLogs]);
@@ -808,6 +822,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => clearInterval(timer);
   }, []);
+
+  // Client actions
+  const createClient = async (data: Partial<ClientTenant>): Promise<ClientTenant> => {
+    try {
+      const created = await api.clients.createClient(data);
+      setClients(prev => {
+        if (prev.some(c => c.id === created.id)) {
+          return prev.map(c => (c.id === created.id ? created : c));
+        }
+        return [...prev, created];
+      });
+      return created;
+    } catch (err) {
+      console.warn('[OpenMSP API] Fallback local client creation:', err);
+      const slug = (data.name || 'client')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .substring(0, 20);
+      const fallback: ClientTenant = {
+        id: `c-${slug || Math.random().toString(36).substring(2, 8)}`,
+        name: (data.name || 'New Client').trim(),
+        domain: data.domain || '',
+        contactName: data.contactName || '',
+        contactEmail: data.contactEmail || '',
+        contactPhone: data.contactPhone || '',
+        sites: Array.isArray(data.sites) && data.sites.length > 0 ? data.sites : ['Main Office'],
+        activeContract: data.activeContract || 'Standard Managed Care',
+        monthlySlaTier: data.monthlySlaTier || 'Gold 24/7',
+        totalDevices: 0,
+        openTickets: 0
+      };
+      setClients(prev => [...prev, fallback]);
+      return fallback;
+    }
+  };
 
   // Device actions
   const addDevice = (device: ManagedDevice) => {
@@ -1296,6 +1346,9 @@ rm -rf $(brew --cache)`;
       clients,
       selectedClientId,
       setSelectedClientId,
+      createClient,
+      isAddClientModalOpen,
+      setIsAddClientModalOpen,
       devices,
       selectedDeviceId,
       setSelectedDeviceId,

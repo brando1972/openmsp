@@ -44,28 +44,53 @@ router.get('/:id', (req, res) => {
 // POST /api/v1/clients
 router.post('/', (req: AuthenticatedRequest, res) => {
   const { name, domain, contactName, contactEmail, contactPhone, sites, activeContract, monthlySlaTier } = req.body;
-  if (!name) {
+  if (!name || !String(name).trim()) {
     res.status(400).json({ error: 'Client name is required' });
     return;
   }
 
-  const id = `c-${uuidv4().substring(0, 8)}`;
+  const trimmedName = String(name).trim();
+  const slug = trimmedName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 24);
+  const baseId = slug ? `c-${slug}` : `c-${uuidv4().substring(0, 8)}`;
+  const id = store.clients.has(baseId) ? `${baseId}-${uuidv4().substring(0, 4)}` : baseId;
+
+  const parsedSites = Array.isArray(sites) && sites.length > 0
+    ? sites.map((s: unknown) => String(s).trim()).filter(Boolean)
+    : ['Main Office'];
+
   const newClient: ClientTenant = {
     id,
-    name,
-    domain: domain || '',
-    contactName: contactName || '',
-    contactEmail: contactEmail || '',
-    contactPhone: contactPhone || '',
-    sites: Array.isArray(sites) ? sites : ['Default Site'],
+    name: trimmedName,
+    domain: domain ? String(domain).trim() : '',
+    contactName: contactName ? String(contactName).trim() : '',
+    contactEmail: contactEmail ? String(contactEmail).trim() : '',
+    contactPhone: contactPhone ? String(contactPhone).trim() : '',
+    sites: parsedSites.length > 0 ? parsedSites : ['Main Office'],
     activeContract: activeContract || 'Standard Managed Care',
-    monthlySlaTier: monthlySlaTier || 'Silver 8/5',
+    monthlySlaTier: monthlySlaTier || 'Gold 24/7',
     totalDevices: 0,
     openTickets: 0,
     createdAt: new Date().toISOString()
   };
 
   store.clients.set(id, newClient);
+
+  // Pre-seed a long-lived default enrollment token for this client organization
+  const defaultTokenStr = `tok-${slug || id.replace(/^c-/, '')}-${uuidv4().substring(0, 8)}`;
+  store.enrollmentTokens.set(defaultTokenStr, {
+    id: uuidv4(),
+    token: defaultTokenStr,
+    orgId: req.user?.orgId || '00000000-0000-0000-0000-000000000001',
+    clientId: id,
+    siteId: newClient.sites[0] || 'Main Office',
+    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    used: false,
+    createdAt: new Date().toISOString()
+  });
 
   store.recordAudit({
     orgId: req.user!.orgId,
@@ -74,11 +99,40 @@ router.post('/', (req: AuthenticatedRequest, res) => {
     action: 'client.create',
     targetType: 'client',
     targetId: id,
-    details: { name },
+    details: { name: trimmedName, sites: newClient.sites },
     ipAddress: req.ip
   });
 
+  store.persist();
+
   res.status(201).json(newClient);
+});
+
+// PATCH /api/v1/clients/:id
+router.patch('/:id', (req: AuthenticatedRequest, res) => {
+  const existing = store.clients.get(String(req.params.id));
+  if (!existing) {
+    res.status(404).json({ error: 'Client not found' });
+    return;
+  }
+
+  const { name, domain, contactName, contactEmail, contactPhone, sites, activeContract, monthlySlaTier } = req.body;
+  const updated: ClientTenant = {
+    ...existing,
+    ...(name !== undefined ? { name: String(name).trim() } : {}),
+    ...(domain !== undefined ? { domain: String(domain).trim() } : {}),
+    ...(contactName !== undefined ? { contactName: String(contactName).trim() } : {}),
+    ...(contactEmail !== undefined ? { contactEmail: String(contactEmail).trim() } : {}),
+    ...(contactPhone !== undefined ? { contactPhone: String(contactPhone).trim() } : {}),
+    ...(Array.isArray(sites) ? { sites: sites.map((s: unknown) => String(s).trim()).filter(Boolean) } : {}),
+    ...(activeContract !== undefined ? { activeContract } : {}),
+    ...(monthlySlaTier !== undefined ? { monthlySlaTier } : {}),
+    totalDevices: deviceCountForClient(existing.id)
+  };
+
+  store.clients.set(existing.id, updated);
+  store.persist();
+  res.json(updated);
 });
 
 export default router;

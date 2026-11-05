@@ -37,7 +37,9 @@ import {
   ExternalLink,
   Package,
   CheckCircle2,
-  Clock
+  Clock,
+  Building2,
+  Plus
 } from 'lucide-react';
 import { createEnrollmentToken, API_BASE, stagedApps as stagedAppsApi, type DeviceStagedAppStatus, api } from '../../services/api';
 import { ManagedTabletsView } from './ManagedTabletsView';
@@ -52,6 +54,8 @@ export const RMMView: React.FC = () => {
     clients,
     selectedClientId,
     setSelectedClientId,
+    createClient,
+    setIsAddClientModalOpen,
     activeSubRailView,
     updateDeviceDetails,
     runRemoteScriptOnDevice,
@@ -123,10 +127,14 @@ export const RMMView: React.FC = () => {
   const [enrollMethod, setEnrollMethod] = useState<'macos' | 'windows' | 'binary'>('macos');
   const [isGeneratingToken, setIsGeneratingToken] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+  const [showInlineNewClient, setShowInlineNewClient] = useState(false);
+  const [inlineClientName, setInlineClientName] = useState('');
+  const [inlineClientSite, setInlineClientSite] = useState('Main Office');
+  const [isCreatingInlineClient, setIsCreatingInlineClient] = useState(false);
 
   const handleGenerateToken = async (targetClientId?: string) => {
     setIsGeneratingToken(true);
-    const cId = targetClientId || enrollClient || (selectedClientId !== 'all' ? selectedClientId : clients[0]?.id) || 'c-acme-corp';
+    const cId = targetClientId || enrollClient || (selectedClientId !== 'all' ? selectedClientId : clients[0]?.id) || 'c-brandon-ray';
     const tokenObj = await createEnrollmentToken(cId, 'HQ Site', 30);
     if (tokenObj && tokenObj.token) {
       setEnrollToken(tokenObj.token);
@@ -136,11 +144,40 @@ export const RMMView: React.FC = () => {
     setIsGeneratingToken(false);
   };
 
-  const handleOpenEnrollModal = () => {
-    const cId = (selectedClientId !== 'all' ? selectedClientId : clients[0]?.id) || 'c-acme-corp';
+  const handleOpenEnrollModal = (explicitClientId?: string) => {
+    const cId = explicitClientId || (selectedClientId !== 'all' ? selectedClientId : clients[0]?.id) || 'c-brandon-ray';
     setEnrollClient(cId);
     handleGenerateToken(cId);
+    setShowInlineNewClient(false);
     setShowEnrollModal(true);
+  };
+
+  React.useEffect(() => {
+    const onOpenEnroll = (e: Event) => {
+      const detail = (e as CustomEvent<{ clientId?: string }>).detail;
+      handleOpenEnrollModal(detail?.clientId);
+    };
+    window.addEventListener('apex:open-enroll-modal', onOpenEnroll);
+    return () => window.removeEventListener('apex:open-enroll-modal', onOpenEnroll);
+  }, [selectedClientId, clients]);
+
+  const handleCreateInlineClient = async () => {
+    if (!inlineClientName.trim()) return;
+    setIsCreatingInlineClient(true);
+    try {
+      const created = await createClient({
+        name: inlineClientName.trim(),
+        sites: [inlineClientSite.trim() || 'Main Office']
+      });
+      setSelectedClientId(created.id);
+      setEnrollClient(created.id);
+      await handleGenerateToken(created.id);
+      setInlineClientName('');
+      setInlineClientSite('Main Office');
+      setShowInlineNewClient(false);
+    } finally {
+      setIsCreatingInlineClient(false);
+    }
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -261,10 +298,20 @@ export const RMMView: React.FC = () => {
             <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
 
+          {/* Add New Client Organization Button */}
+          <button
+            onClick={() => setIsAddClientModalOpen(true)}
+            className="border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-semibold px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+            title="Create a new Client Organization"
+          >
+            <Building2 className="w-3.5 h-3.5 text-sky-600" />
+            <span>+ Client</span>
+          </button>
+
           {/* Download Agent Button */}
           <button
-            onClick={handleOpenEnrollModal}
-            className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition"
+            onClick={() => handleOpenEnrollModal()}
+            className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-pink-600" />
             <span className="hidden xs:inline">Download Agent</span>
@@ -284,7 +331,7 @@ export const RMMView: React.FC = () => {
 
           {/* SuperOps Primary Dark Action Button */}
           <button
-            onClick={handleOpenEnrollModal}
+            onClick={() => handleOpenEnrollModal()}
             className="bg-[#090113] hover:bg-black text-white text-xs font-semibold px-3 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition cursor-pointer"
           >
             <UserPlus className="w-3.5 h-3.5" />
@@ -589,7 +636,16 @@ export const RMMView: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Client Organization</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Client Organization</label>
+                        <button
+                          type="button"
+                          onClick={() => setIsAddClientModalOpen(true)}
+                          className="text-[10px] font-bold text-blue-600 hover:underline cursor-pointer"
+                        >
+                          + New Client
+                        </button>
+                      </div>
                       <select
                         value={editDeviceClientId}
                         onChange={(e) => setEditDeviceClientId(e.target.value)}
@@ -1008,44 +1064,107 @@ export const RMMView: React.FC = () => {
             </div>
 
             {/* Client Tenant & Token Banner */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Target Client Organization</label>
-                <select
-                  value={enrollClient}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    setEnrollClient(nextId);
-                    handleGenerateToken(nextId);
-                  }}
-                  className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 text-xs outline-none focus:border-blue-500 cursor-pointer"
-                >
-                  {clients.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.totalDevices} Devices)
-                    </option>
-                  ))}
-                </select>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-600">Target Client Organization</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineNewClient(prev => !prev)}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{showInlineNewClient ? 'Cancel' : 'New Client'}</span>
+                    </button>
+                  </div>
+                  <select
+                    value={enrollClient}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      if (nextId === '__add_new__') {
+                        setShowInlineNewClient(true);
+                        return;
+                      }
+                      setEnrollClient(nextId);
+                      handleGenerateToken(nextId);
+                    }}
+                    className="w-full p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-900 text-xs outline-none focus:border-blue-500 cursor-pointer"
+                  >
+                    {clients.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.totalDevices} Devices)
+                      </option>
+                    ))}
+                    <option value="__add_new__">+ Create New Client Organization...</option>
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-400 mb-1">
+                    <span>Enrollment Token</span>
+                    <span className="text-[10px] text-emerald-400 font-mono">Expires in 30 days</span>
+                  </div>
+                  <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 p-2 rounded-xl">
+                    <span className="font-mono text-xs text-sky-300 truncate flex-1">{enrollToken}</span>
+                    <button
+                      onClick={() => handleGenerateToken()}
+                      disabled={isGeneratingToken}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold flex items-center gap-1 transition"
+                      title="Generate Fresh Enrollment Token"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isGeneratingToken ? 'animate-spin text-sky-400' : ''}`} />
+                      <span>Regenerate</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between text-xs font-bold text-slate-400 mb-1">
-                  <span>Enrollment Token</span>
-                  <span className="text-[10px] text-emerald-400 font-mono">Expires in 30 days</span>
+              {showInlineNewClient && (
+                <div className="p-3 rounded-xl bg-sky-50/80 border border-sky-200 space-y-2.5 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-sky-600" />
+                      <span>Quick-Create New Client Organization</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineNewClient(false)}
+                      className="text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input
+                      type="text"
+                      value={inlineClientName}
+                      onChange={(e) => setInlineClientName(e.target.value)}
+                      placeholder="Client Name (e.g. Acme Dental)"
+                      autoFocus
+                      className="sm:col-span-2 p-2 rounded-lg bg-white border border-sky-200 text-slate-900 text-xs outline-none focus:border-blue-500"
+                    />
+                    <input
+                      type="text"
+                      value={inlineClientSite}
+                      onChange={(e) => setInlineClientSite(e.target.value)}
+                      placeholder="Site (e.g. Main Office)"
+                      className="p-2 rounded-lg bg-white border border-sky-200 text-slate-900 text-xs outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={isCreatingInlineClient || !inlineClientName.trim()}
+                      onClick={handleCreateInlineClient}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{isCreatingInlineClient ? 'Creating...' : 'Create Client & Generate Installer Token'}</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 p-2 rounded-xl">
-                  <span className="font-mono text-xs text-sky-300 truncate flex-1">{enrollToken}</span>
-                  <button
-                    onClick={() => handleGenerateToken()}
-                    disabled={isGeneratingToken}
-                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold flex items-center gap-1 transition"
-                    title="Generate Fresh Enrollment Token"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isGeneratingToken ? 'animate-spin text-sky-400' : ''}`} />
-                    <span>Regenerate</span>
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Platform Selection Tabs */}
