@@ -2,7 +2,7 @@
    Network-first for navigations (so a new deploy is always picked up), with an
    offline fallback to the cached app shell; stale-while-revalidate for same-
    origin static assets. Never touches the cross-origin API or the WebSocket. */
-const CACHE = 'apex-dispatch-v1';
+const CACHE = 'apex-dispatch-v3';
 const SHELL = ['/index.html', '/icons/icon-192.png'];
 
 self.addEventListener('install', (event) => {
