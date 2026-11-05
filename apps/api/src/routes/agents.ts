@@ -80,8 +80,9 @@ router.post('/enroll', (req, res) => {
     if (!hasCustomName) {
       existingDevice.name = hostname || existingDevice.name;
     }
-    // Preserve existing Client assignment on re-enrollment unless the device had no client
-    if (!existingDevice.clientId && enrollmentToken.clientId) {
+    // If explicitly invoked by an interactive installer run (or if unassigned), bind to the token's client
+    const installerRun = Boolean((req.body as any)?.installerRun);
+    if ((installerRun || !existingDevice.clientId) && enrollmentToken.clientId) {
       existingDevice.clientId = enrollmentToken.clientId;
       existingDevice.clientName = clientName;
     }
@@ -92,7 +93,13 @@ router.post('/enroll', (req, res) => {
     }
     if (macAddress) existingDevice.macAddress = macAddress;
     if (ipAddress) existingDevice.ipAddress = ipAddress;
+    if ((req.body as any)?.domain) existingDevice.domain = String((req.body as any).domain);
+    if ((req.body as any)?.loggedInUser) existingDevice.loggedInUser = String((req.body as any).loggedInUser);
     existingDevice.publicIp = req.ip || existingDevice.publicIp;
+    existingDevice.health = 'healthy';
+    if (existingDevice.metrics) {
+      existingDevice.metrics.lastSeen = new Date().toISOString();
+    }
     (existingDevice as any).deviceSecret = deviceSecret;
     (existingDevice as any).orgId = enrollmentToken.orgId;
     existingDevice.updatedAt = new Date().toISOString();
@@ -133,6 +140,8 @@ router.post('/enroll', (req, res) => {
       services: [],
       eventLogs: [],
       tags: ['new-enrollment'],
+      ...((req.body as any)?.domain ? { domain: String((req.body as any).domain) } : {}),
+      ...((req.body as any)?.loggedInUser ? { loggedInUser: String((req.body as any).loggedInUser) } : {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -141,11 +150,21 @@ router.post('/enroll', (req, res) => {
     store.devices.set(deviceId, newDevice);
   }
 
-  // Update client total devices count
-  if (client) {
-    client.totalDevices = Array.from(store.devices.values()).filter((d) => d.clientId === client.id).length;
-    store.clients.set(client.id, client);
+  // Recompute totalDevices across all clients
+  for (const [cId, cObj] of store.clients.entries()) {
+    cObj.totalDevices = Array.from(store.devices.values()).filter((d) => d.clientId === cId).length;
+    store.clients.set(cId, cObj);
   }
+
+  // Auto-correlate MeshCentral node if already connected
+  try {
+    const matchedNode = meshClient.resolveNode([hostname || ''].filter(Boolean));
+    if (matchedNode) {
+      store.meshNodes.set(deviceId, matchedNode.nodeid);
+    }
+  } catch { /* ignore */ }
+
+  store.persist();
 
   // Ensure initial security posture exists for newly enrolled device
   const enrolledDevice = store.devices.get(deviceId);
@@ -248,6 +267,14 @@ router.post('/heartbeat', (req, res) => {
   if (eventLogs) device.eventLogs = eventLogs;
   if (agentVersion) device.agentVersion = agentVersion;
   if (arch) device.arch = arch;
+  if ((req.body as any)?.domain) device.domain = String((req.body as any).domain);
+  if ((req.body as any)?.loggedInUser) device.loggedInUser = String((req.body as any).loggedInUser);
+  if (!store.meshNodes.has(device.id)) {
+    try {
+      const matchedNode = meshClient.resolveNode([device.hostname, device.name].filter(Boolean));
+      if (matchedNode) store.meshNodes.set(device.id, matchedNode.nodeid);
+    } catch { /* ignore */ }
+  }
   if (rustDeskId) {
     device.rustDeskId = rustDeskId;
     device.rustDeskOnline = true;
