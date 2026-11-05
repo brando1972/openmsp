@@ -212,34 +212,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// 1. Auth API (Supabase Auth + Control Plane JWT Verification)
+// 1. Auth API
 // ---------------------------------------------------------------------------
 export const auth = {
   login: async (credentials: AuthLoginRequest): Promise<AuthLoginResponse> => {
-    // 1. Try direct Supabase GoTrue signInWithPassword first, then verify session with API
-    try {
-      const supaSession = await supabaseAuth.signInWithPassword(credentials.email, credentials.password);
-      try {
-        const verified = await request<AuthLoginResponse>('/auth/supabase-session', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${supaSession.token}` },
-          body: JSON.stringify({ accessToken: supaSession.token })
-        });
-        setStoredToken(verified.token);
-        setStoredUser(verified.user);
-        return verified;
-      } catch {
-        setStoredToken(supaSession.token);
-        setStoredUser(supaSession.user);
-        return {
-          token: supaSession.token,
-          user: supaSession.user
-        };
-      }
-    } catch {
-      // Fall through to backend /auth/login endpoint (which handles both Supabase and local store accounts)
-    }
-
     const res = await request<AuthLoginResponse & { refreshToken?: string }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials)
@@ -259,7 +235,7 @@ export const auth = {
   },
 
   exchangeSupabaseToken: async (accessToken: string): Promise<AuthLoginResponse> => {
-    const res = await request<AuthLoginResponse>('/auth/supabase-session', {
+    const res = await request<AuthLoginResponse>('/auth/session', {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ accessToken })

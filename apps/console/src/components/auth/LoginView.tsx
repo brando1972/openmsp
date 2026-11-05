@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Lock, Mail, AlertCircle, Loader2, KeyRound, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Shield, Lock, Mail, AlertCircle, Loader2, Sparkles, CheckCircle2 } from 'lucide-react';
 import { useApp } from '../../data/AppContext';
 import { api } from '../../services/api';
 
@@ -20,7 +20,7 @@ export const LoginView: React.FC = () => {
     try {
       await login(email.trim(), password);
     } catch (err: any) {
-      setError(err.message || 'Authentication failed. Verify your Supabase operator credentials.');
+      setError(err.message || 'Invalid credentials.');
     } finally {
       setLoading(false);
     }
@@ -29,7 +29,7 @@ export const LoginView: React.FC = () => {
   const handleSendMagicLink = async () => {
     const targetEmail = email.trim();
     if (!targetEmail) {
-      setError('Enter your authorized operator email address first to receive a Supabase Magic Link.');
+      setError('Enter your operator email address first to receive a sign-in link.');
       return;
     }
     setError(null);
@@ -39,7 +39,7 @@ export const LoginView: React.FC = () => {
       const res = await api.auth.requestMagicLink(targetEmail);
       setMagicLinkSent(res.message);
     } catch (err: any) {
-      setError(err.message || 'Unable to send Supabase Magic Link.');
+      setError(err.message || 'Unable to send magic link.');
     } finally {
       setSendingMagicLink(false);
     }
@@ -65,10 +65,6 @@ export const LoginView: React.FC = () => {
           <p className="text-sm text-slate-400 mt-1">
             Zero-Trust RMM, SOC, &amp; Immutable Backup Operations
           </p>
-          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
-            <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
-            Secured by Supabase Auth (ES256 JWKS + RLS)
-          </div>
         </div>
 
         {error && (
@@ -98,7 +94,6 @@ export const LoginView: React.FC = () => {
                 autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="brandon@apexmsp.com"
                 className="w-full bg-slate-950/90 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
               />
             </div>
@@ -131,7 +126,7 @@ export const LoginView: React.FC = () => {
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Verifying with Supabase Auth...
+                Signing In...
               </>
             ) : (
               'Sign In to Control Plane'
@@ -149,17 +144,17 @@ export const LoginView: React.FC = () => {
             {sendingMagicLink ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
-                Sending Supabase Magic Link...
+                Sending Magic Link...
               </>
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                Sign In with Supabase Email Magic Link (OTP)
+                Send Magic Link
               </>
             )}
           </button>
           <p className="text-[11px] text-center text-slate-500">
-            Protected by Supabase Row-Level Security &amp; JWT verification. Unauthorized access is logged.
+            Authorized personnel only. Unauthorized access is logged.
           </p>
         </div>
       </div>

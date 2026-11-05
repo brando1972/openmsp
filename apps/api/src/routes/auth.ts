@@ -13,17 +13,35 @@ import type { AuthLoginRequest, AuthLoginResponse, UserProfile } from '@openmsp/
 
 const router = Router();
 
-// GET /api/v1/auth/config — public Supabase Auth configuration for console client
-router.get('/config', (_req, res) => {
-  res.json({
-    provider: 'supabase',
-    supabaseUrl: SUPABASE_URL,
-    supabaseAnonKey: SUPABASE_ANON_KEY,
-    mfaSupported: true
-  });
-});
+// Per-IP rate limiter for magic link requests (max 5 attempts per 15 minutes)
+const magicLinkRateLimit = new Map<string, { count: number; resetAt: number }>();
+const MAGIC_LINK_WINDOW_MS = 15 * 60 * 1000;
+const MAGIC_LINK_MAX_ATTEMPTS = 5;
 
-// POST /api/v1/auth/login — authenticates against Supabase Auth (primary) or local operator store (fallback)
+const GENERIC_MAGIC_LINK_MESSAGE =
+  'If this email is registered to an authorized operator, a one-time sign-in link has been sent.';
+
+function checkMagicLinkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = magicLinkRateLimit.get(ip);
+  if (!entry || now > entry.resetAt) {
+    magicLinkRateLimit.set(ip, { count: 1, resetAt: now + MAGIC_LINK_WINDOW_MS });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= MAGIC_LINK_MAX_ATTEMPTS;
+}
+
+function isRegisteredOperatorEmail(email: string): boolean {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return false;
+  for (const u of store.users.values()) {
+    if (u.email.toLowerCase() === normalized) return true;
+  }
+  return false;
+}
+
+// POST /api/v1/auth/login — authenticates operator credentials server-side
 router.post('/login', async (req, res) => {
   const { email, password } = (req.body || {}) as AuthLoginRequest;
 
@@ -34,7 +52,7 @@ router.post('/login', async (req, res) => {
 
   const normalizedEmail = email.trim().toLowerCase();
 
-  // 1. Primary: Authenticate via Supabase Auth (GoTrue /auth/v1/token?grant_type=password)
+  // 1. Primary: Authenticate server-to-server against upstream identity provider
   try {
     const supaRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: 'POST',
@@ -55,7 +73,7 @@ router.post('/login', async (req, res) => {
       const profile = verifyToken(supaData.access_token);
       if (!profile) {
         res.status(403).json({
-          error: 'Account is not authorized as an ApexMSP operator.'
+          error: 'Invalid email or password'
         });
         return;
       }
@@ -64,24 +82,23 @@ router.post('/login', async (req, res) => {
         orgId: profile.orgId,
         userId: profile.id,
         actorName: profile.name,
-        action: 'auth.supabase_login',
+        action: 'auth.login',
         targetType: 'user',
         targetId: profile.id,
-        details: { email: profile.email, provider: 'supabase' },
+        details: { email: profile.email },
         ipAddress: req.ip
       });
 
-      const response: AuthLoginResponse & { refreshToken?: string; authProvider?: string } = {
+      const response: AuthLoginResponse & { refreshToken?: string } = {
         token: supaData.access_token,
         refreshToken: supaData.refresh_token,
-        user: profile,
-        authProvider: 'supabase'
+        user: profile
       };
       res.json(response);
       return;
     }
   } catch (err) {
-    console.warn('[auth] Supabase Auth request error, checking local store:', (err as Error).message);
+    console.warn('[auth] upstream auth error, checking local store:', (err as Error).message);
   }
 
   // 2. Fallback: Check local operator store (bcrypt)
@@ -113,7 +130,7 @@ router.post('/login', async (req, res) => {
     action: 'auth.login',
     targetType: 'user',
     targetId: user.id,
-    details: { email: user.email, provider: 'local_jwt' },
+    details: { email: user.email },
     ipAddress: req.ip
   });
 
@@ -125,17 +142,17 @@ router.post('/login', async (req, res) => {
   res.json(response);
 });
 
-// POST /api/v1/auth/supabase-session — verifies a Supabase Auth access_token and returns operator profile
-router.post('/supabase-session', (req, res) => {
+// POST /api/v1/auth/session (and legacy /supabase-session) — verifies an access_token and returns operator profile
+router.post(['/session', '/supabase-session'], (req, res) => {
   const accessToken = String(req.body?.accessToken || req.body?.token || '').trim();
   if (!accessToken) {
-    res.status(400).json({ error: 'Missing Supabase accessToken' });
+    res.status(400).json({ error: 'Missing session token' });
     return;
   }
 
   const profile = verifyToken(accessToken);
   if (!profile) {
-    res.status(401).json({ error: 'Invalid or unauthorized Supabase session token' });
+    res.status(401).json({ error: 'Invalid or expired session token' });
     return;
   }
 
@@ -143,7 +160,7 @@ router.post('/supabase-session', (req, res) => {
     orgId: profile.orgId,
     userId: profile.id,
     actorName: profile.name,
-    action: 'auth.supabase_session_exchange',
+    action: 'auth.session_exchange',
     targetType: 'user',
     targetId: profile.id,
     details: { email: profile.email },
@@ -152,21 +169,93 @@ router.post('/supabase-session', (req, res) => {
 
   res.json({
     token: accessToken,
-    user: profile,
-    authProvider: 'supabase'
+    user: profile
   });
 });
 
-// POST /api/v1/auth/magic-link — sends a Supabase Auth OTP / Magic Link to an authorized operator email
-router.post('/magic-link', async (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  if (!email) {
-    res.status(400).json({ error: 'Operator email is required' });
+// POST /api/v1/auth/refresh — refreshes an operator session server-side
+router.post('/refresh', async (req, res) => {
+  const refreshToken = String(req.body?.refreshToken || '').trim();
+  if (!refreshToken) {
+    res.status(400).json({ error: 'Missing refresh token' });
     return;
   }
 
   try {
-    const otpRes = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+    const supaRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+
+    if (!supaRes.ok) {
+      res.status(401).json({ error: 'Session expired' });
+      return;
+    }
+
+    const data = (await supaRes.json()) as {
+      access_token: string;
+      refresh_token?: string;
+    };
+
+    const profile = verifyToken(data.access_token);
+    if (!profile) {
+      res.status(403).json({ error: 'Unauthorized session' });
+      return;
+    }
+
+    res.json({
+      token: data.access_token,
+      refreshToken: data.refresh_token,
+      user: profile
+    });
+  } catch {
+    res.status(500).json({ error: 'Unable to refresh session' });
+  }
+});
+
+// POST /api/v1/auth/magic-link — sends a one-time magic link ONLY to pre-registered operators
+router.post('/magic-link', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    res.status(400).json({ error: 'Please enter a valid email address.' });
+    return;
+  }
+
+  const clientIp = String(req.ip || req.socket?.remoteAddress || 'unknown');
+  if (!checkMagicLinkRateLimit(clientIp)) {
+    res.status(429).json({ error: 'Too many sign-in link requests. Please wait 15 minutes.' });
+    return;
+  }
+
+  const defaultOrgId = Array.from(store.orgs.values())[0]?.id || '00000000-0000-0000-0000-000000000001';
+
+  // If the email is NOT a registered operator, never contact the auth backend or send an email,
+  // log the blocked attempt, and return the exact same generic message to prevent email enumeration.
+  if (!isRegisteredOperatorEmail(email)) {
+    store.recordAudit({
+      orgId: defaultOrgId,
+      userId: 'unauthenticated',
+      actorName: 'Anonymous',
+      action: 'auth.magic_link_blocked',
+      targetType: 'auth',
+      targetId: email,
+      details: { attemptedEmail: email, reason: 'unregistered_operator_email' },
+      ipAddress: clientIp
+    });
+
+    res.json({
+      success: true,
+      message: GENERIC_MAGIC_LINK_MESSAGE
+    });
+    return;
+  }
+
+  try {
+    await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -181,25 +270,45 @@ router.post('/magic-link', async (req, res) => {
       })
     });
 
-    if (!otpRes.ok) {
-      const errBody = (await otpRes.json().catch(() => ({}))) as Record<string, any>;
-      res.status(otpRes.status).json({
-        error: errBody.msg || errBody.error_description || errBody.error || 'Failed to send Supabase Magic Link'
-      });
-      return;
-    }
-
-    res.json({
-      success: true,
-      message: `Supabase magic link / OTP sent to ${email}`
+    store.recordAudit({
+      orgId: defaultOrgId,
+      userId: email,
+      actorName: email,
+      action: 'auth.magic_link_requested',
+      targetType: 'user',
+      targetId: email,
+      details: { email },
+      ipAddress: clientIp
     });
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    console.warn('[auth] magic-link dispatch error:', (err as Error).message);
   }
+
+  res.json({
+    success: true,
+    message: GENERIC_MAGIC_LINK_MESSAGE
+  });
 });
 
 // POST /api/v1/auth/logout
-router.post('/logout', authenticate, (req: AuthenticatedRequest, res) => {
+router.post('/logout', authenticate, async (req: AuthenticatedRequest, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+
+  if (token) {
+    try {
+      await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${token}`
+        }
+      });
+    } catch {
+      // ignore upstream logout error
+    }
+  }
+
   if (req.user) {
     store.recordAudit({
       orgId: req.user.orgId,
