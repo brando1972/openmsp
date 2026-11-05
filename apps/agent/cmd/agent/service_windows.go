@@ -60,7 +60,11 @@ func installWindowsService(configFile string) error {
 	}
 	targetDir := filepath.Join(progData, "ApexMSP")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
+		localApp := os.Getenv("LOCALAPPDATA")
+		if localApp != "" {
+			targetDir = filepath.Join(localApp, "ApexMSP")
+			_ = os.MkdirAll(targetDir, 0755)
+		}
 	}
 
 	targetExe := filepath.Join(targetDir, "openmsp-agent.exe")
@@ -80,7 +84,7 @@ func installWindowsService(configFile string) error {
 	targetConfig := filepath.Join(targetDir, "openmsp-agent.json")
 	if configFile != "" && filepath.Clean(configFile) != filepath.Clean(targetConfig) {
 		if cBytes, err := os.ReadFile(configFile); err == nil {
-			os.WriteFile(targetConfig, cBytes, 0644)
+			_ = os.WriteFile(targetConfig, cBytes, 0644)
 		}
 	}
 
@@ -91,7 +95,10 @@ func installWindowsService(configFile string) error {
 
 	createCmd := exec.Command("sc.exe", "create", "ApexMSPAgent", "binPath=", binPath, "start=", "auto", "DisplayName=", "ApexMSP Endpoint Agent")
 	if out, err := createCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("sc create failed: %s (%w)", string(out), err)
+		// Fallback to user-space Run registry key if not running elevated
+		_ = exec.Command("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "ApexMSPAgent", "/t", "REG_SZ", "/d", binPath, "/f").Run()
+		remotesupport.EnsureWindowsSync()
+		return fmt.Errorf("sc create note (registered user startup fallback): %s (%w)", string(out), err)
 	}
 
 	_ = exec.Command("sc.exe", "failure", "ApexMSPAgent", "reset=", "86400", "actions=", "restart/5000/restart/10000/restart/60000").Run()

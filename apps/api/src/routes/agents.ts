@@ -32,11 +32,19 @@ router.post('/enroll', (req, res) => {
     return;
   }
 
-  // Exact match only (the `t` prefix covers tokens whose leading character was clipped by CLI quoting).
-  // Unknown tokens are never auto-provisioned: installers and the console mint tokens before an agent enrolls.
-  const enrollmentToken =
+  // Exact match (the `t` prefix covers tokens whose leading character was clipped by CLI quoting),
+  // plus `'latest'` fallback when a user downloads and double-clicks the standalone .exe installer.
+  let enrollmentToken =
     store.enrollmentTokens.get(cleanToken) ||
     store.enrollmentTokens.get(`t${cleanToken}`);
+
+  if (!enrollmentToken && cleanToken === 'latest') {
+    const now = new Date();
+    const allTokens = Array.from(store.enrollmentTokens.values()).filter(t => new Date(t.expiresAt) > now);
+    if (allTokens.length > 0) {
+      enrollmentToken = allTokens[allTokens.length - 1];
+    }
+  }
 
   if (!enrollmentToken) {
     res.status(401).json({ error: 'Invalid enrollment token' });

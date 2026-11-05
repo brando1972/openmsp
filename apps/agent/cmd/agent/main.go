@@ -152,6 +152,54 @@ func orDefault(v, d int) int {
 	return v
 }
 
+// extractEmbeddedToken inspects the last 1024 bytes of the running binary for an
+// appended "APEXMSP_EMBED_TOKEN=<token>" trailer (injected on-the-fly by
+// GET /api/v1/installers/download) or a "tok-..." pattern in the binary filename.
+func extractEmbeddedToken() string {
+	exePath, err := os.Executable()
+	if err != nil || exePath == "" {
+		return ""
+	}
+	f, err := os.Open(exePath)
+	if err == nil {
+		defer f.Close()
+		if fi, err := f.Stat(); err == nil && fi.Size() > 64 {
+			readLen := int64(1024)
+			if fi.Size() < readLen {
+				readLen = fi.Size()
+			}
+			buf := make([]byte, readLen)
+			if _, err := f.ReadAt(buf, fi.Size()-readLen); err == nil {
+				s := string(buf)
+				if idx := strings.LastIndex(s, "APEXMSP_EMBED_TOKEN="); idx >= 0 {
+					rest := s[idx+len("APEXMSP_EMBED_TOKEN="):]
+					if nl := strings.IndexAny(rest, "\r\n\x00 "); nl >= 0 {
+						rest = rest[:nl]
+					}
+					rest = strings.TrimSpace(rest)
+					if rest != "" {
+						return rest
+					}
+				}
+			}
+		}
+	}
+	base := filepath.Base(exePath)
+	if idx := strings.Index(base, "tok-"); idx >= 0 {
+		rest := base[idx:]
+		if dot := strings.Index(rest, "."); dot >= 0 {
+			rest = rest[:dot]
+		}
+		if paren := strings.IndexAny(rest, " ()"); paren >= 0 {
+			rest = rest[:paren]
+		}
+		if len(rest) > 6 {
+			return rest
+		}
+	}
+	return ""
+}
+
 func main() {
 	serverDefault := "https://api.apexmsp.app"
 	if s := os.Getenv("OPENMSP_SERVER"); s != "" {
@@ -220,8 +268,19 @@ func main() {
 		if *serverFlag != "" {
 			cfg.ServerURL = *serverFlag
 		}
+		embeddedTok := extractEmbeddedToken()
+		exePath, _ := os.Executable()
+		isInstalledBinary := strings.Contains(strings.ToLower(exePath), "programdata\\apexmsp") || strings.Contains(strings.ToLower(exePath), "/usr/local/bin")
+		forceInstallerEnroll := false
 		if *tokenFlag != "" {
 			cfg.Token = *tokenFlag
+		} else if embeddedTok != "" {
+			if cfg.Token == "" || !isInstalledBinary {
+				cfg.Token = embeddedTok
+			}
+			if !isInstalledBinary {
+				forceInstallerEnroll = true
+			}
 		}
 		if *intervalFlag > 0 {
 			cfg.HeartbeatIntervalSeconds = *intervalFlag
@@ -232,11 +291,10 @@ func main() {
 		ctx := context.Background()
 
 		// 2. Enrollment check
-		if !cfg.IsEnrolled() {
-			log.Println("[*] Device not enrolled. Initiating enrollment...")
+		if !cfg.IsEnrolled() || forceInstallerEnroll {
+			log.Println("[*] Initiating endpoint enrollment...")
 			if cfg.Token == "" {
 				// Check for a token.txt or enrollment-token.txt next to binary or in current dir
-				exePath, _ := os.Executable()
 				exeDir := filepath.Dir(exePath)
 				for _, cand := range []string{"token.txt", "enrollment-token.txt", filepath.Join(exeDir, "token.txt"), filepath.Join(exeDir, "enrollment-token.txt")} {
 					if tBytes, err := os.ReadFile(cand); err == nil {
@@ -255,20 +313,14 @@ func main() {
 					cfg.Token = strings.TrimSpace(envTok)
 				} else if envTok := os.Getenv("APEXMSP_TOKEN"); envTok != "" {
 					cfg.Token = strings.TrimSpace(envTok)
+				} else if embeddedTok != "" {
+					cfg.Token = embeddedTok
 				}
 			}
 
 			if cfg.Token == "" {
-				fmt.Println("==================================================")
-				fmt.Println("  ApexMSP Endpoint Agent Setup")
-				fmt.Println("==================================================")
-				fmt.Printf("Control Plane: %s\n", cfg.ServerURL)
-				fmt.Print("Please paste your Enrollment Token: ")
-
-				scanner := bufio.NewScanner(os.Stdin)
-				if scanner.Scan() {
-					cfg.Token = strings.TrimSpace(scanner.Text())
-				}
+				// Try zero-touch enrollment using the latest active token on the control plane before prompting
+				cfg.Token = "latest"
 			}
 
 			exitEnrollFailure := func() {
@@ -280,14 +332,29 @@ func main() {
 				os.Exit(1)
 			}
 
-			if cfg.Token == "" {
-				log.Println("[-] No enrollment token. Pass --token, set OPENMSP_TOKEN, or place token.txt next to the agent.")
-				exitEnrollFailure()
-			}
-
 			if err := enrollDevice(ctx, apiClient, cfg, resolvedConfigPath); err != nil {
-				log.Printf("[-] Enrollment error: %v", err)
-				exitEnrollFailure()
+				if cfg.Token == "latest" {
+					fmt.Println("==================================================")
+					fmt.Println("  ApexMSP Endpoint Agent Setup")
+					fmt.Println("==================================================")
+					fmt.Printf("Control Plane: %s\n", cfg.ServerURL)
+					fmt.Print("Please paste your Enrollment Token: ")
+					scanner := bufio.NewScanner(os.Stdin)
+					if scanner.Scan() {
+						cfg.Token = strings.TrimSpace(scanner.Text())
+					}
+					if cfg.Token == "" {
+						log.Println("[-] No enrollment token provided.")
+						exitEnrollFailure()
+					}
+					if err2 := enrollDevice(ctx, apiClient, cfg, resolvedConfigPath); err2 != nil {
+						log.Printf("[-] Enrollment error: %v", err2)
+						exitEnrollFailure()
+					}
+				} else {
+					log.Printf("[-] Enrollment error: %v", err)
+					exitEnrollFailure()
+				}
 			}
 
 			if runtime.GOOS == "windows" {
@@ -495,6 +562,7 @@ func enrollDevice(ctx context.Context, api *client.Client, cfg *config.Config, c
 		SerialNumber: sysInfo.SerialNumber,
 		MACAddress:   sysInfo.MACAddress,
 		IPAddress:    sysInfo.IPAddress,
+		InstallerRun: true,
 	})
 	if err != nil {
 		return err

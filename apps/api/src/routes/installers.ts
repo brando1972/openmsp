@@ -179,7 +179,9 @@ router.get(['/download/:os/:component', '/download/:os', '/download'], (req, res
       downloadName = 'openmsp-agent-macos-universal';
     }
   } else if (os === 'windows') {
-    filename = 'openmsp-agent-windows-amd64.exe';
+    const ua = String(req.get('user-agent') || '');
+    const is32BitWin = arch === '386' || arch === 'x86' || (ua.includes('Windows') && !ua.includes('Win64') && !ua.includes('x64') && !ua.includes('WOW64'));
+    filename = is32BitWin ? 'openmsp-agent-windows-386.exe' : 'openmsp-agent-windows-amd64.exe';
     downloadName = 'openmsp-agent-windows.exe';
   } else if (os === 'linux') {
     if (arch === 'arm64') {
@@ -228,6 +230,33 @@ router.get(['/download/:os/:component', '/download/:os', '/download'], (req, res
 
   res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
   res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+
+  // If downloading the Windows or macOS agent binary directly, embed the enrollment token trailer
+  // so double-clicking the binary auto-enrolls without prompting for a token.
+  let embedToken = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+  if (!embedToken && component !== 'menubar') {
+    const now = new Date();
+    const activeTokens = Array.from(store.enrollmentTokens.values()).filter(t => new Date(t.expiresAt) > now);
+    if (activeTokens.length > 0) {
+      embedToken = activeTokens[activeTokens.length - 1].token;
+    }
+  }
+
+  if (embedToken && os === 'windows' && req.query.raw !== '1') {
+    const resolved = path.resolve(foundPath);
+    const stat = fs.statSync(resolved);
+    const trailer = Buffer.from(`\nAPEXMSP_EMBED_TOKEN=${embedToken}\n`, 'utf8');
+    res.setHeader('Content-Length', String(stat.size + trailer.length));
+    const stream = fs.createReadStream(resolved);
+    stream.on('end', () => {
+      res.end(trailer);
+    });
+    stream.pipe(res, { end: false });
+    return;
+  }
+
   res.sendFile(path.resolve(foundPath));
 });
 

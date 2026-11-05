@@ -55,6 +55,7 @@ type AgentEnrollRequest struct {
 	SerialNumber string `json:"serialNumber"`
 	MACAddress   string `json:"macAddress"`
 	IPAddress    string `json:"ipAddress"`
+	InstallerRun bool   `json:"installerRun,omitempty"`
 }
 
 // AgentEnrollResponse returned from POST /api/v1/agents/enroll.

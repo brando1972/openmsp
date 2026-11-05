@@ -1235,7 +1235,7 @@ export const RMMView: React.FC = () => {
               {/* Direct Binary Download Option */}
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <a
-                  href={`${apiBase}/api/v1/installers/download?os=macos`}
+                  href={`${apiBase}/api/v1/installers/download?os=macos&token=${encodeURIComponent(enrollToken)}`}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-semibold border border-purple-200 transition"
@@ -1244,7 +1244,7 @@ export const RMMView: React.FC = () => {
                   <span>Download macOS Agent (Universal M1-M4 & Intel)</span>
                 </a>
                 <a
-                  href={`${apiBase}/api/v1/installers/download?os=windows`}
+                  href={`${apiBase}/api/v1/installers/download?os=windows&token=${encodeURIComponent(enrollToken)}`}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold border border-blue-200 transition"
