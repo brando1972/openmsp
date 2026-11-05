@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --parallel run dev",
-    "build": "pnpm --filter @openmsp/api-types run build && pnpm --filter @openmsp/api run build && pnpm --filter @openmsp/console run build",
+    "build": "pnpm install --prod=false --no-frozen-lockfile && pnpm --filter @openmsp/api-types run build && pnpm --filter @openmsp/api run build && pnpm --filter @openmsp/console run build",
     "start": "node apps/api/dist/server.js",
     "build:agent": "cd apps/agent && go build -o bin/openmsp-agent cmd/agent/main.go",
     "lint": "pnpm --recursive run lint",
