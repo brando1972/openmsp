@@ -29,7 +29,16 @@ export interface RemoteDirEntry {
   n: string;
   t: 1 | 2 | 3;
   s?: number;
+  f?: number;
   d?: string;
+}
+
+export interface RemoteDriveInfo {
+  letter: string;
+  path: string;
+  label?: string;
+  freeBytes?: number;
+  totalBytes?: number;
 }
 
 export interface FileChannel {
@@ -37,8 +46,13 @@ export interface FileChannel {
   readonly mode: 'mesh' | 'agent';
   close(): void;
   ls(path: string): Promise<RemoteDirEntry[] | null>;
+  listDrives(): Promise<RemoteDriveInfo[]>;
   rm(dir: string, names: string[]): Promise<void>;
   mkdir(path: string): Promise<void>;
+  rename(dir: string, oldName: string, newName: string): Promise<void>;
+  copyOrMove(srcPaths: string[], destDir: string, mode: 'copy' | 'move'): Promise<void>;
+  extractZip(zipPath: string, destDir: string): Promise<void>;
+  createZipOnEndpoint(sourceDir: string, names: string[], destZipPath: string): Promise<void>;
   download(path: string, onProgress?: Progress, signal?: AbortSignal, expectedSize?: number): Promise<Uint8Array<ArrayBuffer>>;
   upload(path: string, data: Blob, onProgress?: Progress, signal?: AbortSignal): Promise<void>;
 }
@@ -79,14 +93,18 @@ const psQuote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
 export class MeshFileChannel implements FileChannel {
   private ws: WebSocket;
+  private deviceId: string;
+  private os: 'windows' | 'macos' | 'linux';
   private handler: Handler | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private nextId = 1;
   closed = false;
   readonly mode = 'mesh' as const;
 
-  private constructor(ws: WebSocket) {
+  private constructor(ws: WebSocket, deviceId: string, os: 'windows' | 'macos' | 'linux' = 'windows') {
     this.ws = ws;
+    this.deviceId = deviceId;
+    this.os = os;
     ws.onmessage = (ev: MessageEvent) => {
       if (typeof ev.data === 'string') {
         this.dispatchText(ev.data);
@@ -110,7 +128,7 @@ export class MeshFileChannel implements FileChannel {
    */
   static async open(deviceId: string, os: 'windows' | 'macos' | 'linux' = 'windows'): Promise<FileChannel> {
     try {
-      return await MeshFileChannel.openMesh(deviceId);
+      return await MeshFileChannel.openMesh(deviceId, os);
     } catch (meshErr) {
       try {
         return await AgentFileChannel.open(deviceId, os);
@@ -121,7 +139,7 @@ export class MeshFileChannel implements FileChannel {
   }
 
   /** Opens a MeshCentral protocol-5 file relay to the device and resolves once attached. */
-  static openMesh(deviceId: string): Promise<MeshFileChannel> {
+  static openMesh(deviceId: string, os: 'windows' | 'macos' | 'linux' = 'windows'): Promise<MeshFileChannel> {
     return mesh.startSession({ deviceId, protocol: PROTOCOL_FILES }).then((s) => new Promise((resolve, reject) => {
       if (!s.online) {
         reject(new Error(`${s.deviceName} is offline in ApexConnect, so files can't be transferred right now.`));
@@ -141,7 +159,7 @@ export class MeshFileChannel implements FileChannel {
         if (ev.data === 'c' || ev.data === 'cr') {
           clearTimeout(timer);
           ws.send(String(s.protocol));
-          resolve(new MeshFileChannel(ws));
+          resolve(new MeshFileChannel(ws, deviceId, os));
         }
       };
       ws.onclose = () => {
@@ -195,6 +213,32 @@ export class MeshFileChannel implements FileChannel {
     }));
   }
 
+  /** Lists mounted drives/volumes on the device. */
+  async listDrives(): Promise<RemoteDriveInfo[]> {
+    if (this.os === 'windows') {
+      try {
+        const rootEntries = await this.ls('');
+        const meshDrives: RemoteDriveInfo[] = [];
+        if (Array.isArray(rootEntries)) {
+          for (const e of rootEntries) {
+            if (e.t === 1 || /^[A-Za-z]:\\?$/.test(e.n)) {
+              const clean = e.n.replace(/\\+$/, '');
+              meshDrives.push({
+                letter: clean,
+                path: `${clean}\\`,
+                freeBytes: typeof e.f === 'number' ? e.f : undefined,
+                totalBytes: typeof e.s === 'number' ? e.s : undefined
+              });
+            }
+          }
+        }
+        if (meshDrives.length > 0) return meshDrives;
+      } catch { /* fall back to agent */ }
+    }
+    const agent = new AgentFileChannel(this.deviceId, this.os);
+    return agent.listDrives();
+  }
+
   /** Deletes entries of `dir` (recursively for folders). The agent sends no reply; verify with ls. */
   rm(dir: string, names: string[]): Promise<void> {
     return this.enqueue(async () => { this.send({ action: 'rm', path: dir, delfiles: names, rec: true }); });
@@ -203,6 +247,37 @@ export class MeshFileChannel implements FileChannel {
   /** Creates one folder. Only call for folders that don't exist yet. */
   mkdir(path: string): Promise<void> {
     return this.enqueue(async () => { this.send({ action: 'mkdir', path }); });
+  }
+
+  /** Renames a file or folder inside `dir`. */
+  async rename(dir: string, oldName: string, newName: string): Promise<void> {
+    await this.enqueue(async () => {
+      this.send({ action: 'rename', path: dir, oldname: oldName, newname: newName });
+    });
+    const after = await this.ls(dir);
+    if (after && after.some((e) => e.n.toLowerCase() === newName.toLowerCase())) {
+      return;
+    }
+    const agent = new AgentFileChannel(this.deviceId, this.os);
+    await agent.rename(dir, oldName, newName);
+  }
+
+  /** Copies or moves files/folders on the remote endpoint. */
+  copyOrMove(srcPaths: string[], destDir: string, mode: 'copy' | 'move'): Promise<void> {
+    const agent = new AgentFileChannel(this.deviceId, this.os);
+    return agent.copyOrMove(srcPaths, destDir, mode);
+  }
+
+  /** Extracts a .zip archive directly on the remote endpoint. */
+  extractZip(zipPath: string, destDir: string): Promise<void> {
+    const agent = new AgentFileChannel(this.deviceId, this.os);
+    return agent.extractZip(zipPath, destDir);
+  }
+
+  /** Compresses files/folders into a .zip archive directly on the remote endpoint. */
+  createZipOnEndpoint(sourceDir: string, names: string[], destZipPath: string): Promise<void> {
+    const agent = new AgentFileChannel(this.deviceId, this.os);
+    return agent.createZipOnEndpoint(sourceDir, names, destZipPath);
   }
 
   /** Downloads one file. `signal` aborts the transfer. */
@@ -495,6 +570,130 @@ export class AgentFileChannel implements FileChannel {
         const cleanDir = dir === '/' ? '' : dir.replace(/\/+$/, '');
         const args = safeNames.map((n) => shQuote(`${cleanDir}/${n}`)).join(' ');
         await this.runScript(`rm -rf -- ${args}`);
+      }
+    });
+  }
+
+  listDrives(): Promise<RemoteDriveInfo[]> {
+    return this.enqueue(async () => {
+      if (this.os === 'windows') {
+        const script = [
+          "$ErrorActionPreference = 'SilentlyContinue'",
+          "$vols = @(Get-WmiObject Win32_LogicalDisk -Filter 'DriveType=3 OR DriveType=2 OR DriveType=4' | ForEach-Object {",
+          "  @{ letter = [string]$_.DeviceID; path = \"$($_.DeviceID)\\\"; label = [string]$_.VolumeName; freeBytes = [int64]$_.FreeSpace; totalBytes = [int64]$_.Size }",
+          "})",
+          "$json = ConvertTo-Json -InputObject $vols -Compress -Depth 3",
+          "Write-Output \"__APEX_DRV__$json`__END_DRV__\""
+        ].join('\n');
+        const out = await this.runScript(script);
+        const m = out.match(/__APEX_DRV__([\s\S]*?)__END_DRV__/);
+        const raw = (m ? m[1] : '').trim();
+        if (!raw || raw === 'null') return [{ letter: 'C:', path: 'C:\\' }];
+        const parsed = JSON.parse(raw);
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        return list.filter((d) => d && d.letter) as RemoteDriveInfo[];
+      }
+      return [{ letter: '/', path: '/', label: 'Root' }];
+    });
+  }
+
+  rename(dir: string, oldName: string, newName: string): Promise<void> {
+    return this.enqueue(async () => {
+      if (this.os === 'windows') {
+        const cleanDir = dir.replace(/\\+$/, '');
+        const src = `${cleanDir}\\${oldName}`;
+        const script = [
+          "$ErrorActionPreference = 'Stop'",
+          `Rename-Item -LiteralPath ${psQuote(src)} -NewName ${psQuote(newName)} -Force`,
+          "Write-Output '__APEX_OK__'"
+        ].join('\n');
+        const out = await this.runScript(script);
+        if (!out.includes('__APEX_OK__')) throw new Error(out.trim() || `Could not rename "${oldName}".`);
+      } else {
+        const cleanDir = dir === '/' ? '' : dir.replace(/\/+$/, '');
+        const src = `${cleanDir}/${oldName}`;
+        const dst = `${cleanDir}/${newName}`;
+        const out = await this.runScript(`mv -f -- ${shQuote(src)} ${shQuote(dst)} && echo '__APEX_OK__'`);
+        if (!out.includes('__APEX_OK__')) throw new Error(out.trim() || `Could not rename "${oldName}".`);
+      }
+    });
+  }
+
+  copyOrMove(srcPaths: string[], destDir: string, mode: 'copy' | 'move'): Promise<void> {
+    return this.enqueue(async () => {
+      if (srcPaths.length === 0) return;
+      if (this.os === 'windows') {
+        const cmdlet = mode === 'move' ? 'Move-Item' : 'Copy-Item';
+        const extra = mode === 'copy' ? '-Recurse' : '';
+        const lines = [
+          "$ErrorActionPreference = 'Stop'",
+          ...srcPaths.map((p) => `${cmdlet} -LiteralPath ${psQuote(p)} -Destination ${psQuote(destDir)} ${extra} -Force`),
+          "Write-Output '__APEX_OK__'"
+        ];
+        const out = await this.runScript(lines.join('\n'));
+        if (!out.includes('__APEX_OK__')) throw new Error(out.trim() || `Failed to ${mode} items.`);
+      } else {
+        const cmd = mode === 'move' ? 'mv -f --' : 'cp -Rf --';
+        const args = srcPaths.map((p) => shQuote(p)).join(' ');
+        const out = await this.runScript(`${cmd} ${args} ${shQuote(destDir)} && echo '__APEX_OK__'`);
+        if (!out.includes('__APEX_OK__')) throw new Error(out.trim() || `Failed to ${mode} items.`);
+      }
+    });
+  }
+
+  extractZip(zipPath: string, destDir: string): Promise<void> {
+    return this.enqueue(async () => {
+      if (this.os === 'windows') {
+        const script = [
+          "$ErrorActionPreference = 'Stop'",
+          `New-Item -ItemType Directory -Path ${psQuote(destDir)} -Force | Out-Null`,
+          "if (Get-Command Expand-Archive -ErrorAction SilentlyContinue) {",
+          `  Expand-Archive -LiteralPath ${psQuote(zipPath)} -DestinationPath ${psQuote(destDir)} -Force`,
+          "} else {",
+          "  Add-Type -AssemblyName System.IO.Compression.FileSystem",
+          `  [System.IO.Compression.ZipFile]::ExtractToDirectory(${psQuote(zipPath)}, ${psQuote(destDir)})`,
+          "}",
+          "Write-Output '__APEX_OK__'"
+        ].join('\n');
+        const out = await this.runScript(script, 90_000);
+        if (!out.includes('__APEX_OK__')) throw new Error(out.trim() || `Failed to extract "${zipPath}".`);
+      } else {
+        const script = `mkdir -p -- ${shQuote(destDir)} && unzip -oq ${shQuote(zipPath)} -d ${shQuote(destDir)} && echo '__APEX_OK__'`;
+        const out = await this.runScript(script, 90_000);
+        if (!out.includes('__APEX_OK__')) throw new Error(out.trim() || `Failed to extract "${zipPath}".`);
+      }
+    });
+  }
+
+  createZipOnEndpoint(sourceDir: string, names: string[], destZipPath: string): Promise<void> {
+    return this.enqueue(async () => {
+      const safeNames = names.filter((n) => n && n !== '.' && n !== '..');
+      if (safeNames.length === 0) return;
+      if (this.os === 'windows') {
+        const cleanDir = sourceDir.replace(/\\+$/, '');
+        const fullPaths = safeNames.map((n) => psQuote(`${cleanDir}\\${n}`)).join(', ');
+        const script = [
+          "$ErrorActionPreference = 'Stop'",
+          `if (Test-Path -LiteralPath ${psQuote(destZipPath)}) { Remove-Item -LiteralPath ${psQuote(destZipPath)} -Force }`,
+          "if (Get-Command Compress-Archive -ErrorAction SilentlyContinue) {",
+          `  Compress-Archive -LiteralPath @(${fullPaths}) -DestinationPath ${psQuote(destZipPath)} -CompressionLevel Optimal -Force`,
+          "} else {",
+          "  Add-Type -AssemblyName System.IO.Compression.FileSystem",
+          `  $tmpDir = Join-Path $env:TEMP ('apex_zip_' + [guid]::NewGuid().ToString('N'))`,
+          "  New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null",
+          `  foreach ($p in @(${fullPaths})) { Copy-Item -LiteralPath $p -Destination $tmpDir -Recurse -Force }`,
+          `  [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpDir, ${psQuote(destZipPath)})`,
+          "  Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue",
+          "}",
+          "Write-Output '__APEX_OK__'"
+        ].join('\n');
+        const out = await this.runScript(script, 90_000);
+        if (!out.includes('__APEX_OK__')) throw new Error(out.trim() || `Failed to create zip "${destZipPath}".`);
+      } else {
+        const args = safeNames.map((n) => shQuote(n)).join(' ');
+        const script = `cd ${shQuote(sourceDir)} && rm -f -- ${shQuote(destZipPath)} && zip -rq ${shQuote(destZipPath)} ${args} && echo '__APEX_OK__'`;
+        const out = await this.runScript(script, 90_000);
+        if (!out.includes('__APEX_OK__')) throw new Error(out.trim() || `Failed to create zip "${destZipPath}".`);
       }
     });
   }
