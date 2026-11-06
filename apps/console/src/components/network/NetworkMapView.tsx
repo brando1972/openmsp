@@ -5,7 +5,9 @@ import {
   MonitorSmartphone, Search, SlidersHorizontal, Server
 } from 'lucide-react';
 import { net, type NetHost, type NetNeighbor, type NetSite, type NetConfig } from '../../services/api';
+import { useApp } from '../../data/AppContext';
 import SshTerminal from './SshTerminal';
+import CheckmkMonitoringView, { type CheckmkTabKey } from './CheckmkMonitoringView';
 
 // ---- role presentation -------------------------------------------------------
 type Role = 'router' | 'switch' | 'ap' | 'printer' | 'camera' | 'nas' | 'workstation' | 'phone' | 'iot' | 'unknown';
@@ -132,6 +134,7 @@ function layout(hosts: NetHost[], neighbors: NetNeighbor[]): { nodes: Node[]; ed
 
 // ---- component ---------------------------------------------------------------
 export const NetworkMapView: React.FC = () => {
+  const { activeSubRailView, setActiveSubRailView } = useApp();
   const [sites, setSites] = useState<NetSite[]>([]);
   const [siteId, setSiteId] = useState<string>('');
   const [nodesData, setNodesData] = useState<{ nodes: NetHost[]; edges: NetNeighbor[]; collectorDeviceId: string | null }>({ nodes: [], edges: [], collectorDeviceId: null });
@@ -193,15 +196,27 @@ export const NetworkMapView: React.FC = () => {
     return c;
   }, [hosts]);
 
-  return (
+  const validCmkTabs: CheckmkTabKey[] = [
+    'cmk-overview',
+    'cmk-hosts',
+    'cmk-discovery',
+    'cmk-active-checks',
+    'cmk-rules',
+    'cmk-topology'
+  ];
+  const currentCmkTab: CheckmkTabKey = validCmkTabs.includes(activeSubRailView as CheckmkTabKey)
+    ? (activeSubRailView as CheckmkTabKey)
+    : 'cmk-overview';
+
+  const renderTopologyMap = () => (
     <div className="flex-1 flex flex-col min-h-0 bg-[#f4f6f8]">
       {/* Header */}
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-slate-200 bg-white flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center"><Radar className="w-4 h-4 text-indigo-600" /></div>
           <div>
-            <div className="text-base font-bold text-slate-800 leading-tight">Network Map</div>
-            <div className="text-[11px] text-slate-400 leading-tight">Discovery &amp; topology · agent-based collector</div>
+            <div className="text-base font-bold text-slate-800 leading-tight">Network Topology Map</div>
+            <div className="text-[11px] text-slate-400 leading-tight">Discovery &amp; LLDP/CDP topology · agent-based collector</div>
           </div>
         </div>
 
@@ -260,6 +275,14 @@ export const NetworkMapView: React.FC = () => {
       {showSettings && siteId && <SettingsModal siteId={siteId} onClose={() => setShowSettings(false)} onSaved={() => { setShowSettings(false); loadTopology(siteId); }} />}
       {toast && <div className="fixed bottom-5 right-5 z-[120] max-w-sm px-4 py-3 rounded-xl shadow-lg border border-indigo-200 bg-indigo-50 text-indigo-800 text-sm font-semibold">{toast}</div>}
     </div>
+  );
+
+  return (
+    <CheckmkMonitoringView
+      activeSubTab={currentCmkTab}
+      onChangeSubTab={(nextTab) => setActiveSubRailView(nextTab)}
+      renderTopologyMap={renderTopologyMap}
+    />
   );
 };
 

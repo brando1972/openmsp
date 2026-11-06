@@ -581,7 +581,9 @@ export type WSMessageType =
   | 'unifi.synced'
   | 'backup.snapshot'
   | 'backup.job'
-  | 'backup.vault';
+  | 'backup.vault'
+  | 'monitoring.updated'
+  | 'monitoring.alert';
 
 export interface WSEvent<T = any> {
   type: WSMessageType;
@@ -1589,4 +1591,208 @@ export interface PublicInvoiceView {
   taxRates: TaxRate[];
   payOnlineAvailable: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Checkmk-Grade Infrastructure & Service Monitoring (Host/Service States,
+// Auto-Discovery WATO, Active Synthetic Checks, Perfdata RRD, Rules, Downtime)
+// ---------------------------------------------------------------------------
+
+export type CheckmkHostState = 'UP' | 'DOWN' | 'UNREACH' | 'PENDING';
+export type CheckmkServiceState = 'OK' | 'WARN' | 'CRIT' | 'UNKNOWN' | 'PENDING';
+export type CheckmkStateType = 'SOFT' | 'HARD';
+export type CheckmkDiscoveryState = 'monitored' | 'undecided' | 'vanished' | 'ignored';
+
+export type CheckmkCheckPlugin =
+  | 'cpu_utilization'
+  | 'memory_usage'
+  | 'filesystem_usage'
+  | 'system_uptime'
+  | 'patch_compliance'
+  | 'security_edr_posture'
+  | 'backup_status'
+  | 'windows_service'
+  | 'smb_share'
+  | 'network_interface'
+  | 'snmp_uptime'
+  | 'icmp_ping'
+  | 'tcp_port'
+  | 'http_tls'
+  | 'dns_lookup';
+
+export interface CheckmkMetricPoint {
+  ts: string;         // ISO timestamp
+  value: number;
+  warn?: number;
+  crit?: number;
+}
+
+export interface CheckmkPerfData {
+  label: string;      // e.g. 'cpu_util', 'fs_used_pct', 'rta_ms', 'cert_days'
+  value: number;
+  unit: '%' | 'ms' | 'MB' | 'GB' | 'Mbps' | 'days' | 's' | 'count' | '';
+  warn?: number;
+  crit?: number;
+  min?: number;
+  max?: number;
+}
+
+export interface CheckmkAcknowledgeInfo {
+  by: string;
+  at: string;
+  comment: string;
+  sticky: boolean;
+}
+
+export interface CheckmkServiceCheck {
+  id: string;                     // `${hostId}::${serviceName}`
+  hostId: string;
+  hostName: string;
+  clientId: string;
+  clientName: string;
+  siteId: string;
+  plugin: CheckmkCheckPlugin;
+  serviceName: string;            // e.g. "CPU Utilization", "Filesystem F:/ (FileShare)", "Service: LanmanServer"
+  state: CheckmkServiceState;
+  stateType: CheckmkStateType;
+  attempt: number;                // e.g. 1
+  maxAttempts: number;            // e.g. 3
+  discoveryState: CheckmkDiscoveryState;
+  summary: string;                // Checkmk-style status detail: "OK - Total CPU: 14.2% (warn/crit at 85.0%/95.0%)"
+  perfData: CheckmkPerfData[];
+  metricsHistory: CheckmkMetricPoint[]; // rolling RRD time-series buffer
+  flapping: boolean;
+  stateChangesWindow: number;
+  inDowntime: boolean;
+  acknowledged?: CheckmkAcknowledgeInfo;
+  lastCheckAt: string;
+  lastStateChangeAt: string;
+  checkIntervalSec: number;
+  activeCheckId?: string;
+  linkedTicketId?: string;
+}
+
+export interface CheckmkMonitoredHost {
+  id: string;                     // managedDeviceId or `net-${siteId}-${ip}`
+  name: string;
+  hostname: string;
+  ipAddress: string;
+  macAddress?: string;
+  clientId: string;
+  clientName: string;
+  siteId: string;
+  siteName: string;
+  os: string;
+  role: string;                   // 'server' | 'workstation' | 'router' | 'switch' | 'ap' | 'printer' | 'nas' | 'synthetic'
+  source: 'agent' | 'snmp' | 'network_scan' | 'synthetic';
+  managedDeviceId?: string;
+  parentHostId?: string;          // upstream gateway/switch for UNREACH correlation
+  state: CheckmkHostState;
+  stateType: CheckmkStateType;
+  attempt: number;
+  maxAttempts: number;
+  summary: string;
+  latencyMs?: number;
+  packetLossPct?: number;
+  uptimeSec?: number;
+  inDowntime: boolean;
+  acknowledged?: CheckmkAcknowledgeInfo;
+  labels: Record<string, string>; // Checkmk host labels: e.g. cmk/os_family:windows, cmk/role:file_server
+  serviceCounts: {
+    ok: number;
+    warn: number;
+    crit: number;
+    unknown: number;
+    pending: number;
+    undecided: number;
+  };
+  lastCheckAt: string;
+  lastStateChangeAt: string;
+}
+
+export type CheckmkActiveCheckType = 'http_tls' | 'tcp_port' | 'icmp_ping' | 'dns_lookup';
+
+export interface CheckmkActiveCheckConfig {
+  id: string;
+  orgId: string;
+  clientId: string;
+  clientName: string;
+  siteId: string;
+  hostId?: string;                // attaches to existing host or creates a synthetic host
+  name: string;                   // e.g. "HTTPS Vaultwarden Certificate & Health", "BayouServ SMB 445"
+  type: CheckmkActiveCheckType;
+  target: string;                 // URL, hostname, or IP
+  port?: number;
+  expectedStatus?: number;        // HTTP status (default 200)
+  expectedBodySubstring?: string;
+  dnsRecordType?: 'A' | 'AAAA' | 'CNAME' | 'TXT' | 'MX';
+  expectedDnsAnswer?: string;
+  warnMs: number;                 // response time WARN threshold
+  critMs: number;                 // response time CRIT threshold
+  certWarnDays?: number;          // TLS cert expiry WARN (default 30)
+  certCritDays?: number;          // TLS cert expiry CRIT (default 14)
+  intervalSec: number;
+  enabled: boolean;
+  autoCreateTicket: boolean;
+  lastRunAt?: string;
+  createdAt: string;
+}
+
+export interface CheckmkThresholdRule {
+  id: string;
+  orgId: string;
+  name: string;
+  description: string;
+  plugin: CheckmkCheckPlugin;
+  clientId?: string;              // empty = all clients
+  hostRole?: string;              // empty = all roles
+  hostId?: string;                // empty = all hosts
+  servicePattern?: string;        // optional regex/substring match on serviceName
+  warnThreshold: number;
+  critThreshold: number;
+  maxAttempts: number;
+  checkIntervalSec: number;
+  autoCreateTicket: boolean;
+  enabled: boolean;
+  updatedAt: string;
+}
+
+export interface CheckmkDowntime {
+  id: string;
+  orgId: string;
+  hostId: string;
+  hostName: string;
+  serviceId?: string;             // if omitted, applies to entire host + all its services
+  serviceName?: string;
+  startTime: string;
+  endTime: string;
+  comment: string;
+  createdBy: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface CheckmkTacticalOverview {
+  hosts: {
+    total: number;
+    up: number;
+    down: number;
+    unreach: number;
+    pending: number;
+    unhandledProblems: number;
+    inDowntime: number;
+  };
+  services: {
+    total: number;
+    ok: number;
+    warn: number;
+    crit: number;
+    unknown: number;
+    pending: number;
+    unhandledProblems: number;
+    undecidedDiscovery: number;
+    inDowntime: number;
+  };
+  lastEvaluationAt: string;
+}
+
 

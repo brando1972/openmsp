@@ -26,6 +26,8 @@ import unifiRouter from './routes/unifi.js';
 import backupsRouter from './routes/backups.js';
 import billingRouter from './routes/billing.js';
 import publicInvoicesRouter from './routes/publicInvoices.js';
+import monitoringRouter from './routes/monitoring.js';
+import { startCheckmkScheduler } from './net/checkmkEngine.js';
 import { stripeWebhookHandler } from './billing/stripe.js';
 import { startBillingScheduler } from './billing/engine.js';
 import { deliverDocument } from './billing/mailer.js';
@@ -407,6 +409,7 @@ app.use('/api/v1/integrations/unifi', unifiRouter);
 app.use('/api/v1/backups', backupsRouter);
 app.use('/api/v1/billing', billingRouter);
 app.use('/api/v1/public/invoices', publicInvoicesRouter);
+app.use('/api/v1/monitoring', monitoringRouter);
 
 // 404 Handler
 app.use((req, res) => {
@@ -422,6 +425,7 @@ server.listen(PORT, () => {
   if (process.env.BILLING_SCHEDULER !== '0') {
     startBillingScheduler((doc, actor) => deliverDocument(doc, {}, actor, true));
   }
+  startCheckmkScheduler();
   // Warm up the native ApexConnect remote engine (best-effort; no-op if unconfigured).
   if (meshClient.configured()) {
     meshClient.ensureReady().then(

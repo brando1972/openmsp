@@ -4898,6 +4898,91 @@ export const backups = {
   advanceBareMetalSession
 };
 
+// ---------------------------------------------------------------------------
+// Checkmk Infrastructure & Service Monitoring API
+// ---------------------------------------------------------------------------
+export interface CheckmkOverviewResponse {
+  overview: import('@openmsp/api-types').CheckmkTacticalOverview;
+  hosts: import('@openmsp/api-types').CheckmkMonitoredHost[];
+  services: import('@openmsp/api-types').CheckmkServiceCheck[];
+  activeChecks: import('@openmsp/api-types').CheckmkActiveCheckConfig[];
+  rules: import('@openmsp/api-types').CheckmkThresholdRule[];
+  downtimes: import('@openmsp/api-types').CheckmkDowntime[];
+}
+
+export const monitoring = {
+  getOverview: async (clientId?: string, hostId?: string): Promise<CheckmkOverviewResponse> => {
+    const qs = new URLSearchParams();
+    if (clientId && clientId !== 'all') qs.set('clientId', clientId);
+    if (hostId) qs.set('hostId', hostId);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<CheckmkOverviewResponse>(`/monitoring/overview${suffix}`);
+  },
+  discover: async (hostId?: string, includeActive = true): Promise<any> =>
+    request('/monitoring/discover', {
+      method: 'POST',
+      body: JSON.stringify({ hostId, includeActive })
+    }),
+  updateDiscoveryState: async (payload: {
+    serviceIds?: string[];
+    hostId?: string;
+    discoveryState: import('@openmsp/api-types').CheckmkDiscoveryState;
+  }): Promise<any> =>
+    request('/monitoring/services/discovery-state', {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    }),
+  acknowledge: async (payload: {
+    targetType: 'host' | 'service';
+    id: string;
+    comment?: string;
+    sticky?: boolean;
+    clear?: boolean;
+  }): Promise<any> =>
+    request('/monitoring/acknowledge', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+  createDowntime: async (payload: {
+    hostId: string;
+    serviceId?: string;
+    durationMinutes?: number;
+    startTime?: string;
+    endTime?: string;
+    comment: string;
+  }): Promise<any> =>
+    request('/monitoring/downtimes', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+  deleteDowntime: async (id: string): Promise<any> =>
+    request(`/monitoring/downtimes/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    }),
+  saveActiveCheck: async (payload: Partial<import('@openmsp/api-types').CheckmkActiveCheckConfig>): Promise<any> =>
+    request('/monitoring/active-checks', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+  runActiveCheck: async (id: string): Promise<any> =>
+    request(`/monitoring/active-checks/${encodeURIComponent(id)}/run`, {
+      method: 'POST'
+    }),
+  deleteActiveCheck: async (id: string): Promise<any> =>
+    request(`/monitoring/active-checks/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    }),
+  saveRule: async (payload: Partial<import('@openmsp/api-types').CheckmkThresholdRule>): Promise<any> =>
+    request('/monitoring/rules', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+  deleteRule: async (id: string): Promise<any> =>
+    request(`/monitoring/rules/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    })
+};
+
 // Unified export object
 export const api = {
   auth,
@@ -4915,6 +5000,7 @@ export const api = {
   mdm,
   mesh,
   net,
+  monitoring,
   ws,
   stagedApps,
   security,

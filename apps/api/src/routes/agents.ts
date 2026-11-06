@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { store } from '../db/store.js';
 import { wsManager } from '../ws/manager.js';
 import { electCollector, scanConfigFor, ingestScan } from '../net/discovery.js';
+import { runCheckmkDiscoveryAndEvaluate } from '../net/checkmkEngine.js';
 import { updateDirectiveFor, artifactPath } from '../releases/manifest.js';
 import { meshClient } from '../mesh/meshClient.js';
 import { upsertDeviceSecurityPosture, ingestSecurityDetection } from './security.js';
@@ -328,6 +329,11 @@ router.post('/heartbeat', (req, res) => {
       reportedAt: backupStatus.reportedAt || new Date().toISOString()
     });
   }
+
+  // Update Checkmk host state, auto-discovered services, and RRD time-series metrics
+  try {
+    runCheckmkDiscoveryAndEvaluate(device.id);
+  } catch { /* non-fatal */ }
 
   wsManager.broadcastToOrg(orgId, 'device.heartbeat', {
     deviceId: device.id,

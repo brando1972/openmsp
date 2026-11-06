@@ -57,6 +57,15 @@ const TICKET_CHILDREN: Item[] = [
   { key: 'following', label: "I'm Following", Icon: Ticket, tint: '#f43f5e', built: true, tab: 'psa-tickets', sub: 'following' }
 ];
 
+const NETMON_CHILDREN: Item[] = [
+  { key: 'cmk-overview', label: 'Tactical Overview', Icon: Activity, tint: '#10b981', built: true, tab: 'network-map', sub: 'cmk-overview' },
+  { key: 'cmk-hosts', label: 'Hosts & Services', Icon: Server, tint: '#10b981', built: true, tab: 'network-map', sub: 'cmk-hosts' },
+  { key: 'cmk-discovery', label: 'Service Discovery (WATO)', Icon: Monitor, tint: '#10b981', built: true, tab: 'network-map', sub: 'cmk-discovery' },
+  { key: 'cmk-active-checks', label: 'Active Checks (HTTP/TCP)', Icon: Zap, tint: '#10b981', built: true, tab: 'network-map', sub: 'cmk-active-checks' },
+  { key: 'cmk-rules', label: 'Threshold Rules & Downtime', Icon: SlidersHorizontal, tint: '#10b981', built: true, tab: 'network-map', sub: 'cmk-rules' },
+  { key: 'cmk-topology', label: 'Network Topology Map', Icon: Wifi, tint: '#10b981', built: true, tab: 'network-map', sub: 'cmk-topology' }
+];
+
 const GROUPS: Group[] = [
   {
     title: 'Work Management',
@@ -114,7 +123,7 @@ const GROUPS: Group[] = [
       { key: 'patches', label: 'Patches', Icon: ShieldCheck, tint: '#22c55e', built: true, tab: 'patching' },
       { key: 'staged-apps', label: 'Staged Applications', Icon: Package, tint: '#3b82f6', built: true, tab: 'automations', sub: 'staged-apps', badge: 'Active' },
       { key: 'scripts', label: 'Scripts & Automations', Icon: Code2, tint: '#10b981', built: true, tab: 'automations', sub: 'rules' },
-      { key: 'netmon', label: 'Network Monitoring', Icon: Activity, tint: '#3b82f6', built: true, tab: 'network-map' },
+      { key: 'netmon', label: 'Checkmk Monitoring', Icon: Activity, tint: '#10b981', built: true, tab: 'network-map', sub: 'cmk-overview', badge: 'Checkmk', children: NETMON_CHILDREN },
       { key: 'remote', label: 'Remote Support', Icon: Headphones, tint: '#f59e0b', built: true, tab: 'remote-support' },
       { key: 'vault', label: 'Vault', Icon: KeyRound, tint: '#14b8a6', built: true, tab: 'vault' }
     ]
@@ -157,13 +166,14 @@ export const RoadmapNav: React.FC = () => {
     tickets: openCount
   };
 
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({ assets: false, tickets: false });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ assets: false, tickets: false, netmon: true });
   const toggle = (k: string) => setExpanded((p) => ({ ...p, [k]: !p[k] }));
 
   const isActive = (it: Item): boolean => {
     if (it.tab === 'security-soc') return activeTab === 'security-soc' && activeSubRailView === it.sub;
     if (it.tab === 'mdm') return activeTab === 'mdm' && activeSubRailView === it.sub;
     if (it.tab === 'billing') return activeTab === 'billing' && activeSubRailView === it.sub;
+    if (it.tab === 'network-map' && it.key !== 'netmon') return activeTab === 'network-map' && activeSubRailView === it.sub;
     if (it.sub && it.tab === 'rmm' && it.key !== 'assets' && it.key !== 'alerts') return activeTab === 'rmm' && activeSubRailView === it.sub;
     if (it.tab && !it.children) return activeTab === it.tab;
     return false;

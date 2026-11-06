@@ -38,7 +38,12 @@ import type {
   BillingPayment,
   Contract,
   CreditApplication,
-  BillingSettings
+  BillingSettings,
+  CheckmkMonitoredHost,
+  CheckmkServiceCheck,
+  CheckmkActiveCheckConfig,
+  CheckmkThresholdRule,
+  CheckmkDowntime
 } from '@openmsp/api-types';
 
 export function defaultBillingSettings(companyName = 'ApexMSP'): BillingSettings {
@@ -174,6 +179,13 @@ class DataStore {
   public contracts: Map<string, Contract> = new Map();
   public creditApplications: Map<string, CreditApplication> = new Map();
   public billingSettings: BillingSettings = defaultBillingSettings();
+
+  // ---- Checkmk Infrastructure & Service Monitoring ----
+  public monitoredHosts: Map<string, CheckmkMonitoredHost> = new Map();
+  public serviceChecks: Map<string, CheckmkServiceCheck> = new Map();
+  public activeChecks: Map<string, CheckmkActiveCheckConfig> = new Map();
+  public thresholdRules: Map<string, CheckmkThresholdRule> = new Map();
+  public downtimes: Map<string, CheckmkDowntime> = new Map();
   private backupJobSeq = 1001;
 
   public nextBackupJobNumber(): string {
@@ -204,7 +216,8 @@ class DataStore {
     'securityPostures', 'identityObservations', 'securityDetections',
     'securityIncidents', 'securityActions', 'unifiSites', 'securityPolicies',
     'backupVaults', 'backupPolicies', 'backupSnapshots', 'backupJobs', 'bareMetalSessions', 'deviceBackupReports',
-    'taxRates', 'catalogItems', 'billingDocuments', 'billingPayments', 'contracts', 'creditApplications'
+    'taxRates', 'catalogItems', 'billingDocuments', 'billingPayments', 'contracts', 'creditApplications',
+    'monitoredHosts', 'serviceChecks', 'activeChecks', 'thresholdRules', 'downtimes'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 
