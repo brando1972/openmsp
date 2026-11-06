@@ -7,12 +7,9 @@ import type { VaultItem } from '@openmsp/api-types';
 const router = Router();
 router.use(authenticate);
 
-// GET /api/v1/vault/items (Metadata only, passwords masked)
+// GET /api/v1/vault/items (Authenticated vault items)
 router.get('/items', (req, res) => {
-  const items = Array.from(store.vaultItems.values()).map((item) => ({
-    ...item,
-    password: item.password ? '••••••••••••' : undefined
-  }));
+  const items = Array.from(store.vaultItems.values());
   res.json(items);
 });
 
@@ -36,7 +33,7 @@ router.post('/items', (req: AuthenticatedRequest, res) => {
     type: type || 'login',
     title,
     username,
-    password: password ? '••••••••••••' : undefined,
+    password: password || undefined,
     url,
     notes,
     totpSecret,
@@ -48,6 +45,7 @@ router.post('/items', (req: AuthenticatedRequest, res) => {
   };
 
   store.vaultItems.set(id, item);
+  store.persist();
 
   store.recordAudit({
     orgId: req.user!.orgId,

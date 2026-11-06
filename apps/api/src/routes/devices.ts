@@ -152,9 +152,13 @@ router.patch('/:id', (req: AuthenticatedRequest, res) => {
     return;
   }
 
-  const { name, health, tags, encryptionStatus, clientId, clientName, siteId, siteName } = req.body;
+  const { name, health, tags, encryptionStatus, clientId, clientName, siteId, siteName, ipAddress } = req.body;
   const oldHealth = device.health;
   const oldClientId = device.clientId;
+
+  if (ipAddress !== undefined && String(ipAddress).trim() !== '') {
+    device.ipAddress = String(ipAddress).trim();
+  }
 
   if (name !== undefined && String(name).trim() !== '') {
     device.name = String(name).trim();

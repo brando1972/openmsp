@@ -110,7 +110,7 @@ func GetPrimaryNetworkInterface() (macAddr string, ipAddr string) {
 				continue
 			}
 			ip := ipNet.IP.To4()
-			if ip != nil && !ip.IsLoopback() {
+			if ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
 				return mac, ip.String()
 			}
 		}

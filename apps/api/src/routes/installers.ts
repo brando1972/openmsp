@@ -673,7 +673,10 @@ try {
     }
     $WinCs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
     if (-not $WinCs) { $WinCs = Get-WmiObject Win32_ComputerSystem -ErrorAction SilentlyContinue }
-    $NetCfg = Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "IPEnabled = True" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $NetAll = @(Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "IPEnabled = True" -ErrorAction SilentlyContinue)
+    $NetCfg = $NetAll | Where-Object { $_.IPAddress -and $_.IPAddress[0] -notlike '169.254.*' -and $_.DefaultIPGateway } | Select-Object -First 1
+    if (-not $NetCfg) { $NetCfg = $NetAll | Where-Object { $_.IPAddress -and $_.IPAddress[0] -notlike '169.254.*' } | Select-Object -First 1 }
+    if (-not $NetCfg) { $NetCfg = $NetAll | Select-Object -First 1 }
     $LocalIp = if ($NetCfg -and $NetCfg.IPAddress) { $NetCfg.IPAddress[0] } else { "" }
     $MacAddr = if ($NetCfg -and $NetCfg.MACAddress) { $NetCfg.MACAddress } else { "" }
     $EnrollBody = @{

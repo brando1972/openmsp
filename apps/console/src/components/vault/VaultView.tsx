@@ -78,8 +78,12 @@ export const VaultView: React.FC = () => {
     }
   }, [isVaultUnlocked]);
 
-  // Deterministic zero-knowledge credential derivation for unlocked state
+  // Deterministic zero-knowledge credential derivation for unlocked state (or actual stored secret)
   const getDecryptedPassword = (itemId: string, itemTitle: string): string => {
+    const found = vaultItems.find(v => v.id === itemId);
+    if (found?.password && found.password !== '••••••••••••') {
+      return found.password;
+    }
     const seed = `${itemId}-${itemTitle}`;
     let hash = 0;
     for (let i = 0; i < seed.length; i++) {
@@ -166,7 +170,7 @@ export const VaultView: React.FC = () => {
       type: itemType,
       title,
       username,
-      password: '••••••••••••',
+      password: password || '••••••••••••',
       url,
       notes,
       totpSecret: totpSecret || undefined,
