@@ -33,7 +33,8 @@ import {
   Bot,
   UserCheck,
   Headphones,
-  HardDrive
+  HardDrive,
+  Store
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -87,6 +88,12 @@ export const Sidebar: React.FC = () => {
     }
     if (tabId === 'backups') {
       setActiveSubRailView('backups-overview');
+    }
+    if (tabId === 'billing') {
+      setActiveSubRailView('billing-overview');
+    }
+    if (tabId === 'clients') {
+      setActiveSubRailView('clients');
     }
   };
 
@@ -251,6 +258,19 @@ export const Sidebar: React.FC = () => {
               title="Network Map — device discovery & topology"
             >
               <Network className="w-5 h-5" />
+            </button>
+
+            {/* Clients & Billing */}
+            <button
+              onClick={() => handleNavClick('clients')}
+              className={`w-10 h-10 rounded-lg flex items-center justify-center transition cursor-pointer ${
+                activeTab === 'clients' || activeTab === 'billing'
+                  ? 'bg-white/15 text-white font-bold'
+                  : 'text-white/60 hover:text-white hover:bg-white/10'
+              }`}
+              title="Clients & Billing"
+            >
+              <Store className="w-5 h-5" />
             </button>
 
             {/* Bitwarden Vault */}

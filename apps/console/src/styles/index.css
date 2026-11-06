@@ -188,3 +188,14 @@ body {
     display: block !important;
   }
 }
+
+/* ---- Billing: print / PDF of invoices, quotes, statements ---- */
+.print-portal { display: none; }
+@media print {
+  @page { margin: 12mm; }
+  body.has-print-portal > #root { display: none !important; }
+  body.has-print-portal > .print-portal { display: block !important; }
+  body { background: #fff !important; overflow: visible !important; height: auto !important; }
+  .print-portal .invoice-paper { max-width: none; box-shadow: none; border: 0; }
+  .print-portal * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

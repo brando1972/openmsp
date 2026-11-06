@@ -31,8 +31,29 @@ import type {
   BackupSnapshot,
   BackupJob,
   BareMetalRecoverySession,
-  BackupAgentReport
+  BackupAgentReport,
+  TaxRate,
+  CatalogItem,
+  BillingDocument,
+  BillingPayment,
+  Contract,
+  CreditApplication,
+  BillingSettings
 } from '@openmsp/api-types';
+
+export function defaultBillingSettings(companyName = 'ApexMSP'): BillingSettings {
+  return {
+    companyName,
+    currency: 'USD',
+    prefixes: { invoice: 'INV-', quote: 'QT-', salesOrder: 'SO-', creditNote: 'CN-', payment: 'PMT-', contract: 'CTR-' },
+    nextNumbers: { invoice: 1001, quote: 1001, salesOrder: 1001, creditNote: 1001, payment: 1001, contract: 1001 },
+    defaultPaymentTerms: 'net_30',
+    quoteValidityDays: 30,
+    defaultInvoiceNotes: 'Thank you for your business!',
+    defaultQuoteNotes: 'We look forward to working with you.',
+    amountVarianceThresholdPct: 25
+  };
+}
 
 export interface DBUser {
   id: string;
@@ -144,6 +165,15 @@ class DataStore {
   public backupJobs: Map<string, BackupJob> = new Map();
   public bareMetalSessions: Map<string, BareMetalRecoverySession> = new Map();
   public deviceBackupReports: Map<string, BackupAgentReport> = new Map();
+
+  // ---- Client Management & Billing ----
+  public taxRates: Map<string, TaxRate> = new Map();
+  public catalogItems: Map<string, CatalogItem> = new Map();
+  public billingDocuments: Map<string, BillingDocument> = new Map();
+  public billingPayments: Map<string, BillingPayment> = new Map();
+  public contracts: Map<string, Contract> = new Map();
+  public creditApplications: Map<string, CreditApplication> = new Map();
+  public billingSettings: BillingSettings = defaultBillingSettings();
   private backupJobSeq = 1001;
 
   public nextBackupJobNumber(): string {
@@ -173,7 +203,8 @@ class DataStore {
     'stagedApps', 'deviceStagedDeployments',
     'securityPostures', 'identityObservations', 'securityDetections',
     'securityIncidents', 'securityActions', 'unifiSites', 'securityPolicies',
-    'backupVaults', 'backupPolicies', 'backupSnapshots', 'backupJobs', 'bareMetalSessions', 'deviceBackupReports'
+    'backupVaults', 'backupPolicies', 'backupSnapshots', 'backupJobs', 'bareMetalSessions', 'deviceBackupReports',
+    'taxRates', 'catalogItems', 'billingDocuments', 'billingPayments', 'contracts', 'creditApplications'
   ] as const;
   private persistTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -196,7 +227,43 @@ class DataStore {
     this.reconcileLiveBackupVaults();
     this.reconcileSupabaseOperators();
     this.purgeSeededData();
+    this.seedBillingDefaults();
     this.startPersistence();
+  }
+
+  /** Billing settings, a placeholder tax rate and a starter catalog (runs even after hydrate; never seeds documents). */
+  public seedBillingDefaults(): void {
+    const orgName = Array.from(this.orgs.values())[0]?.settings?.companyName || 'ApexMSP';
+    const defaults = defaultBillingSettings(orgName);
+    const cur = this.billingSettings || defaults;
+    this.billingSettings = {
+      ...defaults,
+      ...cur,
+      companyName: cur.companyName || orgName,
+      prefixes: { ...defaults.prefixes, ...(cur.prefixes || {}) },
+      nextNumbers: { ...defaults.nextNumbers, ...(cur.nextNumbers || {}) }
+    };
+    if (this.taxRates.size === 0) {
+      const id = 'tax-default';
+      this.taxRates.set(id, { id, name: 'Sales Tax', ratePct: 8.25, isDefault: true, active: true });
+    }
+    if (this.catalogItems.size === 0) {
+      const now = new Date().toISOString();
+      const items: Array<Omit<CatalogItem, 'id' | 'createdAt' | 'updatedAt' | 'active'>> = [
+        { sku: 'MS-WKS', name: 'Managed Workstation', description: 'RMM, patching, AV/EDR and helpdesk per workstation', type: 'per_device', unit: 'device', unitPrice: 45, cost: 12, taxable: false },
+        { sku: 'MS-SRV', name: 'Managed Server', description: 'Proactive monitoring, patching and backup oversight per server', type: 'per_device', unit: 'device', unitPrice: 150, cost: 40, taxable: false },
+        { sku: 'M365-BP', name: 'Microsoft 365 Business', description: 'Microsoft 365 Business license, per user / month', type: 'per_user', unit: 'user', unitPrice: 22, cost: 18, taxable: true },
+        { sku: 'LAB-REM', name: 'Remote Labor', description: 'Remote technical support, per hour', type: 'labor', unit: 'hr', unitPrice: 125, taxable: false },
+        { sku: 'LAB-ONS', name: 'Onsite Labor', description: 'Onsite technical support, per hour', type: 'labor', unit: 'hr', unitPrice: 150, taxable: false },
+        { sku: 'BKP-DEV', name: 'Backup', description: 'Cloud backup per protected device / month', type: 'per_device', unit: 'device', unitPrice: 15, cost: 5, taxable: false },
+        { sku: 'FW-MGMT', name: 'Firewall Management', description: 'Firewall monitoring, updates and rule management / month', type: 'service', unit: 'mo', unitPrice: 99, taxable: false },
+        { sku: 'HW-UNIFI-U7', name: 'UniFi U7 Pro Access Point', description: 'Ubiquiti UniFi U7 Pro WiFi 7 access point (hardware)', type: 'product', unit: 'ea', unitPrice: 229, cost: 189, taxable: true }
+      ];
+      for (const it of items) {
+        const id = `item-${uuidv4().substring(0, 8)}`;
+        this.catalogItems.set(id, { ...it, id, active: true, createdAt: now, updatedAt: now });
+      }
+    }
   }
 
   private reconcileSupabaseOperators(): void {
@@ -290,6 +357,7 @@ class DataStore {
       if (Array.isArray(snap.automationLogs)) this.automationLogs = snap.automationLogs;
       if (Array.isArray(snap.auditEvents)) this.auditEvents = snap.auditEvents;
       if (snap.rustDeskConfig) this.rustDeskConfig = snap.rustDeskConfig;
+      if (snap.billingSettings && typeof snap.billingSettings === 'object') this.billingSettings = snap.billingSettings;
       if (snap.machineHandshakeConfig) this.machineHandshakeConfig = snap.machineHandshakeConfig;
       const hasData = this.users.size > 0 || this.orgs.size > 0;
       if (hasData) {
@@ -311,6 +379,7 @@ class DataStore {
       snap.automationLogs = this.automationLogs;
       snap.auditEvents = this.auditEvents;
       snap.rustDeskConfig = this.rustDeskConfig;
+      snap.billingSettings = this.billingSettings;
       snap.machineHandshakeConfig = this.machineHandshakeConfig;
       fs.mkdirSync(path.dirname(this.dataFile), { recursive: true });
       const tmp = this.dataFile + '.tmp';

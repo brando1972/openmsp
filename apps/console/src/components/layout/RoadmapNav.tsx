@@ -4,7 +4,7 @@ import type { NavigationTab } from '../../types';
 import {
   LayoutDashboard, Ticket, MapPin, ListChecks, Briefcase, Clock, CalendarDays,
   Monitor, Bell, ShieldCheck, Code2, Activity, Headphones, KeyRound,
-  Store, Package, ScrollText, BadgeCheck, Receipt, FileText, Inbox,
+  Store, Package, ScrollText, BadgeCheck, Receipt, FileText, Wallet, FileMinus, Tags,
   FileCode, BookOpen, Smartphone, AppWindow, SlidersHorizontal, FolderOpen,
   Settings, BarChart3, Bot, ChevronDown, ChevronRight, Server, Laptop, Wifi, Printer,
   Shield, ShieldAlert, Cpu, Lock, Zap,
@@ -72,13 +72,17 @@ const GROUPS: Group[] = [
   {
     title: 'Client Management',
     items: [
-      { key: 'clients', label: 'Clients', Icon: Store, tint: '#f59e0b', built: false },
-      { key: 'sales-order', label: 'Sales Order', Icon: Package, tint: '#d946ef', built: false },
-      { key: 'contracts', label: 'All Contracts', Icon: ScrollText, tint: '#10b981', built: false },
-      { key: 'invoice-audit', label: 'Invoice Audit', Icon: BadgeCheck, tint: '#84cc16', built: false },
-      { key: 'invoices', label: 'Invoices', Icon: Receipt, tint: '#22c55e', built: false },
-      { key: 'quotes', label: 'Quotes', Icon: FileText, tint: '#a855f7', built: false },
-      { key: 'sales-inbox', label: 'Sales Inbox', Icon: Inbox, tint: '#f43f5e', built: false }
+      { key: 'clients', label: 'Clients', Icon: Store, tint: '#f59e0b', built: true, tab: 'clients', sub: 'clients' },
+      { key: 'billing-overview', label: 'Billing Overview', Icon: BarChart3, tint: '#0ea5e9', built: true, tab: 'billing', sub: 'billing-overview' },
+      { key: 'quotes', label: 'Quotes', Icon: FileText, tint: '#a855f7', built: true, tab: 'billing', sub: 'quotes' },
+      { key: 'sales-orders', label: 'Sales Orders', Icon: Package, tint: '#d946ef', built: true, tab: 'billing', sub: 'sales-orders' },
+      { key: 'invoices', label: 'Invoices', Icon: Receipt, tint: '#22c55e', built: true, tab: 'billing', sub: 'invoices' },
+      { key: 'payments', label: 'Payments Received', Icon: Wallet, tint: '#10b981', built: true, tab: 'billing', sub: 'payments' },
+      { key: 'credit-notes', label: 'Credit Notes', Icon: FileMinus, tint: '#f97316', built: true, tab: 'billing', sub: 'credit-notes' },
+      { key: 'contracts', label: 'All Contracts', Icon: ScrollText, tint: '#10b981', built: true, tab: 'billing', sub: 'contracts' },
+      { key: 'invoice-audit', label: 'Invoice Audit', Icon: BadgeCheck, tint: '#84cc16', built: true, tab: 'billing', sub: 'invoice-audit' },
+      { key: 'items', label: 'Items & Tax Rates', Icon: Tags, tint: '#64748b', built: true, tab: 'billing', sub: 'items' },
+      { key: 'billing-settings', label: 'Billing Settings', Icon: Settings, tint: '#64748b', built: true, tab: 'billing', sub: 'billing-settings' }
     ]
   },
   {
@@ -159,6 +163,7 @@ export const RoadmapNav: React.FC = () => {
   const isActive = (it: Item): boolean => {
     if (it.tab === 'security-soc') return activeTab === 'security-soc' && activeSubRailView === it.sub;
     if (it.tab === 'mdm') return activeTab === 'mdm' && activeSubRailView === it.sub;
+    if (it.tab === 'billing') return activeTab === 'billing' && activeSubRailView === it.sub;
     if (it.sub && it.tab === 'rmm' && it.key !== 'assets' && it.key !== 'alerts') return activeTab === 'rmm' && activeSubRailView === it.sub;
     if (it.tab && !it.children) return activeTab === it.tab;
     return false;

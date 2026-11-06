@@ -24,6 +24,10 @@ import { SettingsView } from './components/settings/SettingsView';
 import { MdmView } from './components/mdm/MdmView';
 import { SecuritySocView } from './components/security/SecuritySocView';
 import { BackupDashboardView } from './components/backups/BackupDashboardView';
+import { ClientsView } from './components/clients/ClientsView';
+import { BillingView } from './components/billing/BillingView';
+import { PublicInvoicePage } from './components/billing/PublicInvoicePage';
+import { BillingProvider } from './data/BillingContext';
 
 const MainAppContent: React.FC = () => {
   const { isAuthenticated, activeTab, tabs, activeTabId, tabbedNavigationEnabled } = useApp();
@@ -66,6 +70,8 @@ const MainAppContent: React.FC = () => {
           {currentViewType === 'backups' && <BackupDashboardView />}
           {currentViewType === 'psa-tickets' && <PSATicketsView />}
           {currentViewType === 'vault' && <VaultView />}
+          {currentViewType === 'clients' && <ClientsView />}
+          {currentViewType === 'billing' && <BillingView />}
           {currentViewType === 'ai-copilot' && <AICopilotView />}
           {currentViewType === 'settings' && <SettingsView />}
         </main>
@@ -88,10 +94,22 @@ const MainAppContent: React.FC = () => {
 // live WebSocket with the desktop console via AppProvider), else the console.
 const AppRouter: React.FC = () => {
   const isDispatch = typeof window !== 'undefined' && window.location.pathname.startsWith('/dispatch');
-  return isDispatch ? <DispatchApp /> : <MainAppContent />;
+  return isDispatch ? <DispatchApp /> : (
+    <BillingProvider>
+      <MainAppContent />
+    </BillingProvider>
+  );
 };
 
 export function App() {
+  // Client-facing invoice / quote page (no login): /invoice/<publicToken>
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/invoice/')) {
+    return (
+      <ErrorBoundary>
+        <PublicInvoicePage token={decodeURIComponent(window.location.pathname.split('/')[2] || '')} />
+      </ErrorBoundary>
+    );
+  }
   return (
     <ErrorBoundary>
       <AppProvider>

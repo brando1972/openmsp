@@ -18,7 +18,9 @@ import {
   ChevronRight,
   UserCheck,
   HardDrive,
-  Shield
+  Shield,
+  Store,
+  Receipt
 } from 'lucide-react';
 
 export const MobileNavDrawer: React.FC = () => {
@@ -27,6 +29,7 @@ export const MobileNavDrawer: React.FC = () => {
     setIsMobileMenuOpen,
     activeTab,
     setActiveTab,
+    setActiveSubRailView,
     openTab,
     clients,
     selectedClientId,
@@ -233,6 +236,32 @@ export const MobileNavDrawer: React.FC = () => {
                 <span>ApexVault Backups &amp; BMR</span>
               </div>
               <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-semibold">3-2-1</span>
+            </button>
+
+            <button
+              onClick={() => navigateTo('clients', 'Clients')}
+              className={`w-full flex items-center justify-between p-2.5 rounded-lg transition ${
+                activeTab === 'clients' ? 'bg-white/15 text-white font-bold' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Store className="w-4 h-4 text-amber-400" />
+                <span>Clients</span>
+              </div>
+              <ChevronRight className="w-3.5 h-3.5 text-white/30" />
+            </button>
+
+            <button
+              onClick={() => { setActiveSubRailView('billing-overview'); navigateTo('billing', 'Billing'); }}
+              className={`w-full flex items-center justify-between p-2.5 rounded-lg transition ${
+                activeTab === 'billing' ? 'bg-white/15 text-white font-bold' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Receipt className="w-4 h-4 text-emerald-400" />
+                <span>Billing &amp; Invoices</span>
+              </div>
+              <ChevronRight className="w-3.5 h-3.5 text-white/30" />
             </button>
 
             <button

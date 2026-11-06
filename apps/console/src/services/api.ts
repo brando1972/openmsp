@@ -171,7 +171,7 @@ export const setStoredUser = (user: UserProfile | null): void => {
  * Base HTTP request helper that automatically attaches Bearer token,
  * handles JSON & text parsing, and formats error responses.
  */
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   if (!API_BASE && typeof window !== 'undefined' && window.location.protocol === 'https:') {
     throw new Error('No remote backend API configured');
   }

@@ -341,6 +341,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'mdm': 'MDM Management',
         'security-soc': 'Security & UniFi SOC',
         'backups': 'ApexVault Backups & BMR',
+        'clients': 'Clients',
+        'billing': 'Billing',
         'settings': 'Settings'
       };
       const newId = `tab-${navTab}`;

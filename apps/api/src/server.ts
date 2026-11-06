@@ -24,6 +24,11 @@ import stagedAppsRouter from './routes/stagedApps.js';
 import securityRouter, { upsertDeviceSecurityPosture } from './routes/security.js';
 import unifiRouter from './routes/unifi.js';
 import backupsRouter from './routes/backups.js';
+import billingRouter from './routes/billing.js';
+import publicInvoicesRouter from './routes/publicInvoices.js';
+import { stripeWebhookHandler } from './billing/stripe.js';
+import { startBillingScheduler } from './billing/engine.js';
+import { deliverDocument } from './billing/mailer.js';
 import { store } from './db/store.js';
 import { meshClient } from './mesh/meshClient.js';
 import { startWatchdog } from './mesh/heal.js';
@@ -40,6 +45,8 @@ app.set('trust proxy', true);
 // Strip device secrets from every res.json() body (the store itself still persists them).
 app.set('json replacer', redactSecrets);
 app.use(cors());
+// Stripe webhook needs the raw body for signature verification — must precede express.json().
+app.post('/api/v1/billing/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }), stripeWebhookHandler);
 app.use(express.json({ limit: '8mb' })); // network-scan payloads can be large
 
 // Request logging
@@ -398,6 +405,8 @@ app.use('/api/v1/staged-apps', stagedAppsRouter);
 app.use('/api/v1/security', securityRouter);
 app.use('/api/v1/integrations/unifi', unifiRouter);
 app.use('/api/v1/backups', backupsRouter);
+app.use('/api/v1/billing', billingRouter);
+app.use('/api/v1/public/invoices', publicInvoicesRouter);
 
 // 404 Handler
 app.use((req, res) => {
@@ -409,6 +418,10 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`[+] OpenMSP Control Plane API listening on http://localhost:${PORT}`);
   console.log(`[+] WebSocket Server live on ws://localhost:${PORT}/ws/v1/org/:orgId`);
+  // Recurring contract invoicing, quote expiry and overdue marking (startup + hourly).
+  if (process.env.BILLING_SCHEDULER !== '0') {
+    startBillingScheduler((doc, actor) => deliverDocument(doc, {}, actor, true));
+  }
   // Warm up the native ApexConnect remote engine (best-effort; no-op if unconfigured).
   if (meshClient.configured()) {
     meshClient.ensureReady().then(

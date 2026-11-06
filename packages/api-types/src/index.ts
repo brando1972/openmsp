@@ -16,6 +16,8 @@ export type NavigationTab =
   | 'mdm'
   | 'security-soc'
   | 'backups'
+  | 'clients'
+  | 'billing'
   | 'settings';
 
 export type DeviceOS = 'windows' | 'macos' | 'linux' | 'network' | 'android' | 'ios';
@@ -109,6 +111,41 @@ export interface ClientTenant {
   totalDevices: number;
   openTickets: number;
   createdAt?: string;
+  // ---- Client Management / Billing profile (all optional for back-compat) ----
+  status?: ClientStatus;
+  industry?: string;
+  website?: string;
+  notes?: string;
+  contacts?: ClientContact[];
+  billingEmail?: string;          // invoices are emailed here (falls back to contactEmail)
+  billingAddress?: PostalAddress;
+  paymentTerms?: PaymentTerms;    // default terms for new invoices
+  taxRateId?: string;             // default tax rate applied to taxable lines
+  taxExempt?: boolean;
+  billableUsers?: number;         // seat count used by per-user contract lines
+  stripeCustomerId?: string;
+  updatedAt?: string;
+}
+
+export type ClientStatus = 'active' | 'prospect' | 'inactive';
+
+export interface ClientContact {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  title?: string;
+  isPrimary?: boolean;
+  isBilling?: boolean;
+}
+
+export interface PostalAddress {
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
 }
 
 export type PatchSeverity = 'critical' | 'important' | 'moderate' | 'low';
@@ -184,6 +221,7 @@ export interface TimeEntry {
   date: string;
   billable: boolean;
   hourlyRate: number;
+  invoiceId?: string;     // set once billed on an invoice (prevents double-billing)
 }
 
 export interface PSATicket {
@@ -1253,6 +1291,302 @@ export interface BackupAgentReport {
   reportedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Client Management & Billing (Zoho Books-style): quotes → sales orders →
+// invoices, recurring contracts, payments, credit notes, invoice audit.
+// ---------------------------------------------------------------------------
 
+export type PaymentTerms = 'due_on_receipt' | 'net_7' | 'net_15' | 'net_30' | 'net_45' | 'net_60';
 
+export interface TaxRate {
+  id: string;
+  name: string;          // e.g. "TX State + Local"
+  ratePct: number;       // 8.25
+  isDefault?: boolean;
+  active: boolean;
+}
+
+export type CatalogItemType = 'service' | 'product' | 'labor' | 'per_device' | 'per_user';
+
+export interface CatalogItem {
+  id: string;
+  sku?: string;
+  name: string;
+  description?: string;
+  type: CatalogItemType;
+  unit?: string;          // "hr", "device", "user", "ea", "mo"
+  unitPrice: number;
+  cost?: number;          // for margin reporting
+  taxable: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type LineSource = 'manual' | 'catalog' | 'contract' | 'device_count' | 'user_count' | 'time_entry';
+
+export interface BillingLineItem {
+  id: string;
+  itemId?: string;
+  name: string;
+  description?: string;
+  quantity: number;
+  unit?: string;
+  unitPrice: number;
+  discountPct?: number;   // 0-100
+  taxable: boolean;
+  taxRateId?: string;     // overrides document/client default when set
+  source: LineSource;
+  sourceRef?: {
+    contractId?: string;
+    contractLineId?: string;
+    ticketId?: string;
+    timeEntryIds?: string[];
+    deviceIds?: string[];
+  };
+  // computed server-side
+  amount?: number;        // qty * price - discount (pre-tax)
+  taxAmount?: number;
+}
+
+export type BillingDocType = 'quote' | 'sales_order' | 'invoice' | 'credit_note';
+
+export type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'expired' | 'converted';
+export type SalesOrderStatus = 'draft' | 'confirmed' | 'invoiced' | 'void';
+export type InvoiceStatus = 'draft' | 'pending_review' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'void';
+export type CreditNoteStatus = 'open' | 'applied' | 'void';
+export type BillingDocStatus = QuoteStatus | SalesOrderStatus | InvoiceStatus | CreditNoteStatus;
+
+export interface BillingHistoryEntry {
+  at: string;
+  actor: string;
+  action: string;        // "created", "sent", "payment_recorded", "approved"...
+  detail?: string;
+}
+
+export type AuditFlagCode =
+  | 'device_count_mismatch'
+  | 'user_count_mismatch'
+  | 'unbilled_time'
+  | 'zero_total'
+  | 'amount_variance'
+  | 'missing_billing_email'
+  | 'duplicate_period'
+  | 'tax_missing';
+
+export interface AuditFlag {
+  code: AuditFlagCode;
+  severity: 'info' | 'warning' | 'critical';
+  message: string;
+  lineId?: string;
+  suggestedQuantity?: number;
+}
+
+export interface BillingDocument {
+  id: string;
+  orgId: string;
+  type: BillingDocType;
+  number: string;              // INV-000123
+  clientId: string;
+  clientName: string;
+  billingEmail?: string;
+  status: BillingDocStatus;
+  issueDate: string;           // YYYY-MM-DD
+  dueDate?: string;            // invoices
+  expiryDate?: string;         // quotes
+  paymentTerms?: PaymentTerms;
+  reference?: string;          // PO number / reference
+  subject?: string;
+  lines: BillingLineItem[];
+  discountPct?: number;        // document-level discount
+  // computed totals
+  subtotal: number;
+  discountTotal: number;
+  taxTotal: number;
+  total: number;
+  amountPaid: number;
+  creditsApplied: number;
+  balanceDue: number;
+  notes?: string;              // shown to client
+  terms?: string;              // terms & conditions
+  convertedFromId?: string;
+  convertedToIds?: string[];
+  contractId?: string;
+  servicePeriod?: { start: string; end: string };
+  publicToken: string;         // for the client-facing /invoice/:token page
+  stripeCheckoutUrl?: string;
+  sentAt?: string;
+  lastViewedAt?: string;
+  auditFlags?: AuditFlag[];
+  auditApprovedBy?: string;
+  auditApprovedAt?: string;
+  history: BillingHistoryEntry[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PaymentMethod = 'stripe_card' | 'stripe_ach' | 'check' | 'cash' | 'ach' | 'wire' | 'credit_card_manual' | 'other';
+
+export interface PaymentAllocation {
+  invoiceId: string;
+  invoiceNumber: string;
+  amount: number;
+}
+
+export interface BillingPayment {
+  id: string;
+  orgId: string;
+  number: string;              // PMT-000045
+  clientId: string;
+  clientName: string;
+  date: string;
+  amount: number;
+  method: PaymentMethod;
+  reference?: string;          // check number, txn id
+  notes?: string;
+  allocations: PaymentAllocation[];
+  unapplied: number;           // goes to client credit balance
+  stripeSessionId?: string;
+  stripePaymentIntentId?: string;
+  voided?: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface CreditApplication {
+  id: string;
+  creditNoteId: string;
+  invoiceId: string;
+  amount: number;
+  at: string;
+}
+
+export type ContractStatus = 'draft' | 'active' | 'paused' | 'expired' | 'cancelled';
+export type BillingFrequency = 'monthly' | 'quarterly' | 'semiannually' | 'annually';
+export type ContractQuantityMode = 'fixed' | 'device_count' | 'user_count';
+
+export interface ContractDeviceFilter {
+  os?: DeviceOS[];             // empty/undefined = all OS
+  includeMdm?: boolean;        // include MDM/relay tablets mapped to the client
+  includeInactive?: boolean;   // include offline devices
+}
+
+export interface ContractLine {
+  id: string;
+  itemId?: string;
+  name: string;
+  description?: string;
+  quantityMode: ContractQuantityMode;
+  fixedQuantity?: number;
+  minimumQuantity?: number;    // billing floor for counted lines
+  deviceFilter?: ContractDeviceFilter;
+  unit?: string;
+  unitPrice: number;
+  taxable: boolean;
+  // computed for display
+  currentQuantity?: number;
+  currentAmount?: number;
+}
+
+export interface Contract {
+  id: string;
+  orgId: string;
+  number: string;              // CTR-0007
+  clientId: string;
+  clientName: string;
+  name: string;
+  status: ContractStatus;
+  startDate: string;
+  endDate?: string;
+  autoRenew: boolean;
+  billingFrequency: BillingFrequency;
+  billingDay: number;          // 1-28
+  billInAdvance: boolean;      // bill the upcoming period vs. the past one
+  nextInvoiceDate: string;
+  paymentTerms: PaymentTerms;
+  requireReview: boolean;      // generated invoices land in Invoice Audit first
+  autoSend: boolean;           // after approval (or immediately if no review), email it
+  slaTier?: ClientTenant['monthlySlaTier'];
+  includedHoursPerPeriod?: number;
+  overageHourlyRate?: number;
+  lines: ContractLine[];
+  notes?: string;
+  lastInvoicedAt?: string;
+  lastInvoiceId?: string;
+  // computed
+  recurringAmount?: number;    // per billing period at current counts
+  mrr?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BillingSettings {
+  companyName: string;
+  companyEmail?: string;
+  companyPhone?: string;
+  companyWebsite?: string;
+  companyAddress?: PostalAddress;
+  logoUrl?: string;
+  brandColor?: string;
+  currency: string;            // 'USD'
+  prefixes: { invoice: string; quote: string; salesOrder: string; creditNote: string; payment: string; contract: string };
+  nextNumbers: { invoice: number; quote: number; salesOrder: number; creditNote: number; payment: number; contract: number };
+  defaultPaymentTerms: PaymentTerms;
+  quoteValidityDays: number;
+  defaultInvoiceNotes?: string;
+  defaultInvoiceTerms?: string;
+  defaultQuoteNotes?: string;
+  defaultQuoteTerms?: string;
+  amountVarianceThresholdPct: number; // audit flag threshold vs. previous invoice
+  publicPortalBaseUrl?: string;       // e.g. https://console.apexmsp.app
+  // integration status (computed, read-only)
+  stripeConfigured?: boolean;
+  emailConfigured?: boolean;
+  emailProvider?: 'resend' | 'smtp' | 'none';
+}
+
+export interface ClientFinancialSummary {
+  clientId: string;
+  outstanding: number;         // sum of balanceDue on open invoices
+  overdue: number;
+  creditBalance: number;       // unapplied payments + open credit notes
+  paidLast12Months: number;
+  mrr: number;                 // from active contracts
+  unbilledTimeMinutes: number;
+  unbilledTimeAmount: number;
+  lastInvoiceDate?: string;
+  lastPaymentDate?: string;
+}
+
+export interface UnbilledTimeEntry {
+  ticketId: string;
+  ticketNumber: string;
+  ticketTitle: string;
+  entry: TimeEntry;
+  amount: number;
+}
+
+export interface ClientOverview {
+  client: ClientTenant;
+  financial: ClientFinancialSummary;
+  devices: ManagedDevice[];
+  mdmDevices: { serial: string; name?: string; model?: string }[];
+  unifiSites: UnifiSiteCapability[];
+  vaultItems: VaultItem[];     // passwords masked
+  tickets: PSATicket[];
+  unbilledTime: UnbilledTimeEntry[];
+  incidents: SecurityIncident[];
+  contracts: Contract[];
+  documents: BillingDocument[];
+  payments: BillingPayment[];
+}
+
+export interface PublicInvoiceView {
+  document: BillingDocument;
+  company: Pick<BillingSettings, 'companyName' | 'companyEmail' | 'companyPhone' | 'companyWebsite' | 'companyAddress' | 'logoUrl' | 'brandColor' | 'currency'>;
+  client: Pick<ClientTenant, 'name' | 'billingAddress' | 'contactName'>;
+  taxRates: TaxRate[];
+  payOnlineAvailable: boolean;
+}
 
