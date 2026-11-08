@@ -542,7 +542,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ]);
 
         if (fetchedClients.status === 'fulfilled' && Array.isArray(fetchedClients.value) && fetchedClients.value.length > 0) {
-          setClients(fetchedClients.value);
+          const list = [...fetchedClients.value];
+          if (!list.some(c => c.id === 'c-onboarding')) {
+            list.push({
+              id: 'c-onboarding',
+              name: 'Onboarding Group',
+              domain: 'onboard.apexmsp.app',
+              contactName: 'Unassigned Onboarding Queue',
+              contactEmail: 'onboard@apexmsp.app',
+              contactPhone: '555-0100',
+              sites: ['Onboarding Queue'],
+              activeContract: 'Pending Admin Client Assignment (apexmsp.app/onboard)',
+              monthlySlaTier: 'Gold 24/7',
+              totalDevices: 0,
+              openTickets: 0
+            });
+          }
+          setClients(list);
         }
         let initialDevices: ManagedDevice[] = [];
         if (fetchedDevices.status === 'fulfilled' && Array.isArray(fetchedDevices.value)) {
@@ -876,12 +892,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateDeviceDetails = async (id: string, updates: { name?: string; clientId?: string; clientName?: string; siteName?: string }) => {
     const resolvedClient = updates.clientId ? clients.find(c => c.id === updates.clientId) : undefined;
     const nextClientName = updates.clientName || resolvedClient?.name;
-    setDevices(prev => prev.map(d => d.id === id ? {
-      ...d,
-      ...(updates.name ? { name: updates.name } : {}),
-      ...(updates.clientId ? { clientId: updates.clientId, clientName: nextClientName || d.clientName } : {}),
-      ...(updates.siteName ? { siteName: updates.siteName } : {})
-    } : d));
+    setDevices(prev => prev.map(d => {
+      if (d.id !== id) return d;
+      const nextTags = updates.clientId
+        ? updates.clientId === 'c-onboarding'
+          ? Array.from(new Set([...(d.tags || []), 'onboarding']))
+          : (d.tags || []).filter(t => t !== 'onboarding')
+        : d.tags;
+      const defaultSite =
+        updates.siteName ||
+        (updates.clientId && updates.clientId !== 'c-onboarding' && d.siteName === 'Onboarding Queue'
+          ? resolvedClient?.sites?.[0] || 'HQ Site'
+          : updates.clientId === 'c-onboarding'
+            ? 'Onboarding Queue'
+            : d.siteName);
+      return {
+        ...d,
+        ...(updates.name ? { name: updates.name } : {}),
+        ...(updates.clientId ? { clientId: updates.clientId, clientName: nextClientName || d.clientName } : {}),
+        siteName: defaultSite,
+        tags: nextTags
+      };
+    }));
     try {
       await api.devices.updateDevice(id, {
         ...updates,

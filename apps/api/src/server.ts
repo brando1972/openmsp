@@ -399,6 +399,11 @@ app.use('/api/v1/ai', aiRouter);
 app.use('/api/v1/org/settings', settingsRouter);
 app.use('/api/v1/audit', auditRouter);
 app.use('/api/v1/installers', installersRouter);
+// Direct top-level /onboard aliases -> forward to installersRouter (/onboard, /onboard/download, /onboard/script, /onboard/detect)
+app.use('/onboard', (req, res, next) => {
+  req.url = '/onboard' + (req.url === '/' ? '' : req.url);
+  installersRouter(req, res, next);
+});
 app.use('/api/v1/mdm', mdmRouter);
 app.use('/api/v1/mesh', meshRouter);
 app.use('/api/v1/net', netRouter);

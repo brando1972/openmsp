@@ -273,6 +273,8 @@ function resolveClientBySlug(slugOrId: string): { clientId: string; clientName: 
   }
 
   const knownPresets: Record<string, { id: string; name: string; domain: string }> = {
+    onboard: { id: 'c-onboarding', name: 'Onboarding Group', domain: 'onboard.apexmsp.app' },
+    onboarding: { id: 'c-onboarding', name: 'Onboarding Group', domain: 'onboard.apexmsp.app' },
     gambinos: { id: 'c-gambinos', name: 'Gambinos', domain: 'gambinos.local' },
     brandon: { id: 'c-brandon-ray', name: 'Brandon Ray', domain: 'apexmsp.app' },
     raytreat: { id: 'c-raytreat', name: 'Raytreat', domain: 'raytreat.local' },
@@ -329,10 +331,14 @@ function renderScript(os: string, token: string | undefined, req: any, res: any)
   let effectiveToken = raw;
   let targetClientId = (req.query?.clientId as string) || (defaultClient ? defaultClient.id : 'c-brandon-ray');
 
+  const isOnboardingSlug = raw.toLowerCase() === 'onboard' || raw.toLowerCase() === 'onboarding' || raw.toLowerCase() === 'tok-onboarding';
   const isAutoKeyword = !raw || raw.toLowerCase() === 'new' || raw.toLowerCase() === 'auto' || raw.toLowerCase() === 'windows.ps1' || raw.toLowerCase() === 'macos.sh';
   const isExistingToken = raw && (store.enrollmentTokens.has(raw) || raw.startsWith('tok-') || raw.startsWith('ok-') || raw.startsWith('apex-'));
 
-  if (isAutoKeyword) {
+  if (isOnboardingSlug) {
+    targetClientId = 'c-onboarding';
+    effectiveToken = 'tok-onboarding';
+  } else if (isAutoKeyword) {
     if (req.query?.client) {
       targetClientId = resolveClientBySlug(String(req.query.client)).clientId;
     }
@@ -342,7 +348,7 @@ function renderScript(os: string, token: string | undefined, req: any, res: any)
     const resolved = resolveClientBySlug(raw);
     targetClientId = resolved.clientId;
     const cleanSlug = raw.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10) || 'client';
-    effectiveToken = `tok-${cleanSlug}-${uuidv4().substring(0, 8)}`;
+    effectiveToken = targetClientId === 'c-onboarding' ? 'tok-onboarding' : `tok-${cleanSlug}-${uuidv4().substring(0, 8)}`;
   }
 
   // Auto-register token in store.enrollmentTokens so subsequent POST /api/v1/agents/enroll never returns 401
@@ -534,6 +540,76 @@ fi
 echo "[+] Enrollment completed successfully! Connect & Backstage are now active."
 `;
     res.setHeader('Content-Type', 'text/plain');
+    res.send(script);
+    return;
+  }
+
+  if (os === 'linux') {
+    const script = `#!/bin/bash
+set -e
+SERVER_URL="${serverUrl}"
+ENROLL_TOKEN="${effectiveToken}"
+RAW_ARCH="\$(uname -m)"
+if [ "\$RAW_ARCH" = "aarch64" ] || [ "\$RAW_ARCH" = "arm64" ]; then
+  ARCH="arm64"
+else
+  ARCH="amd64"
+fi
+
+echo "=========================================================="
+echo "  ApexMSP Linux Endpoint Agent Setup (\$ARCH)"
+echo "=========================================================="
+
+if [ "\$(id -u)" -eq 0 ]; then
+  INSTALL_DIR="/opt/apexmsp"
+else
+  INSTALL_DIR="\$HOME/.apexmsp"
+fi
+mkdir -p "\$INSTALL_DIR"
+
+echo "[*] Downloading ApexMSP Linux Agent (\$ARCH)..."
+curl -kfsSL "\$SERVER_URL/api/v1/installers/download?os=linux&arch=\$ARCH&token=\$ENROLL_TOKEN" -o "\$INSTALL_DIR/openmsp-agent"
+chmod 755 "\$INSTALL_DIR/openmsp-agent"
+
+cat > "\$INSTALL_DIR/openmsp-agent.json" <<EOF
+{
+  "serverUrl": "\$SERVER_URL",
+  "token": "\$ENROLL_TOKEN",
+  "heartbeatIntervalSeconds": 10
+}
+EOF
+
+"\$INSTALL_DIR/openmsp-agent" --server="\$SERVER_URL" --token="\$ENROLL_TOKEN" --config="\$INSTALL_DIR/openmsp-agent.json" --run-once || true
+
+if [ "\$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+  cat > /etc/systemd/system/apexmsp-agent.service <<SVCEOF
+[Unit]
+Description=ApexMSP Endpoint Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=\$INSTALL_DIR/openmsp-agent --server=\$SERVER_URL --config=\$INSTALL_DIR/openmsp-agent.json
+WorkingDirectory=\$INSTALL_DIR
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl enable --now apexmsp-agent.service 2>/dev/null || true
+  echo "[+] systemd service apexmsp-agent.service enabled and running."
+else
+  pkill -f "openmsp-agent" 2>/dev/null || true
+  nohup "\$INSTALL_DIR/openmsp-agent" --server="\$SERVER_URL" --config="\$INSTALL_DIR/openmsp-agent.json" >/dev/null 2>&1 &
+  echo "[+] Background daemon started."
+fi
+
+echo "[+] Enrollment completed! Machine placed in Onboarding Group for admin assignment."
+`;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(script);
     return;
   }
@@ -1921,6 +1997,426 @@ pause
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Disposition', 'attachment; filename="Install-ApexMSP-Windows.bat"');
   res.send(bat);
+});
+
+// GET /api/v1/installers/linux/:token
+router.get(['/linux/:token/:site', '/linux/:token', '/linux'], (req, res) => {
+  const token = (req.params.token as string) || (req.query.token as string | undefined) || 'tok-onboarding';
+  renderScript('linux', token, req, res);
+});
+
+export interface DetectedPlatformInfo {
+  os: 'windows' | 'macos' | 'linux' | 'android';
+  arch: 'amd64' | 'arm64' | '386' | 'universal';
+  osLabel: string;
+  archLabel: string;
+  recommendedFormat: string;
+  filename: string;
+  downloadUrl: string;
+  altDownloadUrl: string;
+  altLabel: string;
+  oneLiner: string;
+  enrollToken: string;
+  clientId: string;
+  clientName: string;
+  siteName: string;
+}
+
+export function detectVisitorPlatform(req: any): DetectedPlatformInfo {
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
+  const serverUrl = `${proto}://${req.get('host') || 'api.apexmsp.app'}`;
+  const ua = String(req.get('user-agent') || '');
+  const uaLower = ua.toLowerCase();
+  const chPlatform = String(req.get('sec-ch-ua-platform') || '').toLowerCase();
+  const chArch = String(req.get('sec-ch-ua-arch') || '').toLowerCase();
+  const chBitness = String(req.get('sec-ch-ua-bitness') || '').toLowerCase();
+
+  const qOs = String(req.query?.os || '').toLowerCase().trim();
+  const qArch = String(req.query?.arch || '').toLowerCase().trim();
+
+  let os: 'windows' | 'macos' | 'linux' | 'android' = 'windows';
+  if (qOs === 'windows' || qOs === 'win') {
+    os = 'windows';
+  } else if (qOs === 'macos' || qOs === 'darwin' || qOs === 'mac') {
+    os = 'macos';
+  } else if (qOs === 'linux' || qOs === 'ubuntu' || qOs === 'debian') {
+    os = 'linux';
+  } else if (qOs === 'android') {
+    os = 'android';
+  } else if (uaLower.includes('android') || chPlatform.includes('android')) {
+    os = 'android';
+  } else if (uaLower.includes('macintosh') || uaLower.includes('mac os') || uaLower.includes('darwin') || chPlatform.includes('mac')) {
+    os = 'macos';
+  } else if (uaLower.includes('windows') || uaLower.includes('powershell') || chPlatform.includes('win')) {
+    os = 'windows';
+  } else if (uaLower.includes('linux') || uaLower.includes('x11') || uaLower.includes('ubuntu') || chPlatform.includes('linux')) {
+    os = 'linux';
+  }
+
+  let arch: 'amd64' | 'arm64' | '386' | 'universal' = 'amd64';
+  if (qArch === 'arm64' || qArch === 'aarch64' || qArch === 'apple') {
+    arch = 'arm64';
+  } else if (qArch === '386' || qArch === 'x86' || qArch === 'ia32') {
+    arch = '386';
+  } else if (qArch === 'amd64' || qArch === 'x86_64' || qArch === 'x64') {
+    arch = 'amd64';
+  } else if (qArch === 'universal') {
+    arch = 'universal';
+  } else if (os === 'macos') {
+    if (chArch.includes('arm') || uaLower.includes('arm64') || uaLower.includes('apple')) {
+      arch = 'arm64';
+    } else if (chArch.includes('x86')) {
+      arch = 'amd64';
+    } else {
+      arch = 'universal';
+    }
+  } else if (os === 'windows') {
+    if (chArch.includes('arm') || uaLower.includes('arm64')) {
+      arch = 'amd64';
+    } else if (
+      chBitness === '32' ||
+      (uaLower.includes('windows') &&
+        !uaLower.includes('win64') &&
+        !uaLower.includes('x64') &&
+        !uaLower.includes('wow64') &&
+        !uaLower.includes('powershell'))
+    ) {
+      arch = '386';
+    } else {
+      arch = 'amd64';
+    }
+  } else if (os === 'linux') {
+    if (chArch.includes('arm') || uaLower.includes('aarch64') || uaLower.includes('arm64')) {
+      arch = 'arm64';
+    } else {
+      arch = 'amd64';
+    }
+  } else if (os === 'android') {
+    arch = 'arm64';
+  }
+
+  const enrollToken = 'tok-onboarding';
+  const clientId = 'c-onboarding';
+  const clientName = 'Onboarding Group';
+  const siteName = 'Onboarding Queue';
+
+  if (os === 'macos') {
+    const archLabel =
+      arch === 'arm64'
+        ? 'Apple Silicon (M1–M5 ARM64) + Intel Universal'
+        : arch === 'amd64'
+          ? 'Intel x86_64 + Apple Silicon Universal'
+          : 'Universal (Apple Silicon ARM64 & Intel x86_64)';
+    return {
+      os,
+      arch,
+      osLabel: 'macOS',
+      archLabel,
+      recommendedFormat: 'command',
+      filename: 'Install-ApexMSP-Onboard-macOS.command',
+      downloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=macos&arch=${arch}&format=command`,
+      altDownloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=macos&arch=${arch}&format=binary`,
+      altLabel: 'Download Universal Agent Binary',
+      oneLiner: `curl -fsSL https://apexmsp.app/onboard | sudo bash`,
+      enrollToken,
+      clientId,
+      clientName,
+      siteName
+    };
+  }
+
+  if (os === 'linux') {
+    const archLabel = arch === 'arm64' ? 'ARM64 (aarch64)' : '64-bit (x86_64 / amd64)';
+    return {
+      os,
+      arch,
+      osLabel: 'Linux',
+      archLabel,
+      recommendedFormat: 'sh',
+      filename: `Install-ApexMSP-Onboard-Linux-${arch}.sh`,
+      downloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=linux&arch=${arch}&format=sh`,
+      altDownloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=linux&arch=${arch}&format=binary`,
+      altLabel: `Download Linux ${arch.toUpperCase()} Binary`,
+      oneLiner: `curl -fsSL https://apexmsp.app/onboard | sudo bash`,
+      enrollToken,
+      clientId,
+      clientName,
+      siteName
+    };
+  }
+
+  if (os === 'android') {
+    return {
+      os,
+      arch,
+      osLabel: 'Android Enterprise',
+      archLabel: 'ARM64 / Universal APK',
+      recommendedFormat: 'apk',
+      filename: 'ApexMDM-DPC.apk',
+      downloadUrl: `${serverUrl}/api/v1/apexmdm/dpc/latest.apk`,
+      altDownloadUrl: `${serverUrl}/api/v1/mdm/apks/apex-agent.apk`,
+      altLabel: 'Download ApexAgent Bridge APK',
+      oneLiner: `adb install -r ApexMDM-DPC.apk`,
+      enrollToken,
+      clientId,
+      clientName,
+      siteName
+    };
+  }
+
+  // Default: Windows
+  const is32 = arch === '386';
+  return {
+    os: 'windows',
+    arch: is32 ? '386' : 'amd64',
+    osLabel: 'Windows 10 / 11 / Server',
+    archLabel: is32 ? '32-bit (x86)' : '64-bit (x64 / AMD64)',
+    recommendedFormat: 'exe',
+    filename: is32 ? 'ApexMSP-Agent-Onboard-x86.exe' : 'ApexMSP-Agent-Onboard-x64.exe',
+    downloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=windows&arch=${is32 ? '386' : 'amd64'}&format=exe`,
+    altDownloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=windows&arch=${is32 ? '386' : 'amd64'}&format=bat`,
+    altLabel: 'Download 1-Click Batch Installer (.bat)',
+    oneLiner: `irm https://apexmsp.app/onboard | iex`,
+    enrollToken,
+    clientId,
+    clientName,
+    siteName
+  };
+}
+
+// GET /api/v1/installers/onboard/detect -> Returns machine detection metadata + download links for Onboarding Group
+router.get('/onboard/detect', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(detectVisitorPlatform(req));
+});
+
+// GET /api/v1/installers/onboard/script -> Returns auto-detected onboarding install script (PowerShell for Windows, universal bash for macOS/Linux)
+router.get('/onboard/script', (req, res) => {
+  const info = detectVisitorPlatform(req);
+  if (info.os === 'windows') {
+    renderScript('windows', 'tok-onboarding', req, res);
+    return;
+  }
+  if (req.query.os === 'macos') {
+    renderScript('macos', 'tok-onboarding', req, res);
+    return;
+  }
+  if (req.query.os === 'linux') {
+    renderScript('linux', 'tok-onboarding', req, res);
+    return;
+  }
+  // Universal POSIX script that auto-detects Darwin vs Linux at runtime
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
+  const serverUrl = `${proto}://${req.get('host') || 'api.apexmsp.app'}`;
+  const universalScript = `#!/bin/bash
+set -e
+SERVER_URL="${serverUrl}"
+ENROLL_TOKEN="tok-onboarding"
+UNAME_S="\$(uname -s 2>/dev/null || echo Linux)"
+UNAME_M="\$(uname -m 2>/dev/null || echo x86_64)"
+
+echo "=========================================================="
+echo "  ApexMSP Auto-Onboarding Installer (\$UNAME_S • \$UNAME_M)"
+echo "  Target Group: Onboarding Group (Pending Admin Assignment)"
+echo "=========================================================="
+
+if [ "\$UNAME_S" = "Darwin" ]; then
+  exec bash <(curl -kfsSL "\$SERVER_URL/api/v1/installers/macos/\$ENROLL_TOKEN")
+else
+  exec bash <(curl -kfsSL "\$SERVER_URL/api/v1/installers/linux/\$ENROLL_TOKEN")
+fi
+`;
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.send(universalScript);
+});
+
+// GET /api/v1/installers/onboard/download & /api/v1/installers/onboard
+router.get(['/onboard/download', '/onboard'], (req, res) => {
+  const ua = String(req.get('user-agent') || '').toLowerCase();
+  const isCliRequest =
+    req.path === '/onboard' &&
+    req.query.download !== '1' &&
+    !req.query.format &&
+    (ua.includes('powershell') || ua.includes('curl/') || ua.includes('wget/'));
+
+  if (isCliRequest) {
+    if (ua.includes('powershell') || ua.includes('windows')) {
+      renderScript('windows', 'tok-onboarding', req, res);
+    } else if (ua.includes('darwin') || ua.includes('mac')) {
+      renderScript('macos', 'tok-onboarding', req, res);
+    } else {
+      const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
+      const serverUrl = `${proto}://${req.get('host') || 'api.apexmsp.app'}`;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.send(`#!/bin/bash
+set -e
+UNAME_S="\$(uname -s 2>/dev/null || echo Linux)"
+if [ "\$UNAME_S" = "Darwin" ]; then
+  curl -kfsSL "${serverUrl}/api/v1/installers/macos/tok-onboarding" | bash
+else
+  curl -kfsSL "${serverUrl}/api/v1/installers/linux/tok-onboarding" | bash
+fi
+`);
+    }
+    return;
+  }
+
+  const info = detectVisitorPlatform(req);
+  const format = String(req.query.format || info.recommendedFormat).toLowerCase();
+  const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
+  const serverUrl = `${proto}://${req.get('host') || 'api.apexmsp.app'}`;
+  const enrollToken = 'tok-onboarding';
+
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+
+  if (info.os === 'android') {
+    res.redirect(302, `${serverUrl}/api/v1/apexmdm/dpc/latest.apk`);
+    return;
+  }
+
+  if (info.os === 'windows') {
+    if (format === 'bat') {
+      const bat = `@echo off
+title ApexMSP Auto-Onboarding Agent Setup (Onboarding Group)
+echo ==========================================================
+echo   ApexMSP Endpoint Agent - Onboarding Group Installer
+echo   Detected Architecture: ${info.archLabel}
+echo ==========================================================
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm '${serverUrl}/api/v1/installers/windows/${enrollToken}' | iex"
+pause
+`;
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment; filename="Install-ApexMSP-Onboard.bat"');
+      res.send(bat);
+      return;
+    }
+
+    // Serve Windows .exe binary with embedded tok-onboarding trailer
+    const is32 = info.arch === '386';
+    const binName = is32 ? 'openmsp-agent-windows-386.exe' : 'openmsp-agent-windows-amd64.exe';
+    const downloadName = is32 ? 'ApexMSP-Agent-Onboard-x86.exe' : 'ApexMSP-Agent-Onboard-x64.exe';
+    const candidates = [
+      artifactPath('windows', is32 ? '386' : 'amd64')?.path,
+      path.join('/builds', binName),
+      path.join(process.cwd(), 'bin', binName),
+      path.join(process.cwd(), 'apps', 'api', 'bin', binName),
+      path.join(process.cwd(), '..', 'agent', 'bin', binName),
+      path.join(process.cwd(), 'apps', 'agent', 'bin', binName),
+      path.join('/app/apps/api/bin', binName),
+      path.join('/app/bin', binName)
+    ].filter(Boolean) as string[];
+
+    const foundPath = candidates.find((p) => fs.existsSync(p));
+    if (!foundPath) {
+      // Fallback to .bat installer if binary isn't present on disk
+      const bat = `@echo off
+title ApexMSP Auto-Onboarding Agent Setup (Onboarding Group)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm '${serverUrl}/api/v1/installers/windows/${enrollToken}' | iex"
+`;
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment; filename="Install-ApexMSP-Onboard.bat"');
+      res.send(bat);
+      return;
+    }
+
+    const resolved = path.resolve(foundPath);
+    const stat = fs.statSync(resolved);
+    const trailer = Buffer.from(`\nAPEXMSP_EMBED_TOKEN=${enrollToken}\n`, 'utf8');
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', String(stat.size + trailer.length));
+    const stream = fs.createReadStream(resolved);
+    stream.on('end', () => {
+      res.end(trailer);
+    });
+    stream.pipe(res, { end: false });
+    return;
+  }
+
+  if (info.os === 'macos') {
+    if (format === 'binary') {
+      const binName =
+        info.arch === 'arm64'
+          ? 'openmsp-agent-darwin-arm64'
+          : info.arch === 'amd64'
+            ? 'openmsp-agent-darwin-amd64'
+            : 'openmsp-agent-macos-universal';
+      const candidates = [
+        path.join(process.cwd(), 'apps', 'api', 'bin', 'openmsp-agent-macos-universal'),
+        path.join(process.cwd(), 'bin', 'openmsp-agent-macos-universal'),
+        path.join('/app/apps/api/bin', 'openmsp-agent-macos-universal'),
+        path.join(process.cwd(), 'apps', 'api', 'bin', binName),
+        path.join(process.cwd(), 'bin', binName),
+        artifactPath('darwin', info.arch === 'amd64' ? 'amd64' : 'arm64')?.path
+      ].filter(Boolean) as string[];
+      const foundPath = candidates.find((p) => fs.existsSync(p));
+      if (foundPath) {
+        const resolved = path.resolve(foundPath);
+        const stat = fs.statSync(resolved);
+        const trailer = Buffer.from(`\nAPEXMSP_EMBED_TOKEN=${enrollToken}\n`, 'utf8');
+        res.setHeader('Content-Disposition', 'attachment; filename="ApexMSP-Agent-Onboard-macOS"');
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Length', String(stat.size + trailer.length));
+        const stream = fs.createReadStream(resolved);
+        stream.on('end', () => res.end(trailer));
+        stream.pipe(res, { end: false });
+        return;
+      }
+    }
+
+    // Default macOS format: double-clickable .command installer pre-bound to tok-onboarding
+    const commandScript = `#!/bin/bash
+# ============================================================================
+#  ApexMSP macOS Auto-Onboarding Installer (Apple Silicon ARM64 & Intel x86_64)
+#  Enrolls this Mac into the Onboarding Group for Admin Client Assignment
+# ============================================================================
+clear
+echo "=================================================================="
+echo "  ⚡ ApexMSP macOS Agent Onboarding Installer"
+echo "  Detected Hardware: \$(uname -m) • macOS \$(sw_vers -productVersion 2>/dev/null || echo 'Unknown')"
+echo "  Enrollment Target: Onboarding Group (tok-onboarding)"
+echo "=================================================================="
+echo ""
+curl -kfsSL "${serverUrl}/api/v1/installers/macos/${enrollToken}" | bash
+echo ""
+echo "=================================================================="
+echo "  ✅ Onboarding Complete! This Mac is now in the Onboarding Group."
+echo "  An administrator can now assign it to a client in ApexMSP."
+echo "=================================================================="
+`;
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="Install-ApexMSP-Onboard-macOS.command"');
+    res.send(commandScript);
+    return;
+  }
+
+  // Linux
+  if (format === 'binary') {
+    const binName = info.arch === 'arm64' ? 'openmsp-agent-linux-arm64' : 'openmsp-agent-linux-amd64';
+    const candidates = [
+      artifactPath('linux', info.arch === 'arm64' ? 'arm64' : 'amd64')?.path,
+      path.join(process.cwd(), 'apps', 'api', 'bin', binName),
+      path.join(process.cwd(), 'bin', binName),
+      path.join('/app/apps/api/bin', binName)
+    ].filter(Boolean) as string[];
+    const foundPath = candidates.find((p) => fs.existsSync(p));
+    if (foundPath) {
+      const resolved = path.resolve(foundPath);
+      const stat = fs.statSync(resolved);
+      const trailer = Buffer.from(`\nAPEXMSP_EMBED_TOKEN=${enrollToken}\n`, 'utf8');
+      res.setHeader('Content-Disposition', `attachment; filename="ApexMSP-Agent-Onboard-Linux-${info.arch}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Length', String(stat.size + trailer.length));
+      const stream = fs.createReadStream(resolved);
+      stream.on('end', () => res.end(trailer));
+      stream.pipe(res, { end: false });
+      return;
+    }
+  }
+
+  res.setHeader('Content-Disposition', `attachment; filename="Install-ApexMSP-Onboard-Linux-${info.arch}.sh"`);
+  renderScript('linux', enrollToken, req, res);
 });
 
 export default router;

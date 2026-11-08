@@ -144,6 +144,93 @@ router.get('/:id', (req, res) => {
   res.json(device.os === 'android' ? device : enrichDeviceWithMesh(device));
 });
 
+// POST /api/v1/devices/assign-client — Assign one or more devices (e.g. from Onboarding Group) to a Client Organization
+router.post('/assign-client', (req: AuthenticatedRequest, res) => {
+  const { deviceIds, deviceId, clientId, siteName } = req.body || {};
+  const ids: string[] = Array.isArray(deviceIds)
+    ? deviceIds.map(String)
+    : deviceId
+      ? [String(deviceId)]
+      : typeof deviceIds === 'string'
+        ? [deviceIds]
+        : [];
+
+  if (ids.length === 0 || !clientId) {
+    res.status(400).json({ error: 'deviceIds (or deviceId) and clientId are required' });
+    return;
+  }
+
+  const targetClient = store.clients.get(String(clientId));
+  if (!targetClient) {
+    res.status(404).json({ error: `Client ${clientId} not found` });
+    return;
+  }
+
+  const defaultSite =
+    siteName ||
+    (targetClient.id === 'c-onboarding'
+      ? 'Onboarding Queue'
+      : (Array.isArray((targetClient as any).sites) && (targetClient as any).sites[0]) || 'HQ Site');
+
+  const updatedDevices: ManagedDevice[] = [];
+
+  for (const id of ids) {
+    const device = store.devices.get(id);
+    if (!device) continue;
+
+    device.clientId = targetClient.id;
+    device.clientName = targetClient.name;
+    device.siteId = defaultSite;
+    device.siteName = defaultSite;
+    (device as any).customClient = true;
+
+    const currentTags = Array.isArray(device.tags) ? [...device.tags] : [];
+    if (targetClient.id === 'c-onboarding') {
+      if (!currentTags.includes('onboarding')) currentTags.push('onboarding');
+    } else {
+      const idx = currentTags.indexOf('onboarding');
+      if (idx !== -1) currentTags.splice(idx, 1);
+    }
+    device.tags = currentTags;
+    device.updatedAt = new Date().toISOString();
+    store.devices.set(device.id, device);
+    updatedDevices.push(device);
+  }
+
+  // Recompute totalDevices across all clients
+  for (const c of store.clients.values()) {
+    c.totalDevices = Array.from(store.devices.values()).filter((d) => d.clientId === c.id).length;
+    store.clients.set(c.id, c);
+  }
+
+  store.persist();
+
+  if (req.user) {
+    store.recordAudit({
+      orgId: req.user.orgId,
+      userId: req.user.id,
+      actorName: req.user.name,
+      action: 'device.assign_client',
+      targetType: 'device',
+      targetId: ids.join(','),
+      details: { clientId: targetClient.id, clientName: targetClient.name, siteName: defaultSite, count: updatedDevices.length },
+      ipAddress: req.ip
+    });
+    for (const dev of updatedDevices) {
+      wsManager.broadcastToOrg(req.user.orgId, 'device.updated' as any, dev);
+    }
+  }
+
+  res.json({
+    ok: true,
+    assignedCount: updatedDevices.length,
+    clientId: targetClient.id,
+    clientName: targetClient.name,
+    siteName: defaultSite,
+    devices: updatedDevices
+  });
+});
+
 // PATCH /api/v1/devices/:id
 router.patch('/:id', (req: AuthenticatedRequest, res) => {
   const device = store.devices.get(req.params.id as string);
@@ -169,6 +256,22 @@ router.patch('/:id', (req: AuthenticatedRequest, res) => {
     device.clientId = clientId;
     device.clientName = clientName || resolvedClient?.name || device.clientName;
     (device as any).customClient = true;
+    if (clientId !== 'c-onboarding') {
+      if (Array.isArray(device.tags) && device.tags.includes('onboarding') && tags === undefined) {
+        device.tags = device.tags.filter((t) => t !== 'onboarding');
+      }
+      if (device.siteName === 'Onboarding Queue' && siteName === undefined) {
+        const defaultSite = (Array.isArray((resolvedClient as any)?.sites) && (resolvedClient as any).sites[0]) || 'HQ Site';
+        device.siteName = defaultSite;
+        device.siteId = defaultSite;
+      }
+    } else if (tags === undefined) {
+      device.tags = Array.from(new Set([...(device.tags || []), 'onboarding']));
+      if (siteName === undefined) {
+        device.siteName = 'Onboarding Queue';
+        device.siteId = 'Onboarding Queue';
+      }
+    }
   }
   if (siteId !== undefined) device.siteId = siteId;
   if (siteName !== undefined) device.siteName = siteName;

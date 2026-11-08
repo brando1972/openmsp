@@ -35,15 +35,28 @@ router.post('/enroll', (req, res) => {
 
   // Exact match (the `t` prefix covers tokens whose leading character was clipped by CLI quoting),
   // plus `'latest'` fallback when a user downloads and double-clicks the standalone .exe installer.
+  if (
+    cleanToken.toLowerCase() === 'onboard' ||
+    cleanToken.toLowerCase() === 'onboarding' ||
+    cleanToken.toLowerCase().startsWith('tok-onboard')
+  ) {
+    store.reconcileOnboardingGroup();
+  }
+
   let enrollmentToken =
     store.enrollmentTokens.get(cleanToken) ||
-    store.enrollmentTokens.get(`t${cleanToken}`);
+    store.enrollmentTokens.get(`t${cleanToken}`) ||
+    (cleanToken.toLowerCase().startsWith('tok-onboard') ? store.enrollmentTokens.get('tok-onboarding') : undefined);
 
   if (!enrollmentToken && cleanToken === 'latest') {
-    const now = new Date();
-    const allTokens = Array.from(store.enrollmentTokens.values()).filter(t => new Date(t.expiresAt) > now);
-    if (allTokens.length > 0) {
-      enrollmentToken = allTokens[allTokens.length - 1];
+    store.reconcileOnboardingGroup();
+    enrollmentToken = store.enrollmentTokens.get('tok-onboarding');
+    if (!enrollmentToken) {
+      const now = new Date();
+      const allTokens = Array.from(store.enrollmentTokens.values()).filter(t => new Date(t.expiresAt) > now);
+      if (allTokens.length > 0) {
+        enrollmentToken = allTokens[allTokens.length - 1];
+      }
     }
   }
 
@@ -56,8 +69,9 @@ router.post('/enroll', (req, res) => {
     return;
   }
 
+  const isOnboardingToken = enrollmentToken.clientId === 'c-onboarding';
   const client = store.clients.get(enrollmentToken.clientId);
-  const clientName = client ? client.name : 'Unassigned Client';
+  const clientName = client ? client.name : (isOnboardingToken ? 'Onboarding Group' : 'Unassigned Client');
 
   // Deduplicate: check if a device with the same serialNumber, MAC, or hostname+os exists in the org.
   let existingDevice: ManagedDevice | undefined;
@@ -94,6 +108,14 @@ router.post('/enroll', (req, res) => {
     if ((installerRun || !existingDevice.clientId) && enrollmentToken.clientId) {
       existingDevice.clientId = enrollmentToken.clientId;
       existingDevice.clientName = clientName;
+      if (isOnboardingToken) {
+        existingDevice.siteId = 'Onboarding Queue';
+        existingDevice.siteName = 'Onboarding Queue';
+        const curTags = Array.isArray(existingDevice.tags) ? existingDevice.tags : [];
+        if (!curTags.includes('onboarding')) {
+          existingDevice.tags = [...curTags, 'onboarding'];
+        }
+      }
     }
     existingDevice.os = os || existingDevice.os;
     existingDevice.osVersion = osVersion || existingDevice.osVersion;
@@ -148,7 +170,7 @@ router.post('/enroll', (req, res) => {
       installedApps: [],
       services: [],
       eventLogs: [],
-      tags: ['new-enrollment'],
+      tags: isOnboardingToken ? ['onboarding', 'new-enrollment'] : ['new-enrollment'],
       ...((req.body as any)?.domain ? { domain: String((req.body as any).domain) } : {}),
       ...((req.body as any)?.loggedInUser ? { loggedInUser: String((req.body as any).loggedInUser) } : {}),
       createdAt: new Date().toISOString(),

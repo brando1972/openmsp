@@ -27,6 +27,7 @@ import { BackupDashboardView } from './components/backups/BackupDashboardView';
 import { ClientsView } from './components/clients/ClientsView';
 import { BillingView } from './components/billing/BillingView';
 import { PublicInvoicePage } from './components/billing/PublicInvoicePage';
+import { OnboardPage } from './components/onboard/OnboardPage';
 import { BillingProvider } from './data/BillingContext';
 
 const MainAppContent: React.FC = () => {
@@ -102,6 +103,17 @@ const AppRouter: React.FC = () => {
 };
 
 export function App() {
+  // Public zero-touch machine onboarding portal (no login): /onboard
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.pathname === '/onboard' || window.location.pathname.startsWith('/onboard/'))
+  ) {
+    return (
+      <ErrorBoundary>
+        <OnboardPage />
+      </ErrorBoundary>
+    );
+  }
   // Client-facing invoice / quote page (no login): /invoice/<publicToken>
   if (typeof window !== 'undefined' && window.location.pathname.startsWith('/invoice/')) {
     return (

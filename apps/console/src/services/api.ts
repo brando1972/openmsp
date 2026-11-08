@@ -320,6 +320,21 @@ export const devices = {
     });
   },
 
+  assignClient: async (
+    deviceIds: string[] | string,
+    clientId: string,
+    siteName?: string
+  ): Promise<{ ok: boolean; assignedCount: number; clientId: string; clientName: string; siteName: string; devices: ManagedDevice[] }> => {
+    return request('/devices/assign-client', {
+      method: 'POST',
+      body: JSON.stringify({
+        deviceIds: Array.isArray(deviceIds) ? deviceIds : [deviceIds],
+        clientId,
+        siteName
+      })
+    });
+  },
+
   sendCommand: async (deviceId: string, command: CreateDeviceCommandRequest): Promise<DeviceCommand> => {
     return request<DeviceCommand>(`/devices/${deviceId}/commands`, {
       method: 'POST',
@@ -4926,7 +4941,8 @@ export const monitoring = {
   updateDiscoveryState: async (payload: {
     serviceIds?: string[];
     hostId?: string;
-    discoveryState: import('@openmsp/api-types').CheckmkDiscoveryState;
+    discoveryState?: import('@openmsp/api-types').CheckmkDiscoveryState;
+    mode?: 'selected' | 'core' | 'all' | 'disable';
   }): Promise<any> =>
     request('/monitoring/services/discovery-state', {
       method: 'PATCH',

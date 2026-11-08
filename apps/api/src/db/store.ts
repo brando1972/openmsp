@@ -239,9 +239,46 @@ class DataStore {
     }
     this.reconcileLiveBackupVaults();
     this.reconcileSupabaseOperators();
+    this.reconcileOnboardingGroup();
     this.purgeSeededData();
     this.seedBillingDefaults();
     this.startPersistence();
+  }
+
+  public reconcileOnboardingGroup(): void {
+    const orgId = Array.from(this.orgs.values())[0]?.id || '00000000-0000-0000-0000-000000000001';
+    if (!this.clients.has('c-onboarding')) {
+      this.clients.set('c-onboarding', {
+        id: 'c-onboarding',
+        name: 'Onboarding Group',
+        domain: 'onboard.apexmsp.app',
+        contactName: 'Pending Admin Assignment',
+        contactEmail: 'onboard@apexmsp.app',
+        contactPhone: '',
+        sites: ['Onboarding Queue'],
+        activeContract: 'Onboarding Staging',
+        monthlySlaTier: 'Gold 24/7',
+        totalDevices: Array.from(this.devices.values()).filter((d) => d.clientId === 'c-onboarding').length,
+        openTickets: 0,
+        status: 'active',
+        createdAt: new Date().toISOString()
+      });
+    }
+    const expiresAt = new Date(Date.now() + 3650 * 24 * 3600 * 1000).toISOString();
+    for (const tokKey of ['tok-onboarding', 'onboard', 'onboarding']) {
+      if (!this.enrollmentTokens.has(tokKey)) {
+        this.enrollmentTokens.set(tokKey, {
+          id: `tok-id-${tokKey}`,
+          token: tokKey,
+          orgId,
+          clientId: 'c-onboarding',
+          siteId: 'Onboarding Queue',
+          expiresAt,
+          used: false,
+          createdAt: new Date().toISOString()
+        });
+      }
+    }
   }
 
   /** Billing settings, a placeholder tax rate and a starter catalog (runs even after hydrate; never seeds documents). */

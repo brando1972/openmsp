@@ -7,7 +7,7 @@ import {
   Store, Package, ScrollText, BadgeCheck, Receipt, FileText, Wallet, FileMinus, Tags,
   FileCode, BookOpen, Smartphone, AppWindow, SlidersHorizontal, FolderOpen,
   Settings, BarChart3, Bot, ChevronDown, ChevronRight, Server, Laptop, Wifi, Printer,
-  Shield, ShieldAlert, Cpu, Lock, Zap,
+  Shield, ShieldAlert, Cpu, Lock, Zap, UserCheck,
   type LucideIcon
 } from 'lucide-react';
 
@@ -38,6 +38,7 @@ type Group = { title: string; items: Item[] };
 // Device-view filters, folded in as children of "Devices"
 const ASSET_CHILDREN: Item[] = [
   { key: 'all-assets', label: 'All Devices', Icon: FolderOpen, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'all-assets' },
+  { key: 'onboarding', label: 'Onboarding Group', Icon: UserCheck, tint: '#f59e0b', built: true, tab: 'rmm', sub: 'onboarding', badge: 'Queue' },
   { key: 'monitored', label: 'Monitored Devices', Icon: Monitor, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'monitored' },
   { key: 'endpoints', label: 'Endpoints', Icon: Laptop, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'endpoints' },
   { key: 'mdm-tablets', label: 'Managed Devices', Icon: Smartphone, tint: '#8b5cf6', built: true, tab: 'rmm', sub: 'mdm-tablets' },
@@ -161,8 +162,12 @@ export const RoadmapNav: React.FC = () => {
   } = useApp();
 
   const openCount = tickets.filter((t) => t.status === 'new' || t.status === 'in_progress').length;
+  const onboardingCount = devices.filter(
+    (d) => d.clientId === 'c-onboarding' || (Array.isArray(d.tags) && d.tags.includes('onboarding'))
+  ).length;
   const counts: Record<string, number | undefined> = {
     assets: devices.length,
+    onboarding: onboardingCount,
     tickets: openCount
   };
 

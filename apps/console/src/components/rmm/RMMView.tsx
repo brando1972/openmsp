@@ -57,6 +57,7 @@ export const RMMView: React.FC = () => {
     createClient,
     setIsAddClientModalOpen,
     activeSubRailView,
+    setActiveSubRailView,
     updateDeviceDetails,
     runRemoteScriptOnDevice,
     toggleDeviceEncryption,
@@ -186,9 +187,62 @@ export const RMMView: React.FC = () => {
     setTimeout(() => setCopiedCmd(null), 2000);
   };
 
+  // Onboarding Group state & assignment helpers
+  const onboardingDevices = devices.filter(
+    d => d.clientId === 'c-onboarding' || (Array.isArray(d.tags) && d.tags.includes('onboarding'))
+  );
+  const assignableClients = clients.filter(c => c.id !== 'c-onboarding');
+  const defaultTargetClientId = assignableClients[0]?.id || 'c-brandon-ray';
+  const [rowAssignTarget, setRowAssignTarget] = useState<Record<string, string>>({});
+  const [bulkAssignClientId, setBulkAssignClientId] = useState<string>(defaultTargetClientId);
+  const [assigningDeviceId, setAssigningDeviceId] = useState<string | null>(null);
+  const [isBulkAssigning, setIsBulkAssigning] = useState(false);
+
+  const handleAssignDeviceToClient = async (deviceId: string, targetClientId?: string) => {
+    const cId = targetClientId || rowAssignTarget[deviceId] || defaultTargetClientId;
+    const targetClient = clients.find(c => c.id === cId);
+    if (!cId) return;
+    setAssigningDeviceId(deviceId);
+    try {
+      await updateDeviceDetails(deviceId, {
+        clientId: cId,
+        clientName: targetClient?.name,
+        siteName: targetClient?.sites?.[0] || 'HQ Site'
+      });
+      await api.devices.assignClient([deviceId], cId, targetClient?.sites?.[0] || 'HQ Site').catch(() => {});
+    } finally {
+      setAssigningDeviceId(null);
+    }
+  };
+
+  const handleBulkAssignOnboarding = async () => {
+    const cId = bulkAssignClientId || defaultTargetClientId;
+    const targetClient = clients.find(c => c.id === cId);
+    if (!cId || onboardingDevices.length === 0) return;
+    setIsBulkAssigning(true);
+    try {
+      const ids = onboardingDevices.map(d => d.id);
+      for (const id of ids) {
+        await updateDeviceDetails(id, {
+          clientId: cId,
+          clientName: targetClient?.name,
+          siteName: targetClient?.sites?.[0] || 'HQ Site'
+        });
+      }
+      await api.devices.assignClient(ids, cId, targetClient?.sites?.[0] || 'HQ Site').catch(() => {});
+    } finally {
+      setIsBulkAssigning(false);
+    }
+  };
+
   // Filtered Devices
   const filteredDevices = devices.filter(d => {
-    if (selectedClientId !== 'all' && d.clientId !== selectedClientId) return false;
+    const isOnboarding = d.clientId === 'c-onboarding' || (Array.isArray(d.tags) && d.tags.includes('onboarding'));
+    if (activeSubRailView === 'onboarding') {
+      if (!isOnboarding) return false;
+    } else if (selectedClientId !== 'all' && d.clientId !== selectedClientId) {
+      return false;
+    }
     if (activeSubRailView === 'windows' && d.os !== 'windows') return false;
     if (activeSubRailView === 'macos' && d.os !== 'macos') return false;
     if (activeSubRailView === 'servers' && d.os !== 'linux') return false;
@@ -274,7 +328,8 @@ export const RMMView: React.FC = () => {
           </div>
           <h1 className="text-base sm:text-lg font-bold text-[#212b36] tracking-tight flex items-center gap-1.5">
             <span>
-              {activeSubRailView === 'windows' ? 'Windows Endpoints' :
+              {activeSubRailView === 'onboarding' ? 'Onboarding Group Queue' :
+               activeSubRailView === 'windows' ? 'Windows Endpoints' :
                activeSubRailView === 'macos' ? 'Apple macOS Endpoints' :
                activeSubRailView === 'servers' ? 'Server Infrastructure' :
                activeSubRailView === 'critical' ? 'Critical Alerts' : 'Endpoints'}
@@ -288,6 +343,34 @@ export const RMMView: React.FC = () => {
 
         {/* Right: Action Buttons (SuperOps Toolbar) */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 flex-wrap">
+          {/* Onboarding Group Filter & Share Link Pill */}
+          <button
+            onClick={() => setActiveSubRailView(activeSubRailView === 'onboarding' ? 'all' : 'onboarding')}
+            className={`border text-xs font-semibold px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition cursor-pointer ${
+              activeSubRailView === 'onboarding'
+                ? 'border-amber-400 bg-amber-100 text-amber-950'
+                : onboardingDevices.length > 0
+                  ? 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900'
+                  : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+            }`}
+            title="View machines enrolled via apexmsp.app/onboard awaiting client assignment"
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <span>Onboarding Group</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-200/80 text-amber-950 text-[10px] font-bold">
+              {onboardingDevices.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => copyToClipboard('https://apexmsp.app/onboard', 'onboard-url')}
+            className="border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-semibold px-2.5 py-1.5 rounded flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+            title="Copy public auto-detecting onboarding URL (https://apexmsp.app/onboard)"
+          >
+            {copiedCmd === 'onboard-url' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-indigo-600" />}
+            <span className="hidden sm:inline">{copiedCmd === 'onboard-url' ? 'Copied URL!' : 'apexmsp.app/onboard'}</span>
+          </button>
+
           {/* Import / Export Dropdown - hidden on small mobile */}
           <button
             onClick={() => alert('Exporting endpoints as CSV report...')}
@@ -340,6 +423,67 @@ export const RMMView: React.FC = () => {
         </div>
       </div>
 
+      {/* Onboarding Group Banner & Admin Client Assignment Queue */}
+      {(activeSubRailView === 'onboarding' || onboardingDevices.length > 0) && (
+        <div className="bg-gradient-to-r from-amber-50 via-orange-50/70 to-sky-50 border-b border-amber-200 px-4 sm:px-6 py-3 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-amber-500 text-white flex items-center justify-center font-black text-sm shadow-xs shrink-0">
+                {onboardingDevices.length}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-slate-900 text-xs sm:text-sm">
+                    Onboarding Group Queue
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-950 text-[10px] font-extrabold uppercase tracking-wide">
+                    Auto-Enroll URL: apexmsp.app/onboard
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Machines visiting <a href="/onboard?autodownload=0" target="_blank" rel="noopener noreferrer" className="text-blue-700 font-semibold underline">apexmsp.app/onboard</a> automatically download the proper OS/CPU installer and land here until assigned to a client.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <a
+                href="/onboard?autodownload=0"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1.5 rounded bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-semibold transition"
+              >
+                Open /onboard Portal ↗
+              </a>
+
+              {onboardingDevices.length > 0 && (
+                <div className="flex items-center gap-1.5 bg-white border border-amber-300 rounded-lg px-2 py-1 shadow-2xs">
+                  <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                    Assign all ({onboardingDevices.length}) to:
+                  </span>
+                  <select
+                    value={bulkAssignClientId}
+                    onChange={(e) => setBulkAssignClientId(e.target.value)}
+                    className="text-xs font-semibold text-slate-900 bg-slate-50 border border-slate-300 rounded px-2 py-1 outline-none focus:border-blue-600"
+                  >
+                    {assignableClients.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleBulkAssignOnboarding}
+                    disabled={isBulkAssigning}
+                    className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer whitespace-nowrap"
+                  >
+                    {isBulkAssigning ? 'Assigning...' : 'Assign All'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main RMM Body: SuperOps Table & Detail Drawer */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {/* Left: Devices Container (Mobile Cards + Desktop Table) */}
@@ -371,6 +515,29 @@ export const RMMView: React.FC = () => {
                           {device.clientName} • {device.siteName || 'Headquarters'}
                           {device.loggedInUser && ` • ${device.loggedInUser}`}
                         </div>
+                        {(device.clientId === 'c-onboarding' || device.tags?.includes('onboarding')) && (
+                          <div className="mt-1.5 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
+                              ONBOARDING
+                            </span>
+                            <select
+                              value={rowAssignTarget[device.id] || defaultTargetClientId}
+                              onChange={(e) => setRowAssignTarget(prev => ({ ...prev, [device.id]: e.target.value }))}
+                              className="text-[11px] font-semibold bg-white border border-slate-300 rounded px-1.5 py-0.5 text-slate-900"
+                            >
+                              {assignableClients.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => handleAssignDeviceToClient(device.id)}
+                              disabled={assigningDeviceId === device.id}
+                              className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold"
+                            >
+                              {assigningDeviceId === device.id ? '...' : 'Assign'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <span
@@ -490,7 +657,37 @@ export const RMMView: React.FC = () => {
                           {device.name}
                         </button>
                       </td>
-                      <td className="py-3 px-4 font-medium text-slate-900">{device.clientName}</td>
+                      <td className="py-3 px-4 font-medium text-slate-900" onClick={(e) => {
+                        if (device.clientId === 'c-onboarding' || device.tags?.includes('onboarding')) {
+                          e.stopPropagation();
+                        }
+                      }}>
+                        {(device.clientId === 'c-onboarding' || device.tags?.includes('onboarding')) ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold uppercase tracking-wide">
+                              Onboarding Group
+                            </span>
+                            <select
+                              value={rowAssignTarget[device.id] || defaultTargetClientId}
+                              onChange={(e) => setRowAssignTarget(prev => ({ ...prev, [device.id]: e.target.value }))}
+                              className="text-xs font-semibold bg-white border border-slate-300 rounded px-2 py-0.5 text-slate-900 outline-none focus:border-blue-600"
+                            >
+                              {assignableClients.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => handleAssignDeviceToClient(device.id)}
+                              disabled={assigningDeviceId === device.id}
+                              className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-[11px] font-bold transition cursor-pointer"
+                            >
+                              {assigningDeviceId === device.id ? 'Assigning...' : 'Assign to Client'}
+                            </button>
+                          </div>
+                        ) : (
+                          device.clientName
+                        )}
+                      </td>
                       <td className="py-3 px-4 text-slate-500">{device.siteName || 'Headquarters'}</td>
                       <td className="py-3 px-4">
                         <span

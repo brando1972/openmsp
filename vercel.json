@@ -3,6 +3,29 @@
   "outputDirectory": "apps/console/dist",
   "framework": "vite",
   "rewrites": [
+    {
+      "source": "/onboard/download",
+      "destination": "https://api.apexmsp.app/api/v1/installers/onboard/download"
+    },
+    {
+      "source": "/onboard/script",
+      "destination": "https://api.apexmsp.app/api/v1/installers/onboard/script"
+    },
+    {
+      "source": "/onboard/detect",
+      "destination": "https://api.apexmsp.app/api/v1/installers/onboard/detect"
+    },
+    {
+      "source": "/onboard",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i).*(powershell|curl|wget).*"
+        }
+      ],
+      "destination": "https://api.apexmsp.app/api/v1/installers/onboard/script"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

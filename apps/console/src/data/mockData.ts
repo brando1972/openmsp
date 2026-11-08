@@ -76,6 +76,19 @@ export const INITIAL_CLIENTS: ClientTenant[] = [
     monthlySlaTier: 'Gold 24/7',
     totalDevices: 12,
     openTickets: 1
+  },
+  {
+    id: 'c-onboarding',
+    name: 'Onboarding Group',
+    domain: 'onboard.apexmsp.app',
+    contactName: 'Unassigned Onboarding Queue',
+    contactEmail: 'onboard@apexmsp.app',
+    contactPhone: '555-0100',
+    sites: ['Onboarding Queue'],
+    activeContract: 'Pending Admin Client Assignment (apexmsp.app/onboard)',
+    monthlySlaTier: 'Gold 24/7',
+    totalDevices: 0,
+    openTickets: 0
   }
 ];
 
