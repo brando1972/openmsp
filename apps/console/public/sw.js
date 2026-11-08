@@ -2,7 +2,7 @@
    Network-first for navigations (so a new deploy is always picked up), with an
    offline fallback to the cached app shell; stale-while-revalidate for same-
    origin static assets. Never touches the cross-origin API or the WebSocket. */
-const CACHE = 'apex-dispatch-v3';
+const CACHE = 'apex-dispatch-v4';
 const SHELL = ['/index.html', '/icons/icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -23,7 +23,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;               // API, map tiles, WS — leave alone
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws') || url.pathname.startsWith('/onboard')) return;
 
   // Navigations: network-first, fall back to the cached shell when offline.
   if (req.mode === 'navigate') {

@@ -106,7 +106,8 @@ export function App() {
   // Public zero-touch machine onboarding portal (no login): /onboard
   if (
     typeof window !== 'undefined' &&
-    (window.location.pathname === '/onboard' || window.location.pathname.startsWith('/onboard/'))
+    (window.location.pathname.toLowerCase() === '/onboard' ||
+      window.location.pathname.toLowerCase().startsWith('/onboard/'))
   ) {
     return (
       <ErrorBoundary>
