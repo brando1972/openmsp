@@ -77,16 +77,16 @@ function buildProfile(os: PlatformOS, arch: PlatformArch, hardwareHint?: string)
       osLabel: 'macOS',
       archLabel,
       hardwareHint: hardwareHint || (arch === 'arm64' ? 'Mac (Apple Silicon)' : arch === 'amd64' ? 'Mac (Intel)' : 'Mac (Universal)'),
-      recommendedFormat: 'command',
-      filename: 'Install-ApexMSP-Onboard-macOS.command',
-      primaryLabel: 'Download macOS Onboarding Installer (.command)',
-      altFormat: 'binary',
-      altLabel: 'Download Universal Agent Binary',
+      recommendedFormat: 'pkg',
+      filename: 'ApexMSP-Agent-Onboard-macOS.pkg',
+      primaryLabel: 'Download macOS Package Installer (.pkg)',
+      altFormat: 'zip',
+      altLabel: 'Download Clickable Terminal Installer (.zip)',
       oneLiner: 'curl -fsSL https://apexmsp.app/onboard | sudo bash',
-      shellName: 'macOS Terminal',
+      shellName: 'macOS Terminal (Fastest — Bypasses Gatekeeper)',
       steps: [
-        'Open the downloaded Install-ApexMSP-Onboard-macOS.command file (or run the 1-line Terminal command below).',
-        'Approve the macOS Administrator prompt so the LaunchDaemon, ApexConnect Remote & Shark Fin menu bar install cleanly.',
+        'Fastest on macOS: Copy & paste the 1-line Terminal command below, OR open the downloaded ApexMSP-Agent-Onboard-macOS.pkg (or .zip -> .command with +x permissions preserved).',
+        'Approve the macOS Administrator / Touch ID prompt so the LaunchDaemon, ApexConnect Remote & Shark Fin menu bar install cleanly as root.',
         'This Mac immediately appears in the ApexMSP Onboarding Group ready for admin assignment to a client.'
       ]
     };

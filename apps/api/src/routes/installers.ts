@@ -45,6 +45,60 @@ router.post('/token', authenticate, (req: AuthenticatedRequest, res) => {
 
 import path from 'path';
 import fs from 'fs';
+import zlib from 'zlib';
+
+function buildExecutableZipBuffer(entryFilename: string, scriptContent: string): Buffer {
+  const nameBuf = Buffer.from(entryFilename, 'utf8');
+  const dataBuf = Buffer.from(scriptContent, 'utf8');
+  const crc = zlib.crc32(dataBuf) >>> 0;
+  const size = dataBuf.length;
+
+  const lfh = Buffer.alloc(30 + nameBuf.length);
+  lfh.writeUInt32LE(0x04034b50, 0);
+  lfh.writeUInt16LE(20, 4);
+  lfh.writeUInt16LE(0, 6);
+  lfh.writeUInt16LE(0, 8);
+  lfh.writeUInt16LE(0, 10);
+  lfh.writeUInt16LE(0x5967, 12);
+  lfh.writeUInt32LE(crc, 14);
+  lfh.writeUInt32LE(size, 18);
+  lfh.writeUInt32LE(size, 22);
+  lfh.writeUInt16LE(nameBuf.length, 26);
+  lfh.writeUInt16LE(0, 28);
+  nameBuf.copy(lfh, 30);
+
+  const cdh = Buffer.alloc(46 + nameBuf.length);
+  cdh.writeUInt32LE(0x02014b50, 0);
+  cdh.writeUInt16LE(0x0314, 4); // Unix (3), version 2.0
+  cdh.writeUInt16LE(20, 6);
+  cdh.writeUInt16LE(0, 8);
+  cdh.writeUInt16LE(0, 10);
+  cdh.writeUInt16LE(0, 12);
+  cdh.writeUInt16LE(0x5967, 14);
+  cdh.writeUInt32LE(crc, 16);
+  cdh.writeUInt32LE(size, 20);
+  cdh.writeUInt32LE(size, 24);
+  cdh.writeUInt16LE(nameBuf.length, 28);
+  cdh.writeUInt16LE(0, 30);
+  cdh.writeUInt16LE(0, 32);
+  cdh.writeUInt16LE(0, 34);
+  cdh.writeUInt16LE(0, 36);
+  cdh.writeUInt32LE((0o100755 << 16) >>> 0, 38); // -rwxr-xr-x (0755)
+  cdh.writeUInt32LE(0, 42);
+  nameBuf.copy(cdh, 46);
+
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(cdh.length, 12);
+  eocd.writeUInt32LE(lfh.length + size, 16);
+  eocd.writeUInt16LE(0, 20);
+
+  return Buffer.concat([lfh, dataBuf, cdh, eocd]);
+}
 
 import { artifactPath } from '../releases/manifest.js';
 
@@ -379,14 +433,16 @@ if [ "\$(id -u)" -ne 0 ] && [ "\$APEXMSP_ELEVATED" != "1" ]; then
   echo "[*] Elevating to Administrator (root) to install ApexMSP Service, Connect & Backstage..."
   TMP_SELF="/tmp/apexmsp_macos_install_\$\$.sh"
   curl -kfsSL "\$SERVER_URL/api/v1/installers/macos/\$ENROLL_TOKEN" -o "\$TMP_SELF"
-  chmod +x "\$TMP_SELF"
+  chmod 755 "\$TMP_SELF"
+  if osascript -e "do shell script \\"APEXMSP_ELEVATED=1 /bin/bash '\$TMP_SELF'\\" with administrator privileges" 2>/dev/null; then
+    rm -f "\$TMP_SELF"
+    exit 0
+  fi
   if [ -e /dev/tty ]; then
-    APEXMSP_ELEVATED=1 sudo -E bash "\$TMP_SELF" </dev/tty
+    APEXMSP_ELEVATED=1 sudo -E /bin/bash "\$TMP_SELF" </dev/tty
     RC=\$?
     rm -f "\$TMP_SELF"
     exit \$RC
-  else
-    osascript -e "do shell script \\"APEXMSP_ELEVATED=1 bash '\$TMP_SELF'\\" with administrator privileges" && { rm -f "\$TMP_SELF"; exit 0; }
   fi
   rm -f "\$TMP_SELF"
 fi
@@ -2112,11 +2168,11 @@ export function detectVisitorPlatform(req: any): DetectedPlatformInfo {
       arch,
       osLabel: 'macOS',
       archLabel,
-      recommendedFormat: 'command',
-      filename: 'Install-ApexMSP-Onboard-macOS.command',
-      downloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=macos&arch=${arch}&format=command`,
-      altDownloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=macos&arch=${arch}&format=binary`,
-      altLabel: 'Download Universal Agent Binary',
+      recommendedFormat: 'pkg',
+      filename: 'ApexMSP-Agent-Onboard-macOS.pkg',
+      downloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=macos&arch=${arch}&format=pkg`,
+      altDownloadUrl: `${serverUrl}/api/v1/installers/onboard/download?os=macos&arch=${arch}&format=zip`,
+      altLabel: 'Download Clickable Terminal Installer (.zip)',
       oneLiner: `curl -fsSL https://apexmsp.app/onboard | sudo bash`,
       enrollToken,
       clientId,
@@ -2192,20 +2248,22 @@ router.get('/onboard/detect', (req, res) => {
 
 // GET /api/v1/installers/onboard/script -> Returns auto-detected onboarding install script (PowerShell for Windows, universal bash for macOS/Linux)
 router.get('/onboard/script', (req, res) => {
-  const info = detectVisitorPlatform(req);
-  if (info.os === 'windows') {
+  const ua = String(req.get('user-agent') || '').toLowerCase();
+  const qOs = String(req.query.os || '').toLowerCase();
+
+  if (qOs === 'windows' || qOs === 'win' || ua.includes('powershell') || ua.includes('windows')) {
     renderScript('windows', 'tok-onboarding', req, res);
     return;
   }
-  if (req.query.os === 'macos') {
+  if (qOs === 'macos' || qOs === 'mac' || qOs === 'darwin') {
     renderScript('macos', 'tok-onboarding', req, res);
     return;
   }
-  if (req.query.os === 'linux') {
+  if (qOs === 'linux') {
     renderScript('linux', 'tok-onboarding', req, res);
     return;
   }
-  // Universal POSIX script that auto-detects Darwin vs Linux at runtime
+  // Universal POSIX script that auto-detects Darwin vs Linux at runtime (handles curl/8.x on macOS & Linux)
   const proto = req.get('x-forwarded-proto') || req.protocol || 'https';
   const serverUrl = `${proto}://${req.get('host') || 'api.apexmsp.app'}`;
   const universalScript = `#!/bin/bash
@@ -2220,11 +2278,17 @@ echo "  ApexMSP Auto-Onboarding Installer (\$UNAME_S • \$UNAME_M)"
 echo "  Target Group: Onboarding Group (Pending Admin Assignment)"
 echo "=========================================================="
 
+TMP_ONBOARD="/tmp/apexmsp_onboard_\$\$.sh"
 if [ "\$UNAME_S" = "Darwin" ]; then
-  exec bash <(curl -kfsSL "\$SERVER_URL/api/v1/installers/macos/\$ENROLL_TOKEN")
+  curl -kfsSL "\$SERVER_URL/api/v1/installers/macos/\$ENROLL_TOKEN" -o "\$TMP_ONBOARD"
 else
-  exec bash <(curl -kfsSL "\$SERVER_URL/api/v1/installers/linux/\$ENROLL_TOKEN")
+  curl -kfsSL "\$SERVER_URL/api/v1/installers/linux/\$ENROLL_TOKEN" -o "\$TMP_ONBOARD"
 fi
+chmod 755 "\$TMP_ONBOARD"
+/bin/bash "\$TMP_ONBOARD"
+RC=\$?
+rm -f "\$TMP_ONBOARD"
+exit \$RC
 `;
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.send(universalScript);
@@ -2335,6 +2399,26 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointMan
   }
 
   if (info.os === 'macos') {
+    if (format === 'pkg') {
+      const pkgCandidates = [
+        path.join('/builds', 'ApexMSP-Agent-Onboard-macOS.pkg'),
+        path.join(process.cwd(), 'apps', 'api', 'bin', 'ApexMSP-Agent-Onboard-macOS.pkg'),
+        path.join(process.cwd(), 'bin', 'ApexMSP-Agent-Onboard-macOS.pkg'),
+        path.join('/app/apps/api/bin', 'ApexMSP-Agent-Onboard-macOS.pkg'),
+        path.join('/app/bin', 'ApexMSP-Agent-Onboard-macOS.pkg')
+      ];
+      const foundPkg = pkgCandidates.find((p) => fs.existsSync(p));
+      if (foundPkg) {
+        const resolvedPkg = path.resolve(foundPkg);
+        const statPkg = fs.statSync(resolvedPkg);
+        res.setHeader('Content-Disposition', 'attachment; filename="ApexMSP-Agent-Onboard-macOS.pkg"');
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Length', String(statPkg.size));
+        fs.createReadStream(resolvedPkg).pipe(res);
+        return;
+      }
+    }
+
     if (format === 'binary') {
       const binName =
         info.arch === 'arm64'
@@ -2365,7 +2449,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointMan
       }
     }
 
-    // Default macOS format: double-clickable .command installer pre-bound to tok-onboarding
+    // Serve .zip containing Install-ApexMSP-Onboard-macOS.command with Unix 0755 (-rwxr-xr-x) permissions preserved
+    // so macOS Finder / Terminal never blocks execution with "you do not have appropriate access privileges"
     const commandScript = `#!/bin/bash
 # ============================================================================
 #  ApexMSP macOS Auto-Onboarding Installer (Apple Silicon ARM64 & Intel x86_64)
@@ -2378,16 +2463,36 @@ echo "  Detected Hardware: \$(uname -m) • macOS \$(sw_vers -productVersion 2>/
 echo "  Enrollment Target: Onboarding Group (tok-onboarding)"
 echo "=================================================================="
 echo ""
-curl -kfsSL "${serverUrl}/api/v1/installers/macos/${enrollToken}" | bash
+TMP_INSTALL="/tmp/apexmsp_onboard_macos_\$\$.sh"
+curl -kfsSL "${serverUrl}/api/v1/installers/macos/${enrollToken}" -o "\$TMP_INSTALL"
+chmod 755 "\$TMP_INSTALL"
+if [ "\$(id -u)" -eq 0 ]; then
+  APEXMSP_ELEVATED=1 /bin/bash "\$TMP_INSTALL"
+else
+  echo "[*] Requesting macOS Administrator approval..."
+  if ! osascript -e "do shell script \\"APEXMSP_ELEVATED=1 /bin/bash '\$TMP_INSTALL'\\" with administrator privileges" 2>/dev/null; then
+    APEXMSP_ELEVATED=1 sudo -E /bin/bash "\$TMP_INSTALL"
+  fi
+fi
+rm -f "\$TMP_INSTALL"
 echo ""
 echo "=================================================================="
 echo "  ✅ Onboarding Complete! This Mac is now in the Onboarding Group."
 echo "  An administrator can now assign it to a client in ApexMSP."
 echo "=================================================================="
 `;
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'attachment; filename="Install-ApexMSP-Onboard-macOS.command"');
-    res.send(commandScript);
+    if (format === 'raw-command') {
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment; filename="Install-ApexMSP-Onboard-macOS.command"');
+      res.send(commandScript);
+      return;
+    }
+
+    const zipBuf = buildExecutableZipBuffer('Install-ApexMSP-Onboard-macOS.command', commandScript);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="Install-ApexMSP-Onboard-macOS.zip"');
+    res.setHeader('Content-Length', String(zipBuf.length));
+    res.send(zipBuf);
     return;
   }
 
