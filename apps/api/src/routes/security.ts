@@ -1032,8 +1032,12 @@ router.get('/devices', (req: AuthenticatedRequest, res) => {
       actionType: 'isolate_host'
     });
 
+    const boundMeshNodeId = d.meshNodeId || store.meshNodes.get(d.id);
+
     return {
       ...d,
+      e2eeActive: Boolean(d.deviceSignPub && d.deviceBoxPub),
+      meshNodeId: boundMeshNodeId,
       securityPosture: posture || null,
       sharkFinPolicy,
       identityObservations: observations,

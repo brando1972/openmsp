@@ -161,6 +161,8 @@ export const CheckmkMonitoringView: React.FC<Props> = ({
   const [stateFilter, setStateFilter] = useState<'ALL' | CheckmkServiceState>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedHosts, setExpandedHosts] = useState<Record<string, boolean>>({});
+  const [discoveryHostStatusFilter, setDiscoveryHostStatusFilter] = useState<'all' | 'monitored' | 'available'>('all');
+  const [selectedServiceIds, setSelectedServiceIds] = useState<Record<string, boolean>>({});
 
   // Modals
   const [graphService, setGraphService] = useState<CheckmkServiceCheck | null>(null);
@@ -273,10 +275,29 @@ export const CheckmkMonitoringView: React.FC<Props> = ({
   const handleSetDiscoveryState = async (
     serviceIds: string[] | undefined,
     targetHostId: string | undefined,
-    discoveryState: 'monitored' | 'undecided' | 'ignored'
+    discoveryState: 'monitored' | 'undecided' | 'ignored',
+    mode?: 'selected' | 'core' | 'all' | 'disable'
   ) => {
-    await monitoring.updateDiscoveryState({ serviceIds, hostId: targetHostId, discoveryState });
+    await monitoring.updateDiscoveryState({ serviceIds, hostId: targetHostId, discoveryState, mode });
     await loadData(true);
+  };
+
+  const toggleSelectService = (svcId: string) => {
+    setSelectedServiceIds((prev) => ({
+      ...prev,
+      [svcId]: !prev[svcId]
+    }));
+  };
+
+  const toggleSelectAllOnHost = (hostServices: CheckmkServiceCheck[]) => {
+    const allSelected = hostServices.length > 0 && hostServices.every((s) => selectedServiceIds[s.id]);
+    setSelectedServiceIds((prev) => {
+      const next = { ...prev };
+      for (const s of hostServices) {
+        next[s.id] = !allSelected;
+      }
+      return next;
+    });
   };
 
   const handleSubmitAck = async () => {

@@ -96,6 +96,9 @@ func (e *Executor) Execute(ctx context.Context, cmd client.DeviceCommand) client
 	case "install_approved_patches":
 		result.Status = "completed"
 		result.Output = "Patch manager executed: all approved system packages are up-to-date"
+	case "rotate_e2ee_keys":
+		result.Status = "completed"
+		result.Output = "E2EE keypair rotation authorized; generating fresh X25519 + Ed25519 identity"
 	case "remote_wipe":
 		result.Status = "completed"
 		result.Output = "[SAFETY LOCK] Remote wipe acknowledged; physical wipe blocked by agent policy guard"

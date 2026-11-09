@@ -355,6 +355,18 @@ export const devices = {
       method: 'POST',
       body: JSON.stringify({ confirm })
     });
+  },
+
+  rotateE2EE: async (
+    deviceId: string
+  ): Promise<{ ok: boolean; deviceId: string; commandId: string; e2eeRekeyPending: boolean; message: string }> => {
+    return request<{ ok: boolean; deviceId: string; commandId: string; e2eeRekeyPending: boolean; message: string }>(
+      `/devices/${deviceId}/rotate-e2ee`,
+      {
+        method: 'POST',
+        body: JSON.stringify({})
+      }
+    );
   }
 };
 

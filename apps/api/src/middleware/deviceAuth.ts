@@ -8,7 +8,7 @@ const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
  * Error codes agents act on. `device_unknown` tells an agent its record is gone
  * and it should re-enroll with its saved enrollment token.
  */
-export type DeviceAuthCode = 'missing_credentials' | 'device_unknown' | 'invalid_secret';
+export type DeviceAuthCode = 'missing_credentials' | 'device_unknown' | 'invalid_secret' | 'e2ee_required';
 
 export type DeviceAuthResult =
   | { ok: true; device: ManagedDevice }
@@ -40,6 +40,22 @@ export function authenticateDevice(
   // If the request was already authenticated via Ed25519 + X25519 E2EE envelope for this exact deviceId
   if (e2eeVerifiedDeviceId && e2eeVerifiedDeviceId === deviceId && (device as any).deviceSignPub) {
     return { ok: true, device };
+  }
+
+  // Strict v2-e2ee Downgrade Lock: once a device has bound Ed25519 + X25519 public keys,
+  // reject plaintext requests that only supply deviceSecret (unless rekeyPending or explicitly overridden).
+  if (
+    (device as any).deviceSignPub &&
+    (device as any).deviceBoxPub &&
+    !(device as any).e2eeRekeyPending &&
+    process.env.ALLOW_PLAINTEXT_DOWNGRADE !== '1'
+  ) {
+    return {
+      ok: false,
+      status: 401,
+      code: 'e2ee_required',
+      error: 'Plaintext downgrade rejected: device has bound v2-e2ee Ed25519/X25519 keys'
+    };
   }
 
   if (typeof deviceSecret !== 'string' || !deviceSecret) {

@@ -71,6 +71,8 @@ export const RMMView: React.FC = () => {
   const [editDeviceName, setEditDeviceName] = useState('');
   const [editDeviceClientId, setEditDeviceClientId] = useState('');
   const [isSavingDeviceMeta, setIsSavingDeviceMeta] = useState(false);
+  const [rotatingE2eeDeviceId, setRotatingE2eeDeviceId] = useState<string | null>(null);
+  const [e2eeRotateStatusMsg, setE2eeRotateStatusMsg] = useState<string | null>(null);
 
   const findMatchingRule = (deviceId: string) => {
     const device = devices.find(d => d.id === deviceId);
@@ -690,15 +692,26 @@ export const RMMView: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-slate-500">{device.siteName || 'Headquarters'}</td>
                       <td className="py-3 px-4">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded text-[11px] font-bold uppercase ${
-                            isOnline
-                              ? 'bg-[#c8e6c5] text-[#1c4419]'
-                              : 'bg-[#ececec] text-[#444444]'
-                          }`}
-                        >
-                          {isOnline ? 'ONLINE' : 'OFFLINE'}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={`inline-block px-2.5 py-0.5 rounded text-[11px] font-bold uppercase ${
+                              isOnline
+                                ? 'bg-[#c8e6c5] text-[#1c4419]'
+                                : 'bg-[#ececec] text-[#444444]'
+                            }`}
+                          >
+                            {isOnline ? 'ONLINE' : 'OFFLINE'}
+                          </span>
+                          {(device.e2eeActive || device.deviceSignPub) && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold"
+                              title={`v2-e2ee Active (X25519 + ChaCha20-Poly1305 + Ed25519)\nEd25519: ${device.deviceSignPub || 'bound'}`}
+                            >
+                              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                              <span>E2EE</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-700 text-[11px]">
                         {device.loggedInUser ? (
@@ -1044,7 +1057,7 @@ export const RMMView: React.FC = () => {
                         <span className="font-mono text-slate-700">{selectedDevice.serialNumber}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Encryption:</span>
+                        <span className="text-slate-500">Disk Encryption:</span>
                         <span className="font-semibold text-emerald-600">{selectedDevice.encryptionStatus.toUpperCase()}</span>
                       </div>
                       {selectedDevice.encryptionKey && (
@@ -1058,6 +1071,77 @@ export const RMMView: React.FC = () => {
                           </button>
                         </div>
                       )}
+                    </div>
+
+                    {/* End-to-End Cryptographic Transport & Identity (v2-e2ee) */}
+                    <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-emerald-800 font-bold">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                          <span>Agent Transport E2EE (v2-e2ee)</span>
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${
+                            selectedDevice.e2eeActive || selectedDevice.deviceSignPub
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border-amber-300'
+                          }`}
+                        >
+                          {selectedDevice.e2eeRekeyPending
+                            ? 'RE-KEY PENDING'
+                            : selectedDevice.e2eeActive || selectedDevice.deviceSignPub
+                            ? 'X25519 + CHACHA20-POLY1305'
+                            : 'TOFU PENDING'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-600 space-y-1 bg-white p-2.5 rounded border border-emerald-100">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">Agent Version:</span>
+                          <span className="font-mono font-semibold text-slate-800">v{selectedDevice.agentVersion || '2.1.0'} ({selectedDevice.arch || 'amd64'})</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">Ed25519 Sign Pub:</span>
+                          <span className="font-mono text-[10px] text-slate-800 truncate max-w-[200px]" title={selectedDevice.deviceSignPub || 'Pending next v2.1.0 heartbeat'}>
+                            {selectedDevice.deviceSignPub ? `${selectedDevice.deviceSignPub.slice(0, 20)}…` : 'Awaiting TOFU bind'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">X25519 Box Pub:</span>
+                          <span className="font-mono text-[10px] text-slate-800 truncate max-w-[200px]" title={selectedDevice.deviceBoxPub || 'Pending next v2.1.0 heartbeat'}>
+                            {selectedDevice.deviceBoxPub ? `${selectedDevice.deviceBoxPub.slice(0, 20)}…` : 'Awaiting TOFU bind'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">Bound MeshNode ID:</span>
+                          <span className="font-mono text-[10px] text-emerald-700 font-semibold truncate max-w-[200px]" title={selectedDevice.meshNodeId || 'Bound via signed heartbeat'}>
+                            {selectedDevice.meshNodeId ? `${selectedDevice.meshNodeId.slice(0, 22)}…` : 'Auto-binding'}
+                          </span>
+                        </div>
+                      </div>
+                      {e2eeRotateStatusMsg && (
+                        <div className="p-2 rounded bg-emerald-100/80 border border-emerald-300 text-emerald-900 text-[11px] font-semibold">
+                          {e2eeRotateStatusMsg}
+                        </div>
+                      )}
+                      <button
+                        disabled={rotatingE2eeDeviceId === selectedDevice.id}
+                        onClick={async () => {
+                          setRotatingE2eeDeviceId(selectedDevice.id);
+                          setE2eeRotateStatusMsg(null);
+                          try {
+                            const res = await api.devices.rotateE2EE(selectedDevice.id);
+                            setE2eeRotateStatusMsg(res.message);
+                          } catch (err: any) {
+                            setE2eeRotateStatusMsg(`Rotation failed: ${err?.message || 'Unknown error'}`);
+                          } finally {
+                            setRotatingE2eeDeviceId(null);
+                          }
+                        }}
+                        className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${rotatingE2eeDeviceId === selectedDevice.id ? 'animate-spin' : ''}`} />
+                        <span>{rotatingE2eeDeviceId === selectedDevice.id ? 'Queueing Key Rotation...' : 'Rotate E2EE Identity Keypair'}</span>
+                      </button>
                     </div>
 
                     {/* MDM Security & Remote Wipe Zone */}

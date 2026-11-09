@@ -86,6 +86,12 @@ export interface ManagedDevice {
   tags: string[];
   loggedInUser?: string;
   domain?: string;
+  deviceSignPub?: string;
+  deviceBoxPub?: string;
+  meshNodeId?: string;
+  e2eeActive?: boolean;
+  e2eeRekeyPending?: boolean;
+  e2eeRotatedAt?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -361,7 +367,8 @@ export type DeviceCommandType =
   | 'backup_run'
   | 'backup_restore'
   | 'backup_verify'
-  | 'backup_baremetal_capture';
+  | 'backup_baremetal_capture'
+  | 'rotate_e2ee_keys';
 
 export type DeviceCommandStatus = 'pending' | 'dispatched' | 'running' | 'completed' | 'failed';
 
@@ -1049,6 +1056,8 @@ export interface UnifiSiteCapability {
     name: string;
     vlanId: number;
     subnet: string;
+    gateway?: string;
+    dhcpRange?: string;
     enabled: boolean;
     purpose?: string;
   }>;
@@ -1684,6 +1693,7 @@ export interface CheckmkMonitoredHost {
   os: string;
   role: string;                   // 'server' | 'workstation' | 'router' | 'switch' | 'ap' | 'printer' | 'nas' | 'synthetic'
   source: 'agent' | 'snmp' | 'network_scan' | 'synthetic';
+  monitoringEnabled?: boolean;    // Explicit opt-in: false = discovered/available, true = actively monitored
   managedDeviceId?: string;
   parentHostId?: string;          // upstream gateway/switch for UNREACH correlation
   state: CheckmkHostState;
@@ -1780,6 +1790,7 @@ export interface CheckmkTacticalOverview {
     pending: number;
     unhandledProblems: number;
     inDowntime: number;
+    availableDiscovery?: number;
   };
   services: {
     total: number;

@@ -28,23 +28,30 @@ function enrichDeviceWithMesh(d: ManagedDevice): ManagedDevice {
     }
   }
 
+  const boundMeshNodeId = (d as any).meshNodeId || store.meshNodes.get(d.id) || node?.nodeid;
+  const e2eeActive = Boolean((d as any).deviceBoxPub && (d as any).deviceSignPub);
+
   if (!node) {
-    return effectiveHealth !== d.health ? { ...d, health: effectiveHealth } : d;
+    return {
+      ...d,
+      health: effectiveHealth,
+      meshNodeId: boundMeshNodeId,
+      e2eeActive
+    };
   }
 
   const cachedTelem = meshClient.getCachedTelemetry(node.nodeid);
   const loggedInUser = d.loggedInUser || cachedTelem?.loggedInUser || (node.users && node.users.length > 0 ? node.users[0] : undefined);
   const domain = d.domain || cachedTelem?.domain || node.domain || (d.os === 'windows' ? 'WORKGROUP' : undefined);
 
-  if (loggedInUser !== d.loggedInUser || domain !== d.domain || effectiveHealth !== d.health) {
-    return {
-      ...d,
-      health: effectiveHealth,
-      loggedInUser: loggedInUser || d.loggedInUser,
-      domain: domain || d.domain
-    };
-  }
-  return d;
+  return {
+    ...d,
+    health: effectiveHealth,
+    loggedInUser: loggedInUser || d.loggedInUser,
+    domain: domain || d.domain,
+    meshNodeId: boundMeshNodeId,
+    e2eeActive
+  };
 }
 
 import { getMdmDevices } from '../db/mdmStore.js';
@@ -430,6 +437,66 @@ router.post('/:id/wipe', (req: AuthenticatedRequest, res) => {
   });
 
   res.status(202).json({ success: true, message: 'Remote wipe job queued', commandId });
+});
+
+// POST /api/v1/devices/:id/rotate-e2ee — Authorize TOFU keypair rotation & queue signed rotate_e2ee_keys command
+router.post('/:id/rotate-e2ee', (req: AuthenticatedRequest, res) => {
+  const device = ownedDevice(req, req.params.id as string) || store.devices.get(req.params.id as string);
+  if (!device) {
+    res.status(404).json({ error: 'Device not found' });
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  (device as any).e2eeRekeyPending = true;
+  device.updatedAt = nowIso;
+  store.devices.set(device.id, device);
+
+  const commandId = `cmd-rekey-${uuidv4().substring(0, 8)}`;
+  const rekeyCommand: DeviceCommand = {
+    id: commandId,
+    deviceId: device.id,
+    orgId: req.user!.orgId,
+    commandType: 'rotate_e2ee_keys',
+    payload: {
+      initiatedBy: req.user!.email,
+      requestedAt: nowIso
+    },
+    status: 'pending',
+    createdAt: nowIso
+  };
+  store.deviceCommands.set(commandId, rekeyCommand);
+  store.persist();
+
+  store.recordAudit({
+    orgId: req.user!.orgId,
+    userId: req.user!.id,
+    actorName: req.user!.name,
+    action: 'device.rotate_e2ee_keys',
+    targetType: 'device',
+    targetId: device.id,
+    details: {
+      commandId,
+      previousSignPub: (device as any).deviceSignPub || null,
+      previousBoxPub: (device as any).deviceBoxPub || null
+    },
+    ipAddress: req.ip
+  });
+
+  wsManager.broadcastToOrg(req.user!.orgId, 'command.updated', {
+    commandId,
+    deviceId: device.id,
+    commandType: 'rotate_e2ee_keys',
+    status: 'pending'
+  });
+
+  res.status(202).json({
+    ok: true,
+    deviceId: device.id,
+    commandId,
+    e2eeRekeyPending: true,
+    message: `Queued cryptographic E2EE key rotation (${commandId}) for ${device.name}. Agent will generate a fresh X25519 + Ed25519 keypair on next heartbeat.`
+  });
 });
 
 export default router;

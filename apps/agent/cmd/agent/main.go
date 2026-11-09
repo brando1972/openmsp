@@ -22,6 +22,7 @@ import (
 	"openmsp/agent/internal/client"
 	"openmsp/agent/internal/collector"
 	"openmsp/agent/internal/config"
+	"openmsp/agent/internal/e2ee"
 	"openmsp/agent/internal/executor"
 	"openmsp/agent/internal/ipc"
 	"openmsp/agent/internal/netscan"
@@ -425,6 +426,28 @@ func main() {
 		defer inFlightCmds.Delete(cmd.ID)
 		log.Printf("[*] Executing command %s (Type: %s)", cmd.ID, cmd.CommandType)
 		result := execManager.Execute(ctx, cmd)
+		if cmd.CommandType == "rotate_e2ee_keys" && result.Status == "completed" {
+			if newId, err := e2ee.GenerateIdentity(); err == nil {
+				cfg.E2EEIdentity = newId
+				_ = config.Save(resolvedConfigPath, cfg)
+				apiClient.ConfigureE2EE(cfg.DeviceId, cfg.E2EEIdentity, cfg.ServerBoxPub, cfg.ServerSignPub)
+				tunnel.Global().Configure(tunnel.Config{
+					ServerURL:     cfg.ServerURL,
+					DeviceId:      cfg.DeviceId,
+					DeviceSecret:  cfg.DeviceSecret,
+					SiteId:        cfg.SiteId,
+					OrgId:         cfg.OrgId,
+					E2EEIdentity:  cfg.E2EEIdentity,
+					ServerBoxPub:  cfg.ServerBoxPub,
+					ServerSignPub: cfg.ServerSignPub,
+				})
+				result.Output = fmt.Sprintf("Rotated v2-e2ee keypair successfully (Ed25519=%s, X25519=%s)", newId.SignPubB64, newId.BoxPubB64)
+				log.Printf("[e2ee] Rotated local X25519 + Ed25519 identity keypair")
+			} else {
+				result.Status = "failed"
+				result.Error = fmt.Sprintf("failed to generate E2EE identity: %v", err)
+			}
+		}
 		result.DeviceId = cfg.DeviceId
 		result.DeviceSecret = cfg.DeviceSecret
 		log.Printf("[+] Command %s result: status=%s", cmd.ID, result.Status)

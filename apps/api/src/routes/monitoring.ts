@@ -78,31 +78,84 @@ router.post('/discover', async (req: AuthenticatedRequest, res) => {
   });
 });
 
-// PATCH /api/v1/monitoring/services/discovery-state — WATO accept/ignore discovered services
+// PATCH /api/v1/monitoring/services/discovery-state — WATO accept/ignore discovered services or enable/disable host monitoring
 router.patch('/services/discovery-state', (req: AuthenticatedRequest, res) => {
-  const { serviceIds, hostId, discoveryState } = req.body || {};
+  const { serviceIds, hostId, discoveryState, mode } = req.body || {};
   const validStates: CheckmkDiscoveryState[] = ['monitored', 'undecided', 'vanished', 'ignored'];
   const nextState: CheckmkDiscoveryState = validStates.includes(discoveryState) ? discoveryState : 'monitored';
 
+  const CORE_PLUGINS = new Set([
+    'cpu_utilization',
+    'memory_usage',
+    'filesystem_usage',
+    'icmp_ping',
+    'system_uptime',
+    'smb_share',
+    'backup_status'
+  ]);
+
   let updated = 0;
-  if (Array.isArray(serviceIds) && serviceIds.length > 0) {
+  const affectedHostIds = new Set<string>();
+  if (typeof hostId === 'string' && hostId) affectedHostIds.add(hostId);
+
+  if (mode === 'disable' && typeof hostId === 'string' && hostId) {
+    // Remove host from active monitoring and reset all its services to 'undecided' (Available)
+    const h = store.monitoredHosts.get(hostId);
+    if (h) {
+      h.monitoringEnabled = false;
+      store.monitoredHosts.set(h.id, h);
+    }
+    for (const svc of store.serviceChecks.values()) {
+      if (svc.hostId === hostId && svc.discoveryState === 'monitored') {
+        svc.discoveryState = 'undecided';
+        store.serviceChecks.set(svc.id, svc);
+        updated++;
+      }
+    }
+  } else if (mode === 'core' && typeof hostId === 'string' && hostId) {
+    // Enable host and monitor only core infrastructure metrics + drives/shares
+    const h = store.monitoredHosts.get(hostId);
+    if (h) {
+      h.monitoringEnabled = true;
+      store.monitoredHosts.set(h.id, h);
+    }
+    for (const svc of store.serviceChecks.values()) {
+      if (svc.hostId === hostId && CORE_PLUGINS.has(svc.plugin)) {
+        svc.discoveryState = 'monitored';
+        store.serviceChecks.set(svc.id, svc);
+        updated++;
+      }
+    }
+  } else if (Array.isArray(serviceIds) && serviceIds.length > 0) {
     for (const id of serviceIds) {
       const svc = store.serviceChecks.get(String(id));
       if (svc) {
         svc.discoveryState = nextState;
         store.serviceChecks.set(svc.id, svc);
+        affectedHostIds.add(svc.hostId);
         updated++;
       }
     }
   } else if (typeof hostId === 'string' && hostId) {
     // Bulk update all 'undecided' services on hostId
     for (const svc of store.serviceChecks.values()) {
-      if (svc.hostId === hostId && svc.discoveryState === 'undecided') {
+      if (svc.hostId === hostId && (svc.discoveryState === 'undecided' || mode === 'all')) {
         svc.discoveryState = nextState;
         store.serviceChecks.set(svc.id, svc);
         updated++;
       }
     }
+  }
+
+  // Reconcile `monitoringEnabled` for affected hosts based on whether they have any 'monitored' services left
+  for (const hId of affectedHostIds) {
+    const h = store.monitoredHosts.get(hId);
+    if (!h) continue;
+    const hasMonitored = Array.from(store.serviceChecks.values()).some(
+      (s) => s.hostId === hId && s.discoveryState === 'monitored'
+    );
+    h.monitoringEnabled = hasMonitored;
+    store.monitoredHosts.set(hId, h);
   }
 
   runCheckmkDiscoveryAndEvaluate(typeof hostId === 'string' ? hostId : undefined);

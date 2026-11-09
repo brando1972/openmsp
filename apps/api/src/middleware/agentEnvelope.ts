@@ -227,16 +227,19 @@ export function openAgentEnvelope(env: AgentEnvelopeWire): {
   }
 
   const device = store.devices.get(deviceId) as any;
-  const boundSignPub: string = device?.deviceSignPub || senderSignPub;
-  const boundBoxPub: string = device?.deviceBoxPub || senderBoxPub;
+  const isRekeyPending = Boolean(device?.e2eeRekeyPending);
+  const boundSignPub: string =
+    isRekeyPending && senderSignPub ? senderSignPub : device?.deviceSignPub || senderSignPub;
+  const boundBoxPub: string =
+    isRekeyPending && senderBoxPub ? senderBoxPub : device?.deviceBoxPub || senderBoxPub;
 
   if (!boundSignPub) {
     throw new Error('Missing device Ed25519 public key');
   }
-  if (device?.deviceSignPub && senderSignPub && device.deviceSignPub !== senderSignPub) {
+  if (!isRekeyPending && device?.deviceSignPub && senderSignPub && device.deviceSignPub !== senderSignPub) {
     throw new Error('Device Ed25519 public key mismatch');
   }
-  if (device?.deviceBoxPub && senderBoxPub && device.deviceBoxPub !== senderBoxPub) {
+  if (!isRekeyPending && device?.deviceBoxPub && senderBoxPub && device.deviceBoxPub !== senderBoxPub) {
     throw new Error('Device X25519 public key mismatch');
   }
 
@@ -274,10 +277,14 @@ export function openAgentEnvelope(env: AgentEnvelopeWire): {
   // Record nonce only after signature + AEAD authentication succeed
   seenNonces.set(nonceKey, nowMs + MAX_CLOCK_SKEW_MS * 2);
 
-  // Bind TOFU keys if device was already enrolled and just upgraded to v2-e2ee
-  if (device && (!device.deviceSignPub || !device.deviceBoxPub)) {
+  // Bind TOFU keys if device was already enrolled and just upgraded to v2-e2ee, or completed an authorized re-key
+  if (device && (!device.deviceSignPub || !device.deviceBoxPub || (isRekeyPending && (device.deviceSignPub !== boundSignPub || device.deviceBoxPub !== boundBoxPub)))) {
     device.deviceSignPub = boundSignPub;
     device.deviceBoxPub = boundBoxPub;
+    if (isRekeyPending && (senderSignPub || senderBoxPub)) {
+      device.e2eeRekeyPending = false;
+      device.e2eeRotatedAt = new Date().toISOString();
+    }
     store.devices.set(deviceId, device);
   }
 
