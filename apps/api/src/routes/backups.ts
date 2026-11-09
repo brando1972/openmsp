@@ -164,12 +164,30 @@ function backupAuth(req: AuthenticatedRequest, res: Response, next: NextFunction
   res.status(401).json({ error: 'Authentication required. Please sign in with Supabase Auth.' });
 }
 
+const bmrFailedAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function checkBmrRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const rec = bmrFailedAttempts.get(ip);
+  if (!rec || rec.resetAt < now) return true;
+  return rec.count < 5;
+}
+
+function recordBmrFailure(ip: string): void {
+  const now = Date.now();
+  const rec = bmrFailedAttempts.get(ip);
+  if (!rec || rec.resetAt < now) {
+    bmrFailedAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
+  } else {
+    rec.count += 1;
+  }
+}
+
 router.use(backupAuth);
 
 function generatePairingCode(): string {
-  const part1 = Math.floor(100 + Math.random() * 900);
-  const part2 = Math.floor(100 + Math.random() * 900);
-  return `${part1}-${part2}`;
+  const raw = crypto.randomBytes(6).toString('hex').toUpperCase();
+  return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
 }
 
 function purgeMockBackupRecords(): void {
@@ -1703,6 +1721,12 @@ const BMR_STAGE_ORDER: Array<{ status: BareMetalRecoverySession['status']; progr
 ];
 
 router.post(['/bare-metal/sessions/:id/advance', '/bare-metal/sessions/:id/pair', '/bare-metal/pair'], (req: AuthenticatedRequest, res) => {
+  const clientIp = req.ip || 'unknown';
+  const isPairEndpoint = req.path.endsWith('/pair');
+  if (isPairEndpoint && !checkBmrRateLimit(clientIp)) {
+    res.status(429).json({ error: 'Too many failed recovery pairing attempts. Locked out for 15 minutes.' });
+    return;
+  }
   const idOrCode = req.params.id ? String(req.params.id) : String(req.body?.pairingCode || req.body?.sessionId || '');
   let session = store.bareMetalSessions.get(idOrCode);
   if (!session) {
@@ -1712,11 +1736,14 @@ router.post(['/bare-metal/sessions/:id/advance', '/bare-metal/sessions/:id/pair'
   }
 
   if (!session) {
+    if (isPairEndpoint) recordBmrFailure(clientIp);
     res.status(404).json({ error: 'Bare-metal recovery session not found' });
     return;
   }
-
-  const isPairEndpoint = req.path.endsWith('/pair');
+  if (isPairEndpoint && session.expiresAt && Date.parse(session.expiresAt) < Date.now()) {
+    res.status(410).json({ error: 'Bare-metal recovery pairing code has expired' });
+    return;
+  }
   const currentIdx = BMR_STAGE_ORDER.findIndex((st) => st.status === session!.status);
 
   let nextStage = BMR_STAGE_ORDER[Math.min(BMR_STAGE_ORDER.length - 1, Math.max(0, currentIdx) + 1)];

@@ -36,17 +36,23 @@ import (
 	"sync"
 	"time"
 
+	"bytes"
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/ssh"
+
+	"openmsp/agent/internal/e2ee"
 )
 
 // Config is the collector identity + endpoint the tunnel dials with.
 type Config struct {
-	ServerURL    string // e.g. https://api.apexmsp.app  (http(s) → ws(s))
-	DeviceId     string
-	DeviceSecret string
-	SiteId       string
-	OrgId        string
+	ServerURL     string // e.g. https://api.apexmsp.app  (http(s) → ws(s))
+	DeviceId      string
+	DeviceSecret  string
+	SiteId        string
+	OrgId         string
+	E2EEIdentity  e2ee.Identity
+	ServerBoxPub  string
+	ServerSignPub string
 }
 
 // wire message (control frames). Fields are a superset across directions.
@@ -239,11 +245,19 @@ func (m *Manager) connectAndServe(ctx context.Context) error {
 		}
 	}()
 
-	// Authenticate as the site collector.
-	m.send(gen, outFrame{data: mustJSON(msg{
+	// Authenticate as the site collector (sealed with v2-e2ee when keys are present).
+	helloRaw := mustJSON(msg{
 		T: "hello", DeviceId: cfg.DeviceId, Secret: cfg.DeviceSecret,
 		SiteId: cfg.SiteId, OrgId: cfg.OrgId,
-	})})
+	})
+	if cfg.E2EEIdentity.IsValid() && cfg.ServerBoxPub != "" {
+		if env, err := e2ee.Seal(cfg.DeviceId, cfg.E2EEIdentity, cfg.ServerBoxPub, helloRaw); err == nil {
+			if envBytes, err := json.Marshal(env); err == nil {
+				helloRaw = envBytes
+			}
+		}
+	}
+	m.send(gen, outFrame{data: helloRaw})
 
 	conn.SetReadLimit(1 << 20)
 	conn.SetPongHandler(func(string) error { return nil })
@@ -267,6 +281,18 @@ func (m *Manager) connectAndServe(ctx context.Context) error {
 				m.feedSession(sid, payload)
 			}
 			continue
+		}
+		// Unseal v2-e2ee encrypted control frames (e.g. "open" carrying SSH credentials)
+		if bytes.Contains(data, []byte(`"v":"v2-e2ee"`)) && cfg.E2EEIdentity.IsValid() {
+			var env e2ee.Envelope
+			if err := json.Unmarshal(data, &env); err == nil && env.V == e2ee.EnvelopeVersion {
+				if opened, err := e2ee.Open(&env, cfg.E2EEIdentity, cfg.ServerBoxPub, cfg.ServerSignPub); err == nil {
+					data = opened
+				} else {
+					log.Printf("[tunnel] rejected invalid E2EE control frame: %v", err)
+					continue
+				}
+			}
 		}
 		var in msg
 		if err := json.Unmarshal(data, &in); err != nil {

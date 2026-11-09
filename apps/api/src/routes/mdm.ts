@@ -37,7 +37,7 @@ const RELAY_PUBLIC_URL = (process.env.RELAY_PUBLIC_URL || 'https://vnc.apexmsp.a
 const RELAY_ADMIN_TOKEN = process.env.RELAY_ADMIN_TOKEN || 'cf34f946cf8001ce350bc64d074d4221';
 const RELAY_SECRET = process.env.RELAY_SECRET || 'c8a50573e1a8075d0bb940f8aafbb24bd7b1076d60abfe99fafbcbf1b37ea023';
 
-export function mintRelayViewToken(deviceId: string, secs: number = 12 * 3600): string {
+export function mintRelayViewToken(deviceId: string, secs: number = 300): string {
   const exp = Math.floor(Date.now() / 1000) + secs;
   const sig = crypto.createHmac('sha256', RELAY_SECRET).update(`view:${deviceId}:${exp}`).digest('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

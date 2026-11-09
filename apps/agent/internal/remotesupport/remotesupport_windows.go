@@ -25,6 +25,13 @@ func EnsureWindowsSync() {
 	installDir := filepath.Join(progData, "ApexMSP")
 	_ = os.MkdirAll(installDir, 0755)
 
+	// Lock down openmsp-agent.json ACLs to SYSTEM and Administrators only so unprivileged
+	// desktop sessions cannot read deviceSecret or E2EE private keys.
+	cfgPath := filepath.Join(installDir, "openmsp-agent.json")
+	if _, err := os.Stat(cfgPath); err == nil {
+		_ = exec.Command("icacls.exe", cfgPath, "/inheritance:r", "/grant:r", "*S-1-5-18:(F)", "*S-1-5-32-544:(F)").Run()
+	}
+
 	// 1. Check if Mesh Agent Windows Service exists and is running
 	ensureMeshService := func() {
 		checkCmd := exec.Command("sc.exe", "query", "Mesh Agent")
@@ -120,10 +127,17 @@ function Save-SharkFinPolicy($pol) {
     $pol.updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     $pol.updatedBy = "sharkfin_client"
     $json = $pol | ConvertTo-Json
-    Set-Content -Path $PolicyPath -Value $json -Encoding UTF8
+    try {
+        Set-Content -Path $PolicyPath -Value $json -Encoding UTF8
+    } catch {}
 
     try {
-        $serverUrl = "http://192.168.4.150:3001"
+        Invoke-RestMethod -Uri "http://127.0.0.1:41920/v1/local/policy" -Method Patch -ContentType "application/json" -Body $json -TimeoutSec 4 | Out-Null
+        return
+    } catch {}
+
+    try {
+        $serverUrl = "https://api.apexmsp.app"
         $deviceId = $env:COMPUTERNAME
         if (Test-Path $AgentCfgPath) {
             $cfg = Get-Content -Raw -Path $AgentCfgPath | ConvertFrom-Json
@@ -327,7 +341,7 @@ $notifyIcon.ShowBalloonTip(4000, "ApexMSP Connected", "Windows device managed se
 
 	// Restart tray if version marker changed, or launch in interactive user session if not running
 	verFile := filepath.Join(installDir, "tray-version.txt")
-	const targetTrayVer = "2.3.1-soc"
+	const targetTrayVer = "2.4.0-e2ee"
 	curVer, _ := os.ReadFile(verFile)
 	if string(curVer) != targetTrayVer {
 		_ = os.WriteFile(verFile, []byte(targetTrayVer), 0644)

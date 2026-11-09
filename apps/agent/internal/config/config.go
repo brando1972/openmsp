@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+
+	"openmsp/agent/internal/e2ee"
 )
 
 // Config holds persistent configuration for the OpenMSP device agent.
@@ -18,6 +20,23 @@ type Config struct {
 	SiteId                   string                 `json:"siteId,omitempty"`
 	HeartbeatIntervalSeconds int                    `json:"heartbeatIntervalSeconds,omitempty"`
 	RustDeskConfig           map[string]interface{} `json:"rustDeskConfig,omitempty"`
+	E2EEIdentity             e2ee.Identity          `json:"e2eeIdentity,omitempty"`
+	ServerBoxPub             string                 `json:"serverBoxPub,omitempty"`
+	ServerSignPub            string                 `json:"serverSignPub,omitempty"`
+}
+
+// EnsureKeypair guarantees that the agent has a persistent Ed25519 + X25519
+// cryptographic identity generated locally. Returns true if a new keypair was created.
+func (c *Config) EnsureKeypair() bool {
+	if c == nil || c.E2EEIdentity.IsValid() {
+		return false
+	}
+	id, err := e2ee.GenerateIdentity()
+	if err != nil {
+		return false
+	}
+	c.E2EEIdentity = id
+	return true
 }
 
 // Load reads the config file from disk. If the file does not exist, an error is returned.

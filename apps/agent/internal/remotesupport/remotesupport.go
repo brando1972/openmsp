@@ -1,6 +1,7 @@
 package remotesupport
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -10,8 +11,74 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
 	"time"
 )
+
+var (
+	cachedMeshNodeID string
+	meshNodeMu       sync.Mutex
+	lastMeshProbe    time.Time
+)
+
+// GetLocalMeshNodeID queries the local MeshAgent binary for its cryptographic
+// Node ID (`meshagent -nodeid`) so the RMM agent can bind it inside signed E2EE
+// heartbeats instead of relying on spoofable hostname matching.
+func GetLocalMeshNodeID() string {
+	meshNodeMu.Lock()
+	defer meshNodeMu.Unlock()
+	if cachedMeshNodeID != "" {
+		return cachedMeshNodeID
+	}
+	if !lastMeshProbe.IsZero() && time.Since(lastMeshProbe) < 60*time.Second {
+		return ""
+	}
+	lastMeshProbe = time.Now()
+
+	var candidates []string
+	switch runtime.GOOS {
+	case "windows":
+		candidates = []string{
+			`C:\Program Files\Mesh Agent\MeshAgent.exe`,
+			`C:\Program Files (x86)\Mesh Agent\MeshAgent.exe`,
+		}
+	case "darwin":
+		candidates = []string{
+			"/usr/local/mesh_services/meshagent/meshagent/meshagent",
+			"/usr/local/mesh/meshagent",
+		}
+	default:
+		candidates = []string{
+			"/usr/local/mesh_services/meshagent/meshagent",
+			"/usr/local/mesh/meshagent",
+		}
+	}
+
+	for _, bin := range candidates {
+		if _, err := os.Stat(bin); err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		cmd := exec.CommandContext(ctx, bin, "-nodeid")
+		cmd.Dir = filepath.Dir(bin)
+		out, err := cmd.Output()
+		cancel()
+		if err == nil {
+			id := strings.TrimSpace(string(out))
+			// Take last non-empty line in case of banner output
+			lines := strings.Split(id, "\n")
+			for i := len(lines) - 1; i >= 0; i-- {
+				line := strings.TrimSpace(lines[i])
+				if len(line) >= 32 && !strings.Contains(line, " ") {
+					cachedMeshNodeID = line
+					return cachedMeshNodeID
+				}
+			}
+		}
+	}
+	return ""
+}
 
 const (
 	MeshCentralWindowsURL   = "https://mesh.apexmsp.app/meshagents?id=4&meshid=ulSX8VuJN9hFinyXGPovEZ4o5ShNQY7AK06I94WuTLzN1AblKrSIrLVz9DZw8vib&installflags=0"

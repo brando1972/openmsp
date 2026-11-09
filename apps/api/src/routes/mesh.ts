@@ -59,11 +59,20 @@ function verifyMachineSignature(publicKeySpkiB64: string, canonicalPayload: stri
 const router = Router();
 router.use(authenticate);
 
-// Match a MeshCentral node to its RMM device (separate agents; correlate by hostname/name).
+// Match a MeshCentral node to its RMM device:
+// 1. Prioritize exact cryptographic node ID bound via signed E2EE heartbeat (`d.meshNodeId` / `store.meshNodes`)
+// 2. Fall back to hostname correlation only for unmapped legacy devices
 function rmmDeviceForNode(node: MeshNode): ManagedDevice | null {
+  for (const d of store.devices.values()) {
+    if ((d as any).meshNodeId === node.nodeid || store.meshNodes.get(d.id) === node.nodeid) {
+      return d;
+    }
+  }
   const names = [node.name, node.rname].map((s) => (s || '').toLowerCase());
   const bare = names.map((s) => s.split('.')[0]);
   for (const d of store.devices.values()) {
+    // Do not cross-bind a device that already bound a different cryptographic meshNodeId
+    if ((d as any).meshNodeId && (d as any).meshNodeId !== node.nodeid) continue;
     const cands = [d.hostname, d.name].filter(Boolean).map((x) => (x as string).toLowerCase());
     if (cands.some((c) => names.includes(c) || bare.includes(c.split('.')[0]))) return d;
   }

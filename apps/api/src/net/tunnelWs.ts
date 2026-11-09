@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
 import { authenticateDevice } from '../middleware/deviceAuth.js';
+import { ENVELOPE_VERSION, openAgentEnvelope, sealServerEnvelope, type AgentEnvelopeWire } from '../middleware/agentEnvelope.js';
 import {
   registerCollectorChannel,
   unregisterCollectorChannel,
@@ -31,7 +32,7 @@ import {
  */
 
 // A tagged WebSocket carrying the role state we attach on upgrade.
-type CollectorWS = WebSocket & { _siteId?: string };
+type CollectorWS = WebSocket & { _siteId?: string; _deviceId?: string; _deviceBoxPub?: string };
 type ConsoleWS = WebSocket & { _sid?: string; _authed?: boolean };
 
 const collectors = new Map<string, CollectorWS>();     // siteId → collector channel
@@ -105,9 +106,23 @@ function onCollector(ws: CollectorWS, _req: IncomingMessage) {
     let m: any;
     try { m = JSON.parse(data.toString()); } catch { return; }
 
+    let e2eeVerifiedDeviceId: string | undefined;
+    if (m && m.v === ENVELOPE_VERSION) {
+      try {
+        const opened = openAgentEnvelope(m as AgentEnvelopeWire);
+        m = JSON.parse(opened.plaintext.toString('utf8'));
+        e2eeVerifiedDeviceId = opened.deviceId;
+        ws._deviceId = opened.deviceId;
+        ws._deviceBoxPub = opened.deviceBoxPub;
+      } catch {
+        ws.close();
+        return;
+      }
+    }
+
     if (!authed) {
       if (m.t !== 'hello') return;
-      const auth = authenticateDevice(m.deviceId, m.secret);
+      const auth = authenticateDevice(m.deviceId, m.secret, e2eeVerifiedDeviceId);
       if (!auth.ok) {
         ws.close();
         return;
@@ -117,12 +132,16 @@ function onCollector(ws: CollectorWS, _req: IncomingMessage) {
       authed = true;
       clearTimeout(authTimeout);
       ws._siteId = siteId;
+      ws._deviceId = device.id;
+      if (device.deviceBoxPub && !ws._deviceBoxPub) {
+        ws._deviceBoxPub = device.deviceBoxPub;
+      }
       // Last collector wins (covers brief failover overlap).
       const prev = collectors.get(siteId);
       if (prev && prev !== ws) prev.close();
       collectors.set(siteId, ws);
       registerCollectorChannel(siteId, ws);
-      console.log(`[tunnel] collector channel up for site ${siteId} (device ${m.deviceId})`);
+      console.log(`[tunnel] collector channel up for site ${siteId} (device ${m.deviceId}, e2ee=${Boolean(ws._deviceBoxPub)})`);
       return;
     }
 
@@ -194,8 +213,8 @@ function onConsole(ws: ConsoleWS, session: TunnelSession) {
       ws._authed = true;
       consoleBySid.set(sid, ws);
       collectorBySid.set(sid, col);
-      // Forward the open + credentials to the collector. Never logged.
-      col.send(JSON.stringify({
+      // Forward the open + credentials to the collector (sealed inside v2-e2ee ChaCha20-Poly1305 when collector has E2EE keys).
+      const openFrame = {
         t: 'open',
         sid,
         kind: 'ssh',
@@ -209,7 +228,17 @@ function onConsole(ws: ConsoleWS, session: TunnelSession) {
           privateKey: m.privateKey ? String(m.privateKey) : undefined,
           passphrase: m.passphrase ? String(m.passphrase) : undefined
         }
-      }));
+      };
+      if (col._deviceId && col._deviceBoxPub) {
+        try {
+          const sealed = sealServerEnvelope(col._deviceId, col._deviceBoxPub, openFrame);
+          col.send(JSON.stringify(sealed));
+          return;
+        } catch {
+          // Fall back if key invalid
+        }
+      }
+      col.send(JSON.stringify(openFrame));
       return;
     }
 

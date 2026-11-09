@@ -10,6 +10,7 @@ import { upsertDeviceSecurityPosture, ingestSecurityDetection } from './security
 import { uploadSnapshotManifestToB2 } from './backups.js';
 import { createReadStream } from 'fs';
 import { authenticateDevice, deviceOrgId } from '../middleware/deviceAuth.js';
+import { agentEnvelopeMiddleware, getServerE2EEKeys, signDeviceCommand } from '../middleware/agentEnvelope.js';
 import type {
   AgentEnrollRequest,
   AgentEnrollResponse,
@@ -22,6 +23,17 @@ import type {
 } from '@openmsp/api-types';
 
 const router = Router();
+router.use(agentEnvelopeMiddleware);
+
+// GET /api/v1/agents/pubkey — returns the Control Plane's Ed25519 + X25519 public keys
+router.get('/pubkey', (_req, res) => {
+  const srv = getServerE2EEKeys();
+  res.json({
+    v: 'v2-e2ee',
+    serverSignPub: srv.signPubB64,
+    serverBoxPub: srv.boxPubB64
+  });
+});
 
 // POST /api/v1/agents/enroll
 router.post('/enroll', (req, res) => {
@@ -94,8 +106,26 @@ router.post('/enroll', (req, res) => {
 
   if (existingDevice) {
     deviceId = existingDevice.id;
-    // Re-enrollment always issues a fresh secret; the old one is never handed out again.
+    // Preserve up to 3 prior server-issued secrets so concurrent PowerShell + Go installer calls
+    // both authenticate without needing an insecure wildcard secret bypass.
+    const prevSecret = (existingDevice as any).deviceSecret;
+    const prevIssued: string[] = Array.isArray((existingDevice as any).issuedSecrets)
+      ? (existingDevice as any).issuedSecrets
+      : [];
     deviceSecret = `sec-${uuidv4()}`;
+    const nextIssued = [deviceSecret, ...(prevSecret ? [prevSecret] : []), ...prevIssued].slice(0, 4);
+    (existingDevice as any).issuedSecrets = Array.from(new Set(nextIssued));
+    if (typeof (req.body as any)?.deviceSignPub === 'string' && (req.body as any).deviceSignPub) {
+      (existingDevice as any).deviceSignPub = String((req.body as any).deviceSignPub).trim();
+    }
+    if (typeof (req.body as any)?.deviceBoxPub === 'string' && (req.body as any).deviceBoxPub) {
+      (existingDevice as any).deviceBoxPub = String((req.body as any).deviceBoxPub).trim();
+    }
+    if (typeof (req.body as any)?.meshNodeId === 'string' && (req.body as any).meshNodeId) {
+      const mNodeId = String((req.body as any).meshNodeId).trim();
+      (existingDevice as any).meshNodeId = mNodeId;
+      store.meshNodes.set(deviceId, mNodeId);
+    }
     const prevHostname = existingDevice.hostname;
     existingDevice.hostname = hostname || existingDevice.hostname;
     // Preserve custom Display Name if user renamed it (name !== hostname)
@@ -177,6 +207,18 @@ router.post('/enroll', (req, res) => {
       updatedAt: new Date().toISOString()
     };
     (newDevice as any).deviceSecret = deviceSecret;
+    (newDevice as any).issuedSecrets = [deviceSecret];
+    if (typeof (req.body as any)?.deviceSignPub === 'string' && (req.body as any).deviceSignPub) {
+      (newDevice as any).deviceSignPub = String((req.body as any).deviceSignPub).trim();
+    }
+    if (typeof (req.body as any)?.deviceBoxPub === 'string' && (req.body as any).deviceBoxPub) {
+      (newDevice as any).deviceBoxPub = String((req.body as any).deviceBoxPub).trim();
+    }
+    if (typeof (req.body as any)?.meshNodeId === 'string' && (req.body as any).meshNodeId) {
+      const mNodeId = String((req.body as any).meshNodeId).trim();
+      (newDevice as any).meshNodeId = mNodeId;
+      store.meshNodes.set(deviceId, mNodeId);
+    }
     (newDevice as any).orgId = enrollmentToken.orgId;
     store.devices.set(deviceId, newDevice);
   }
@@ -239,14 +281,17 @@ router.post('/enroll', (req, res) => {
     ipAddress: req.ip
   });
 
-  const response: AgentEnrollResponse = {
+  const srvKeys = getServerE2EEKeys();
+  const response: AgentEnrollResponse & { serverSignPub?: string; serverBoxPub?: string } = {
     deviceId,
     orgId: enrollmentToken.orgId,
     clientId: enrollmentToken.clientId,
     siteId: enrollmentToken.siteId,
     deviceSecret,
     heartbeatIntervalSeconds: 30,
-    rustDeskConfig: store.rustDeskConfig
+    rustDeskConfig: store.rustDeskConfig,
+    serverSignPub: srvKeys.signPubB64,
+    serverBoxPub: srvKeys.boxPubB64
   };
 
   // Sent without the app-wide secret filter: this is how the device receives its own secret.
@@ -274,12 +319,27 @@ router.post('/heartbeat', (req, res) => {
 
   // Unknown devices are no longer auto-created: a lost record gets `device_unknown`
   // and the agent re-enrolls with its saved enrollment token.
-  const auth = authenticateDevice(deviceId, deviceSecret);
+  const auth = authenticateDevice(deviceId, deviceSecret, (req as any).e2eeVerifiedDeviceId);
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error, code: auth.code });
     return;
   }
   const device = auth.device;
+
+  // Bind E2EE public keys (TOFU) and cryptographic MeshNodeId when reported over authenticated heartbeat
+  if (typeof (req.body as any)?.deviceSignPub === 'string' && (req.body as any).deviceSignPub && !(device as any).deviceSignPub) {
+    (device as any).deviceSignPub = String((req.body as any).deviceSignPub).trim();
+  }
+  if (typeof (req.body as any)?.deviceBoxPub === 'string' && (req.body as any).deviceBoxPub && !(device as any).deviceBoxPub) {
+    (device as any).deviceBoxPub = String((req.body as any).deviceBoxPub).trim();
+  }
+  if (typeof (req.body as any)?.meshNodeId === 'string' && (req.body as any).meshNodeId) {
+    const mNodeId = String((req.body as any).meshNodeId).trim();
+    if (mNodeId.length >= 32) {
+      (device as any).meshNodeId = mNodeId;
+      store.meshNodes.set(device.id, mNodeId);
+    }
+  }
 
   const previousHealth = device.health;
   device.metrics = {
@@ -508,10 +568,11 @@ router.post('/heartbeat', (req, res) => {
     (c) => c.deviceId === device.id && c.status === 'pending'
   );
 
-  // Mark pending commands as dispatched
+  // Mark pending commands as dispatched and attach per-command Ed25519 signatures
   for (const cmd of pendingCommands) {
     cmd.status = 'dispatched';
     cmd.dispatchedAt = new Date().toISOString();
+    (cmd as any).ed25519Sig = signDeviceCommand(cmd);
     store.deviceCommands.set(cmd.id, cmd);
   }
 
@@ -529,14 +590,17 @@ router.post('/heartbeat', (req, res) => {
     ? updateDirectiveFor(device.os, arch, agentVersion, publicBase)
     : null;
 
-  const response: AgentHeartbeatResponse = {
+  const srvKeys = getServerE2EEKeys();
+  const response: AgentHeartbeatResponse & { serverSignPub?: string; serverBoxPub?: string } = {
     acknowledged: true,
     serverTime: new Date().toISOString(),
     pendingCommands,
     collector: isCollector,
     collectorLeaseSeconds: leaseSeconds,
     scanConfig: isCollector ? (scanConfigFor(siteId) ?? undefined) : undefined,
-    update: update ?? undefined
+    update: update ?? undefined,
+    serverSignPub: srvKeys.signPubB64,
+    serverBoxPub: srvKeys.boxPubB64
   };
 
   res.json(response);
@@ -558,8 +622,8 @@ router.post('/command-result', (req, res) => {
   // send none; they are accepted only while ALLOW_LEGACY_COMMAND_RESULTS=1 is set for
   // the rollout window, until the fleet has self-updated.
   let authedDeviceId: string | undefined;
-  if (deviceId || deviceSecret) {
-    const auth = authenticateDevice(deviceId, deviceSecret);
+  if (deviceId || deviceSecret || (req as any).e2eeVerifiedDeviceId) {
+    const auth = authenticateDevice(deviceId || (req as any).e2eeVerifiedDeviceId, deviceSecret, (req as any).e2eeVerifiedDeviceId);
     if (!auth.ok) {
       res.status(auth.status).json({ error: auth.error, code: auth.code });
       return;
@@ -696,11 +760,11 @@ router.post('/command-result', (req, res) => {
 // POST /api/v1/agents/network-scan — a collector uploads a LAN discovery result.
 router.post('/network-scan', (req, res) => {
   const { deviceId, deviceSecret, scan } = req.body || {};
-  if (!deviceId || !deviceSecret || !scan) {
+  if (!deviceId || (!deviceSecret && !(req as any).e2eeVerifiedDeviceId) || !scan) {
     res.status(400).json({ error: 'deviceId, deviceSecret and scan are required' });
     return;
   }
-  const auth = authenticateDevice(deviceId, deviceSecret);
+  const auth = authenticateDevice(deviceId, deviceSecret, (req as any).e2eeVerifiedDeviceId);
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error, code: auth.code });
     return;
@@ -729,11 +793,11 @@ router.post('/network-scan', (req, res) => {
 // attributed to the device's client org. Body: { subject, description, priority? }.
 router.post('/ticket', (req, res) => {
   const { deviceId, deviceSecret, subject, description, priority } = req.body || {};
-  if (!deviceId || !deviceSecret || !subject) {
+  if (!deviceId || (!deviceSecret && !(req as any).e2eeVerifiedDeviceId) || !subject) {
     res.status(400).json({ error: 'deviceId, deviceSecret and subject are required' });
     return;
   }
-  const auth = authenticateDevice(deviceId, deviceSecret);
+  const auth = authenticateDevice(deviceId, deviceSecret, (req as any).e2eeVerifiedDeviceId);
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error, code: auth.code });
     return;

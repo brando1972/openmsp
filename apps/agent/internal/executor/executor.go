@@ -14,15 +14,27 @@ import (
 	"openmsp/agent/internal/backup"
 	"openmsp/agent/internal/client"
 	"openmsp/agent/internal/collector"
+	"openmsp/agent/internal/e2ee"
 	"openmsp/agent/internal/security"
+	"sync"
 )
 
 // Executor manages execution of remote commands dispatched by the control plane.
-type Executor struct{}
+type Executor struct {
+	mu            sync.RWMutex
+	serverSignPub string
+}
 
 // New creates a new Executor.
 func New() *Executor {
 	return &Executor{}
+}
+
+// SetServerSignPub configures the Control Plane Ed25519 public key used to verify command signatures.
+func (e *Executor) SetServerSignPub(pub string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.serverSignPub = strings.TrimSpace(pub)
 }
 
 // Execute processes a single device command and returns the result payload.
@@ -32,6 +44,18 @@ func (e *Executor) Execute(ctx context.Context, cmd client.DeviceCommand) client
 		Status:    "completed",
 		Output:    "",
 		Error:     "",
+	}
+
+	e.mu.RLock()
+	signPub := e.serverSignPub
+	e.mu.RUnlock()
+
+	if signPub != "" && cmd.Ed25519Sig != "" {
+		if err := e2ee.VerifyCommandSignature(signPub, cmd.ID, cmd.DeviceId, cmd.CommandType, cmd.Payload, cmd.Ed25519Sig); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("command signature verification failed: %v", err)
+			return result
+		}
 	}
 
 	switch cmd.CommandType {

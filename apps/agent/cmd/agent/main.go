@@ -23,6 +23,7 @@ import (
 	"openmsp/agent/internal/collector"
 	"openmsp/agent/internal/config"
 	"openmsp/agent/internal/executor"
+	"openmsp/agent/internal/ipc"
 	"openmsp/agent/internal/netscan"
 	"openmsp/agent/internal/remotesupport"
 	"openmsp/agent/internal/security"
@@ -285,9 +286,16 @@ func main() {
 		if *intervalFlag > 0 {
 			cfg.HeartbeatIntervalSeconds = *intervalFlag
 		}
+		if cfg.EnsureKeypair() && cfg.IsEnrolled() {
+			_ = config.Save(resolvedConfigPath, cfg)
+		}
 
 		apiClient := client.New(cfg.ServerURL)
+		if cfg.IsEnrolled() {
+			apiClient.ConfigureE2EE(cfg.DeviceId, cfg.E2EEIdentity, cfg.ServerBoxPub, cfg.ServerSignPub)
+		}
 		execManager := executor.New()
+		execManager.SetServerSignPub(cfg.ServerSignPub)
 		ctx := context.Background()
 
 		// 2. Enrollment check
@@ -390,15 +398,21 @@ func main() {
 	// 2.7 Initialize Backup Engine & reap any stale child PIDs from prior runs
 	_ = backup.Global()
 
+	// 2.8 Start local loopback IPC proxy (127.0.0.1:41920) for Shark Fin MenuBar / System Tray
+	ipc.Start(ctx, apiClient, cfg)
+
 	// Bring up the on-LAN reach-through supervisor. It idles until this agent is
 	// elected collector (manageCollector flips it on), then holds a persistent
 	// channel to the control plane for SSH/web sessions into discovered devices.
 	tunnel.Global().Configure(tunnel.Config{
-		ServerURL:    cfg.ServerURL,
-		DeviceId:     cfg.DeviceId,
-		DeviceSecret: cfg.DeviceSecret,
-		SiteId:       cfg.SiteId,
-		OrgId:        cfg.OrgId,
+		ServerURL:     cfg.ServerURL,
+		DeviceId:      cfg.DeviceId,
+		DeviceSecret:  cfg.DeviceSecret,
+		SiteId:        cfg.SiteId,
+		OrgId:         cfg.OrgId,
+		E2EEIdentity:  cfg.E2EEIdentity,
+		ServerBoxPub:  cfg.ServerBoxPub,
+		ServerSignPub: cfg.ServerSignPub,
 	})
 	go tunnel.Global().Run(ctx)
 
@@ -442,6 +456,9 @@ func main() {
 			Network:       network,
 			InstalledApps: installedApps,
 			Services:      services,
+			MeshNodeId:    remotesupport.GetLocalMeshNodeID(),
+			DeviceSignPub: cfg.E2EEIdentity.SignPubB64,
+			DeviceBoxPub:  cfg.E2EEIdentity.BoxPubB64,
 			Collector: &client.CollectorCandidacy{
 				Platform:    collector.GetSystemInfo().OS,
 				UptimeDays:  metrics.UptimeDays,
@@ -467,14 +484,43 @@ func main() {
 			return fmt.Errorf("heartbeat API error: %w", err)
 		}
 
+		// Auto-lock E2EE when server advertises its X25519 + Ed25519 public keys
+		if hbResp.ServerBoxPub != "" && (hbResp.ServerBoxPub != cfg.ServerBoxPub || hbResp.ServerSignPub != cfg.ServerSignPub) {
+			cfg.ServerBoxPub = hbResp.ServerBoxPub
+			cfg.ServerSignPub = hbResp.ServerSignPub
+			_ = config.Save(resolvedConfigPath, cfg)
+			apiClient.ConfigureE2EE(cfg.DeviceId, cfg.E2EEIdentity, cfg.ServerBoxPub, cfg.ServerSignPub)
+			execManager.SetServerSignPub(cfg.ServerSignPub)
+			tunnel.Global().Configure(tunnel.Config{
+				ServerURL:     cfg.ServerURL,
+				DeviceId:      cfg.DeviceId,
+				DeviceSecret:  cfg.DeviceSecret,
+				SiteId:        cfg.SiteId,
+				OrgId:         cfg.OrgId,
+				E2EEIdentity:  cfg.E2EEIdentity,
+				ServerBoxPub:  cfg.ServerBoxPub,
+				ServerSignPub: cfg.ServerSignPub,
+			})
+			log.Printf("[e2ee] End-to-End Encryption (v2-e2ee X25519 + ChaCha20-Poly1305 + Ed25519) active")
+		}
+
 		// Act on the collector election result.
 		manageCollector(ctx, apiClient, cfg, hbResp)
 
 		// Self-update if the control plane advertises a newer build.
 		if hbResp.Update != nil && hbResp.Update.Version != "" && hbResp.Update.Version != version.Version {
 			log.Printf("[update] new version %s available (running %s) — updating...", hbResp.Update.Version, version.Version)
-			go func(u client.AgentUpdate) {
-				if err := updater.Apply(updater.Update{Version: u.Version, URL: u.URL, SHA256: u.SHA256}); err != nil {
+			go func(u client.AgentUpdate, signPub string) {
+				if u.ServerSignPub != "" {
+					signPub = u.ServerSignPub
+				}
+				if err := updater.Apply(updater.Update{
+					Version:       u.Version,
+					URL:           u.URL,
+					SHA256:        u.SHA256,
+					Ed25519Sig:    u.Ed25519Sig,
+					ServerSignPub: signPub,
+				}); err != nil {
 					log.Printf("[update] failed: %v", err)
 				} else if runtime.GOOS == "windows" {
 					// Windows stages the update; exiting non-zero makes the service manager's
@@ -482,7 +528,7 @@ func main() {
 					log.Printf("[update] staged %s; restarting service to apply it", u.Version)
 					os.Exit(1)
 				}
-			}(*hbResp.Update)
+			}(*hbResp.Update, cfg.ServerSignPub)
 		}
 
 		log.Printf("[+] Heartbeat acknowledged at %s (CPU: %.1f%%, RAM: %.1f%%, Disk: %.1f%%, Uptime: %.2fd)",
@@ -550,19 +596,23 @@ func main() {
 
 // enrollDevice exchanges cfg.Token for device credentials and saves them to the config file.
 func enrollDevice(ctx context.Context, api *client.Client, cfg *config.Config, configPath string) error {
+	cfg.EnsureKeypair()
 	sysInfo := collector.GetSystemInfo()
 	log.Printf("[*] Discovered host: %s (OS: %s %s, Serial: %s, IP: %s, MAC: %s)",
 		sysInfo.Hostname, sysInfo.OS, sysInfo.OSVersion, sysInfo.SerialNumber, sysInfo.IPAddress, sysInfo.MACAddress)
 
 	enrollResp, err := api.Enroll(ctx, client.AgentEnrollRequest{
-		Token:        cfg.Token,
-		Hostname:     sysInfo.Hostname,
-		OS:           sysInfo.OS,
-		OSVersion:    sysInfo.OSVersion,
-		SerialNumber: sysInfo.SerialNumber,
-		MACAddress:   sysInfo.MACAddress,
-		IPAddress:    sysInfo.IPAddress,
-		InstallerRun: true,
+		Token:         cfg.Token,
+		Hostname:      sysInfo.Hostname,
+		OS:            sysInfo.OS,
+		OSVersion:     sysInfo.OSVersion,
+		SerialNumber:  sysInfo.SerialNumber,
+		MACAddress:    sysInfo.MACAddress,
+		IPAddress:     sysInfo.IPAddress,
+		InstallerRun:  true,
+		DeviceSignPub: cfg.E2EEIdentity.SignPubB64,
+		DeviceBoxPub:  cfg.E2EEIdentity.BoxPubB64,
+		MeshNodeId:    remotesupport.GetLocalMeshNodeID(),
 	})
 	if err != nil {
 		return err
@@ -577,12 +627,19 @@ func enrollDevice(ctx context.Context, api *client.Client, cfg *config.Config, c
 		cfg.HeartbeatIntervalSeconds = enrollResp.HeartbeatIntervalSeconds
 	}
 	cfg.RustDeskConfig = enrollResp.RustDeskConfig
+	if enrollResp.ServerBoxPub != "" {
+		cfg.ServerBoxPub = enrollResp.ServerBoxPub
+	}
+	if enrollResp.ServerSignPub != "" {
+		cfg.ServerSignPub = enrollResp.ServerSignPub
+	}
+	api.ConfigureE2EE(cfg.DeviceId, cfg.E2EEIdentity, cfg.ServerBoxPub, cfg.ServerSignPub)
 
 	if err := config.Save(configPath, cfg); err != nil {
 		return fmt.Errorf("save config to %s: %w", configPath, err)
 	}
-	log.Printf("[+] Successfully enrolled! Device ID: %s, Org: %s, Client: %s",
-		cfg.DeviceId, cfg.OrgId, cfg.ClientId)
+	log.Printf("[+] Successfully enrolled! Device ID: %s, Org: %s, Client: %s (E2EE: %v)",
+		cfg.DeviceId, cfg.OrgId, cfg.ClientId, api.HasE2EE())
 	return nil
 }
 
@@ -607,10 +664,13 @@ func reenrollAfterUnknownDevice(ctx context.Context, api *client.Client, cfg *co
 		return
 	}
 	tunnel.Global().Configure(tunnel.Config{
-		ServerURL:    cfg.ServerURL,
-		DeviceId:     cfg.DeviceId,
-		DeviceSecret: cfg.DeviceSecret,
-		SiteId:       cfg.SiteId,
-		OrgId:        cfg.OrgId,
+		ServerURL:     cfg.ServerURL,
+		DeviceId:      cfg.DeviceId,
+		DeviceSecret:  cfg.DeviceSecret,
+		SiteId:        cfg.SiteId,
+		OrgId:         cfg.OrgId,
+		E2EEIdentity:  cfg.E2EEIdentity,
+		ServerBoxPub:  cfg.ServerBoxPub,
+		ServerSignPub: cfg.ServerSignPub,
 	})
 }

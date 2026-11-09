@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { signReleaseArtifact } from '../middleware/agentEnvelope.js';
 
 /**
  * Agent release manifest.
@@ -25,6 +26,21 @@ import path from 'path';
 
 export const BUILDS_DIR = process.env.AGENT_BUILDS_DIR || '/builds';
 
+function resolveBuildsDir(): string {
+  const candidates = [
+    process.env.AGENT_BUILDS_DIR,
+    '/builds',
+    path.resolve(process.cwd(), 'builds'),
+    path.resolve(process.cwd(), 'apps', 'api', 'builds')
+  ].filter(Boolean) as string[];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'manifest.json'))) {
+      return dir;
+    }
+  }
+  return BUILDS_DIR;
+}
+
 interface Artifact { file: string; sha256: string }
 interface Manifest { version: string; artifacts: Record<string, Artifact> }
 
@@ -35,7 +51,8 @@ function readManifest(): Manifest | null {
   const now = Date.now();
   if (cache.manifest !== null && now - cache.at < TTL_MS) return cache.manifest;
   try {
-    const raw = fs.readFileSync(path.join(BUILDS_DIR, 'manifest.json'), 'utf8');
+    const dir = resolveBuildsDir();
+    const raw = fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8');
     const m = JSON.parse(raw) as Manifest;
     cache = { at: now, manifest: m && m.version ? m : null };
   } catch {
@@ -60,7 +77,13 @@ function greater(a: string, b: string): boolean {
   return false;
 }
 
-export interface UpdateDirective { version: string; url: string; sha256: string }
+export interface UpdateDirective {
+  version: string;
+  url: string;
+  sha256: string;
+  ed25519Sig?: string;
+  serverSignPub?: string;
+}
 
 /**
  * Returns an update directive if a newer build exists for this agent's os/arch,
@@ -81,10 +104,13 @@ export function updateDirectiveFor(
   const art = m.artifacts[key];
   if (!art) return null;
   const base = (publicBase || '').replace(/\/+$/, '');
+  const signed = signReleaseArtifact(m.version, key, art.sha256);
   return {
     version: m.version,
     url: `${base}/api/v1/agents/download/${os}/${arch}`,
-    sha256: art.sha256
+    sha256: art.sha256,
+    ed25519Sig: signed.ed25519Sig,
+    serverSignPub: signed.serverSignPub
   };
 }
 
@@ -96,7 +122,7 @@ export function artifactPath(os: string, arch: string): { path: string; file: st
   if (!art || !art.file) return null;
   // Guard against path traversal — file is a bare name within BUILDS_DIR.
   const safe = path.basename(art.file);
-  const full = path.join(BUILDS_DIR, safe);
+  const full = path.join(resolveBuildsDir(), safe);
   if (!fs.existsSync(full)) return null;
   return { path: full, file: safe };
 }

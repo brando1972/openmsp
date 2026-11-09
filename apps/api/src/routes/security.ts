@@ -1,7 +1,10 @@
 import { Router, type Response, type NextFunction } from 'express';
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { store } from '../db/store.js';
 import { verifyToken, type AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticateDevice } from '../middleware/deviceAuth.js';
+import { agentEnvelopeMiddleware } from '../middleware/agentEnvelope.js';
 import { wsManager } from '../ws/manager.js';
 import type {
   SecurityPostureReport,
@@ -17,11 +20,13 @@ import type {
 } from '@openmsp/api-types';
 
 const router = Router();
+router.use(agentEnvelopeMiddleware);
 
 /**
  * SOC authentication middleware:
- * - Validates Supabase Auth / ApexMSP Bearer JWT on all console endpoints.
- * - Allows enrolled endpoint agents to submit posture/events on POST /events when a valid deviceId is supplied.
+ * - Validates Supabase Auth / ApexMSP Bearer JWT on console endpoints.
+ * - Validates X-Apex-Ingest-Key when configured for SIEM/SOAR collectors.
+ * - Validates enrolled endpoint agents (v2-e2ee envelope or deviceId + deviceSecret) on POST /events and /devices/:id/policy.
  */
 function socAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
@@ -37,11 +42,9 @@ function socAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): 
     return;
   }
 
-  // Allow enrolled endpoint agents posting telemetry to POST /events with a known deviceId
-  const candidateDeviceId = String(req.body?.deviceId || req.headers['x-device-id'] || '').trim();
-  if (req.method === 'POST' && req.path === '/events' && candidateDeviceId && store.devices.has(candidateDeviceId)) {
-    const defaultUser = Array.from(store.users.values())[0];
-    const defaultOrg = Array.from(store.orgs.values())[0];
+  const defaultUser = Array.from(store.users.values())[0];
+  const defaultOrg = Array.from(store.orgs.values())[0];
+  const assignServicePrincipal = () => {
     req.user = {
       id: defaultUser?.id || '00000000-0000-0000-0000-000000000002',
       email: defaultUser?.email || 'brandon@apexmsp.com',
@@ -51,6 +54,48 @@ function socAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): 
       orgName: defaultUser?.orgName || defaultOrg?.name || 'ApexMSP',
       createdAt: defaultUser?.createdAt || new Date().toISOString()
     } as UserProfile;
+  };
+
+  // Check X-Apex-Ingest-Key header for SIEM / Vector / Wazuh ingest collectors
+  const configuredIngestKey = process.env.APEX_INGEST_KEY;
+  const providedIngestKey = String(req.headers['x-apex-ingest-key'] || '').trim();
+  if (configuredIngestKey && providedIngestKey) {
+    const a = Buffer.from(configuredIngestKey, 'utf8');
+    const b = Buffer.from(providedIngestKey, 'utf8');
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+      assignServicePrincipal();
+      next();
+      return;
+    }
+    res.status(401).json({ error: 'Invalid X-Apex-Ingest-Key', code: 'invalid_ingest_key' });
+    return;
+  }
+
+  // Allow enrolled endpoint agents posting telemetry or syncing local Shark Fin policy with verified credentials
+  const policyMatch = req.path.match(/^\/devices\/([^/]+)\/policy$/);
+  const candidateDeviceId = String(
+    (req as any).e2eeVerifiedDeviceId ||
+      req.body?.deviceId ||
+      req.headers['x-device-id'] ||
+      (policyMatch ? policyMatch[1] : '') ||
+      ''
+  ).trim();
+  const candidateSecret = String(req.body?.deviceSecret || req.headers['x-device-secret'] || '').trim();
+
+  const isAgentEndpoint =
+    (req.method === 'POST' && req.path === '/events') ||
+    Boolean(policyMatch && (req.method === 'PATCH' || req.method === 'GET'));
+
+  if (isAgentEndpoint && candidateDeviceId && store.devices.has(candidateDeviceId)) {
+    const dev = store.devices.get(candidateDeviceId) as any;
+    if (dev?.deviceSecret || dev?.deviceSignPub || candidateSecret || (req as any).e2eeVerifiedDeviceId) {
+      const auth = authenticateDevice(candidateDeviceId, candidateSecret, (req as any).e2eeVerifiedDeviceId);
+      if (!auth.ok) {
+        res.status(auth.status).json({ error: auth.error, code: auth.code });
+        return;
+      }
+    }
+    assignServicePrincipal();
     next();
     return;
   }

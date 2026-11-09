@@ -1,8 +1,11 @@
 import { Router, type Response, type NextFunction } from 'express';
+import crypto from 'crypto';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { store } from '../db/store.js';
 import { verifyToken, type AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticateDevice } from '../middleware/deviceAuth.js';
+import { agentEnvelopeMiddleware } from '../middleware/agentEnvelope.js';
 import { wsManager } from '../ws/manager.js';
 import {
   ingestSecurityDetection,
@@ -18,6 +21,7 @@ import type {
 } from '@openmsp/api-types';
 
 const router = Router();
+router.use(agentEnvelopeMiddleware);
 const PARSER_VERSION = 'unifi-cef-v1.2.0';
 const GAMBINOS_SITE_ID = '88f7af54-98f8-306a-a1c7-c9349722b1f6';
 
@@ -33,6 +37,35 @@ function unifiAuth(req: AuthenticatedRequest, res: Response, next: NextFunction)
     req.user = payload;
     next();
     return;
+  }
+
+  // Validate X-Apex-Ingest-Key if provided or required
+  const configuredIngestKey = process.env.UNIFI_INGEST_KEY || process.env.APEX_INGEST_KEY;
+  const providedIngestKey = String(req.headers['x-apex-ingest-key'] || '').trim();
+  if (providedIngestKey && configuredIngestKey) {
+    const a = Buffer.from(configuredIngestKey, 'utf8');
+    const b = Buffer.from(providedIngestKey, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      res.status(401).json({ error: 'Invalid X-Apex-Ingest-Key', code: 'invalid_ingest_key' });
+      return;
+    }
+  } else if (process.env.REQUIRE_UNIFI_INGEST_KEY === '1' && req.method === 'POST' && !(req as any).e2eeVerifiedDeviceId) {
+    res.status(401).json({ error: 'X-Apex-Ingest-Key or v2-e2ee envelope required for UniFi ingest', code: 'missing_ingest_key' });
+    return;
+  }
+
+  // If a collector deviceId is supplied, verify device credentials when the device has an enrolled secret/key
+  const candidateDeviceId = String((req as any).e2eeVerifiedDeviceId || req.body?.deviceId || req.headers['x-device-id'] || '').trim();
+  const candidateSecret = String(req.body?.deviceSecret || req.headers['x-device-secret'] || '').trim();
+  if (candidateDeviceId && store.devices.has(candidateDeviceId)) {
+    const dev = store.devices.get(candidateDeviceId) as any;
+    if (dev?.deviceSecret || dev?.deviceSignPub || candidateSecret || (req as any).e2eeVerifiedDeviceId) {
+      const auth = authenticateDevice(candidateDeviceId, candidateSecret, (req as any).e2eeVerifiedDeviceId);
+      if (!auth.ok) {
+        res.status(auth.status).json({ error: auth.error, code: auth.code });
+        return;
+      }
+    }
   }
 
   const defaultUser = Array.from(store.users.values())[0];

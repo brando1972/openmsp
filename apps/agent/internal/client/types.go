@@ -47,15 +47,18 @@ type NetworkInfo struct {
 
 // AgentEnrollRequest payload for POST /api/v1/agents/enroll.
 type AgentEnrollRequest struct {
-	Token        string `json:"token"`
-	Hostname     string `json:"hostname"`
-	OS           string `json:"os"` // "macos" | "windows" | "linux"
-	OSVersion    string `json:"osVersion"`
-	Arch         string `json:"arch,omitempty"`
-	SerialNumber string `json:"serialNumber"`
-	MACAddress   string `json:"macAddress"`
-	IPAddress    string `json:"ipAddress"`
-	InstallerRun bool   `json:"installerRun,omitempty"`
+	Token         string `json:"token"`
+	Hostname      string `json:"hostname"`
+	OS            string `json:"os"` // "macos" | "windows" | "linux"
+	OSVersion     string `json:"osVersion"`
+	Arch          string `json:"arch,omitempty"`
+	SerialNumber  string `json:"serialNumber"`
+	MACAddress    string `json:"macAddress"`
+	IPAddress     string `json:"ipAddress"`
+	InstallerRun  bool   `json:"installerRun,omitempty"`
+	DeviceSignPub string `json:"deviceSignPub,omitempty"`
+	DeviceBoxPub  string `json:"deviceBoxPub,omitempty"`
+	MeshNodeId    string `json:"meshNodeId,omitempty"`
 }
 
 // AgentEnrollResponse returned from POST /api/v1/agents/enroll.
@@ -67,6 +70,8 @@ type AgentEnrollResponse struct {
 	DeviceSecret             string                 `json:"deviceSecret"`
 	HeartbeatIntervalSeconds int                    `json:"heartbeatIntervalSeconds"`
 	RustDeskConfig           map[string]interface{} `json:"rustDeskConfig,omitempty"`
+	ServerSignPub            string                 `json:"serverSignPub,omitempty"`
+	ServerBoxPub             string                 `json:"serverBoxPub,omitempty"`
 }
 
 // AgentHeartbeatRequest payload for POST /api/v1/agents/heartbeat.
@@ -79,6 +84,9 @@ type AgentHeartbeatRequest struct {
 	Services      []DeviceService  `json:"services,omitempty"`
 	EventLogs     []SystemEventLog `json:"eventLogs,omitempty"`
 	RustDeskId    string           `json:"rustDeskId,omitempty"`
+	MeshNodeId    string           `json:"meshNodeId,omitempty"`
+	DeviceSignPub string           `json:"deviceSignPub,omitempty"`
+	DeviceBoxPub  string           `json:"deviceBoxPub,omitempty"`
 	// Collector candidacy — the control plane uses these to elect one collector
 	// per site and hand it back the lease + scan config below.
 	Collector *CollectorCandidacy `json:"collector,omitempty"`
@@ -207,9 +215,11 @@ type SecurityDetectionInput struct {
 
 // AgentUpdate is the control plane's self-update directive (newer build available).
 type AgentUpdate struct {
-	Version string `json:"version"`
-	URL     string `json:"url"`
-	SHA256  string `json:"sha256"`
+	Version       string `json:"version"`
+	URL           string `json:"url"`
+	SHA256        string `json:"sha256"`
+	Ed25519Sig    string `json:"ed25519Sig,omitempty"`
+	ServerSignPub string `json:"serverSignPub,omitempty"`
 }
 
 // CollectorCandidacy is the agent's pitch to be (or remain) the site collector.
@@ -254,6 +264,7 @@ type DeviceCommand struct {
 	Output      string                 `json:"output,omitempty"`
 	Error       string                 `json:"error,omitempty"`
 	CreatedAt   string                 `json:"createdAt"`
+	Ed25519Sig  string                 `json:"ed25519Sig,omitempty"`
 }
 
 // AgentHeartbeatResponse returned from POST /api/v1/agents/heartbeat.
@@ -267,6 +278,9 @@ type AgentHeartbeatResponse struct {
 	ScanConfig            *ScanConfig `json:"scanConfig,omitempty"`
 	// Self-update directive (present only when a newer build is available).
 	Update *AgentUpdate `json:"update,omitempty"`
+	// Server E2EE public keys (returned so existing agents auto-upgrade to v2-e2ee).
+	ServerSignPub string `json:"serverSignPub,omitempty"`
+	ServerBoxPub  string `json:"serverBoxPub,omitempty"`
 }
 
 // NetworkScanRequest payload for POST /api/v1/agents/network-scan. Scan is the
@@ -285,4 +299,20 @@ type CommandResultRequest struct {
 	Status       string `json:"status"` // "completed" | "failed"
 	Output       string `json:"output,omitempty"`
 	Error        string `json:"error,omitempty"`
+}
+
+// AgentTicketRequest payload for POST /api/v1/agents/ticket.
+type AgentTicketRequest struct {
+	DeviceId     string `json:"deviceId"`
+	DeviceSecret string `json:"deviceSecret"`
+	Subject      string `json:"subject"`
+	Description  string `json:"description"`
+	Priority     string `json:"priority,omitempty"`
+}
+
+// AgentTicketResponse returned from POST /api/v1/agents/ticket.
+type AgentTicketResponse struct {
+	OK           bool   `json:"ok"`
+	TicketNumber string `json:"ticketNumber"`
+	ID           string `json:"id"`
 }

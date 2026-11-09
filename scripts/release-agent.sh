@@ -45,9 +45,10 @@ for t in "${TARGETS[@]}"; do
   ext=""; [ "$goos" = "windows" ] && ext=".exe"
   file="apexagent-$VERSION-$goos-$goarch$ext"
   echo "  -> $file"
+  tc="auto"; [ "$goos" = "windows" ] && tc="go1.20.14"
   docker run --rm \
     -v "$SRC":/src -v "$OUT":/out -w /src \
-    -e GOOS="$goos" -e GOARCH="$goarch" -e GOTOOLCHAIN=auto -e CGO_ENABLED=0 \
+    -e GOOS="$goos" -e GOARCH="$goarch" -e GOTOOLCHAIN="$tc" -e CGO_ENABLED=0 \
     "$GOIMAGE" go build -trimpath -ldflags "-s -w" -o "/out/$file" ./cmd/agent
   sha=$(sha256sum "$OUT/$file" | awk '{print $1}')
   [ $first -eq 0 ] && json+=","

@@ -742,7 +742,7 @@ if (!(Test-Path $InstallDir)) {
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  ApexMSP Windows Endpoint Agent & Shark Fin Setup        " -ForegroundColor Cyan
-Write-Host "  Agent Release: v2.0.10  |  Mode: $(if ($IsAdmin) { 'Administrator (Windows Service)' } else { 'User-Space Service' })" -ForegroundColor Cyan
+Write-Host "  Agent Release: v2.1.0  |  Mode: $(if ($IsAdmin) { 'Administrator (Windows Service)' } else { 'User-Space Service' })" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # 0. Stop any existing agent service/process first so binary can be updated cleanly without file lock
@@ -752,7 +752,7 @@ if ($IsAdmin -and (Get-Service -Name "ApexMSPAgent" -ErrorAction SilentlyContinu
 Stop-Process -Name "openmsp-agent" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 150
 
-# 1. Download OpenMSP Windows Agent Binary (v2.0.10) — fast WebClient with $ProgressPreference=SilentlyContinue
+# 1. Download OpenMSP Windows Agent Binary (v2.1.0) — fast WebClient with $ProgressPreference=SilentlyContinue
 $AgentExe = "$InstallDir\\openmsp-agent.exe"
 $ReuseBinary = $false
 if ((Test-Path $AgentExe) -and $env:APEX_FORCE_DOWNLOAD -ne '1') {
@@ -765,15 +765,15 @@ if ((Test-Path $AgentExe) -and $env:APEX_FORCE_DOWNLOAD -ne '1') {
     } catch {}
 }
 if (-not $ReuseBinary) {
-    Write-Host "[*] Downloading ApexMSP Windows Agent binary (v2.0.10)..." -ForegroundColor Yellow
+    Write-Host "[*] Downloading ApexMSP Windows Agent binary (v2.1.0)..." -ForegroundColor Yellow
     try {
         $wc = New-Object System.Net.WebClient
         $wc.DownloadFile("$ServerUrl/api/v1/installers/download/windows", $AgentExe)
-        Write-Host "[+] Downloaded agent binary v2.0.10 to $AgentExe" -ForegroundColor Green
+        Write-Host "[+] Downloaded agent binary v2.1.0 to $AgentExe" -ForegroundColor Green
     } catch {
         try {
             Invoke-WebRequest -Uri "$ServerUrl/api/v1/installers/download/windows" -OutFile $AgentExe -UseBasicParsing -ErrorAction Stop
-            Write-Host "[+] Downloaded agent binary v2.0.10 to $AgentExe" -ForegroundColor Green
+            Write-Host "[+] Downloaded agent binary v2.1.0 to $AgentExe" -ForegroundColor Green
         } catch {
             Write-Host "[-] Binary download note: $_" -ForegroundColor DarkYellow
         }
@@ -838,7 +838,7 @@ $ConfigMap = @{
     serverUrl = $ServerUrl
     token = $EnrollToken
     heartbeatIntervalSeconds = 10
-    agentVersion = "2.0.10"
+    agentVersion = "2.1.0"
 }
 if ($env:APEX_CLIENT_ID) {
     $ConfigMap.clientId = $env:APEX_CLIENT_ID
@@ -864,7 +864,7 @@ if ($IsAdmin -and -not $IsLegacyWin) {
     }
     try {
         $BinPath = '"' + $AgentExe + '" --server "' + $ServerUrl + '" --token "' + $EnrollToken + '" --config "' + $ConfigFile + '"'
-        New-Service -Name "ApexMSPAgent" -BinaryPathName $BinPath -DisplayName "ApexMSP Endpoint Agent" -Description "ApexMSP Endpoint Agent & EDR Service (v2.0.10)" -StartupType Automatic -ErrorAction Stop | Out-Null
+        New-Service -Name "ApexMSPAgent" -BinaryPathName $BinPath -DisplayName "ApexMSP Endpoint Agent" -Description "ApexMSP Endpoint Agent & EDR Service (v2.1.0)" -StartupType Automatic -ErrorAction Stop | Out-Null
         sc.exe failure ApexMSPAgent reset= 86400 actions= restart/5000/restart/10000/restart/60000 2>$null | Out-Null
         Start-Service -Name "ApexMSPAgent" -ErrorAction Stop
         $ServiceCreated = $true
@@ -880,7 +880,7 @@ if (-not $ServiceCreated -and -not $IsLegacyWin) {
     } catch {}
     if (Test-Path $AgentExe) {
         Start-Process -FilePath $AgentExe -ArgumentList ("--server " + $ServerUrl + " --token " + $EnrollToken + " --config " + $ConfigFile) -WorkingDirectory $InstallDir -WindowStyle Hidden -ErrorAction SilentlyContinue
-        Write-Host "[+] ApexMSPAgent background daemon (v2.0.10) active and registered for auto-start." -ForegroundColor Green
+        Write-Host "[+] ApexMSPAgent background daemon (v2.1.0) active and registered for auto-start." -ForegroundColor Green
     }
 }
 
@@ -959,7 +959,7 @@ while ($true) {
             $HbMap = @{
                 deviceId = $DeviceId
                 deviceSecret = $DeviceSecret
-                agentVersion = "2.0.10"
+                agentVersion = "2.1.0"
                 arch = "amd64"
                 domain = if ($WinCs -and $WinCs.Domain) { $WinCs.Domain } else { $env:USERDOMAIN }
                 loggedInUser = if ($WinCs -and $WinCs.UserName) { $WinCs.UserName } else { "$env:USERDOMAIN\\$env:USERNAME" }
@@ -2043,7 +2043,7 @@ exec /tmp/apex-live-sync -mode sender -source "\$SOURCE_HOME" -url auto -workers
 router.get(['/windows.bat', '/windows-install.bat'], (req, res) => {
   const token = (req.query.token as string) || 'tok-de9f94f4-1394-4d';
   const bat = `@echo off
-title ApexMSP Windows Agent, Connect & Backstage Setup (v2.0.10)
+title ApexMSP Windows Agent, Connect & Backstage Setup (v2.1.0)
 echo ==========================================================
 echo   ApexMSP Windows Agent, Connect ^& Backstage Setup
 echo ==========================================================

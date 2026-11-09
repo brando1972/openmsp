@@ -16,10 +16,11 @@ let AGENT_DIR = ("~/.apexmsp" as NSString).expandingTildeInPath
 let AGENT_LOG = ("~/.apexmsp/agent.log" as NSString).expandingTildeInPath
 let AGENT_CONFIG = ("~/.apexmsp/agent.json" as NSString).expandingTildeInPath
 let SECURITY_POLICY_PATH = ("~/.apexmsp/security-policy.json" as NSString).expandingTildeInPath
-let DEFAULT_AGENT_VERSION = "2.0.4-soc"
-let DEFAULT_API_URL = "http://192.168.4.150:3001"
-let CONSOLE_URL = "http://192.168.4.150:3000/soc"
-let SHARKFIN_PORTAL_URL = "http://192.168.4.150:3000/sharkfin"
+let DEFAULT_AGENT_VERSION = "2.0.5-e2ee"
+let DEFAULT_API_URL = "https://api.apexmsp.app"
+let LOCAL_IPC_URL = "http://127.0.0.1:41920"
+let CONSOLE_URL = "https://apexmsp.app/soc"
+let SHARKFIN_PORTAL_URL = "https://apexmsp.app/sharkfin"
 
 // MARK: - Agent config (device identity, for device-authenticated API calls).
 struct AgentConfig {
@@ -104,51 +105,88 @@ func saveSecurityPolicy(_ policy: SharkFinSecurityPolicy, syncRemote: Bool = tru
 }
 
 func syncPolicyToControlPlane(_ policy: SharkFinSecurityPolicy) {
-    let cfg = loadConfig()
-    let baseServer = (cfg?.serverUrl ?? DEFAULT_API_URL).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    let devId = cfg?.deviceId ?? (Host.current().localizedName ?? "macbook-sharkfin")
-    guard let url = URL(string: "\(baseServer)/api/v1/security/devices/\(devId)/policy") else { return }
+    // 1. Prefer privilege-separated local Go agent IPC (127.0.0.1:41920) so user-space
+    //    processes do not require access to root-owned device keys.
+    if let ipcUrl = URL(string: "\(LOCAL_IPC_URL)/v1/local/policy") {
+        var ipcReq = URLRequest(url: ipcUrl)
+        ipcReq.httpMethod = "PATCH"
+        ipcReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        ipcReq.httpBody = try? JSONSerialization.data(withJSONObject: policy.toDictionary())
+        ipcReq.timeoutInterval = 3
+        URLSession.shared.dataTask(with: ipcReq) { _, resp, err in
+            if err == nil, let http = resp as? HTTPURLResponse, http.statusCode == 200 {
+                return
+            }
+            // Fallback to direct HTTPS if local IPC daemon is not reachable
+            let cfg = loadConfig()
+            let baseServer = (cfg?.serverUrl ?? DEFAULT_API_URL).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let devId = cfg?.deviceId ?? (Host.current().localizedName ?? "macbook-sharkfin")
+            guard let url = URL(string: "\(baseServer)/api/v1/security/devices/\(devId)/policy") else { return }
 
-    var body = policy.toDictionary()
-    body["deviceId"] = devId
-    if let sec = cfg?.deviceSecret {
-        body["deviceSecret"] = sec
+            var body = policy.toDictionary()
+            body["deviceId"] = devId
+            if let sec = cfg?.deviceSecret {
+                body["deviceSecret"] = sec
+            }
+
+            var req = URLRequest(url: url)
+            req.httpMethod = "PATCH"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            req.timeoutInterval = 10
+            URLSession.shared.dataTask(with: req) { _, _, _ in }.resume()
+        }.resume()
     }
-
-    var req = URLRequest(url: url)
-    req.httpMethod = "PATCH"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-    req.timeoutInterval = 10
-    URLSession.shared.dataTask(with: req) { _, _, _ in }.resume()
 }
 
-// Submit a support ticket (device-authenticated). Calls completion on the main queue.
+// Submit a support ticket (routed via local E2EE agent IPC first, fallback to direct HTTPS).
 func submitTicket(subject: String, description: String, priority: String, completion: @escaping (Bool, String) -> Void) {
-    guard let cfg = loadConfig() else { completion(false, "Agent not enrolled on this Mac."); return }
-    guard let url = URL(string: cfg.serverUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v1/agents/ticket") else {
-        completion(false, "Bad server URL."); return
+    if let ipcUrl = URL(string: "\(LOCAL_IPC_URL)/v1/local/ticket") {
+        var ipcReq = URLRequest(url: ipcUrl)
+        ipcReq.httpMethod = "POST"
+        ipcReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        ipcReq.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "subject": subject, "description": description, "priority": priority
+        ])
+        ipcReq.timeoutInterval = 8
+        URLSession.shared.dataTask(with: ipcReq) { data, resp, err in
+            if err == nil, let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let d = data, let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                let ticketNum = (o["ticketNumber"] as? String) ?? "created"
+                DispatchQueue.main.async { completion(true, ticketNum) }
+                return
+            }
+            // Fallback to direct HTTPS if local IPC is unavailable
+            guard let cfg = loadConfig() else {
+                DispatchQueue.main.async { completion(false, "Agent not enrolled on this Mac.") }
+                return
+            }
+            guard let url = URL(string: cfg.serverUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v1/agents/ticket") else {
+                DispatchQueue.main.async { completion(false, "Bad server URL.") }
+                return
+            }
+            let body: [String: Any] = [
+                "deviceId": cfg.deviceId, "deviceSecret": cfg.deviceSecret,
+                "subject": subject, "description": description, "priority": priority
+            ]
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            req.timeoutInterval = 20
+            URLSession.shared.dataTask(with: req) { data2, resp2, err2 in
+                var ok = false; var msg = "Could not reach the server."
+                if let err2 = err2 { msg = err2.localizedDescription }
+                else if let http2 = resp2 as? HTTPURLResponse {
+                    if http2.statusCode == 200, let d2 = data2,
+                       let o2 = try? JSONSerialization.jsonObject(with: d2) as? [String: Any] {
+                        ok = true; msg = (o2["ticketNumber"] as? String) ?? "created"
+                    } else { msg = "Server returned \(http2.statusCode)." }
+                }
+                DispatchQueue.main.async { completion(ok, msg) }
+            }.resume()
+        }.resume()
     }
-    let body: [String: Any] = [
-        "deviceId": cfg.deviceId, "deviceSecret": cfg.deviceSecret,
-        "subject": subject, "description": description, "priority": priority
-    ]
-    var req = URLRequest(url: url)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-    req.timeoutInterval = 20
-    URLSession.shared.dataTask(with: req) { data, resp, err in
-        var ok = false; var msg = "Could not reach the server."
-        if let err = err { msg = err.localizedDescription }
-        else if let http = resp as? HTTPURLResponse {
-            if http.statusCode == 200, let d = data,
-               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-                ok = true; msg = (o["ticketNumber"] as? String) ?? "created"
-            } else { msg = "Server returned \(http.statusCode)." }
-        }
-        DispatchQueue.main.async { completion(ok, msg) }
-    }.resume()
 }
 
 // MARK: - Sharkfin template image for the macOS menu bar (monochrome outline; menu bar tints it).

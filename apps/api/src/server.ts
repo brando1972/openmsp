@@ -35,6 +35,9 @@ import { store } from './db/store.js';
 import { meshClient } from './mesh/meshClient.js';
 import { startWatchdog } from './mesh/heal.js';
 import { redactSecrets } from './lib/redact.js';
+import { authenticate } from './middleware/auth.js';
+import { getServerE2EEKeys } from './middleware/agentEnvelope.js';
+import crypto from 'crypto';
 
 const app = express();
 const server = http.createServer(app);
@@ -73,8 +76,14 @@ app.get(['/', '/health'], (req, res) => {
   res.json({ status: 'ok', service: 'OpenMSP Control Plane', timestamp: new Date().toISOString() });
 });
 
-// POST /api/v1/mdm/devices/:id/push-url — push target URL to tablet
-app.post(['/api/v1/mdm/devices/:id/push-url', '/api/v1/mdm/push-url'], (req, res) => {
+// Helper to compute per-tablet HMAC token bound to the server's secret key
+function computeTabletAuthToken(serial: string): string {
+  const srv = getServerE2EEKeys();
+  return crypto.createHmac('sha256', srv.signSeedB64).update(`apex-mdm-tablet:${serial}`).digest('hex');
+}
+
+// POST /api/v1/mdm/devices/:id/push-url — push target URL to tablet (requires operator auth)
+app.post(['/api/v1/mdm/devices/:id/push-url', '/api/v1/mdm/push-url'], authenticate, (req, res) => {
   const url = req.body?.url;
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'url required' });
@@ -84,31 +93,40 @@ app.post(['/api/v1/mdm/devices/:id/push-url', '/api/v1/mdm/push-url'], (req, res
   const deviceId = String(req.params?.id || req.body?.deviceId || 'apex-lenovo-01');
   updateMdmDevice(deviceId, { targetUrl: fullUrl });
   queueTabletCommand(deviceId, 'setUrl', { url: fullUrl });
-  queueTabletCommand('*', 'setUrl', { url: fullUrl });
-  console.log(`[ApexMDM] Target URL set to: ${fullUrl} (command queued for device)`);
+  if (req.body?.broadcastAll === true) {
+    queueTabletCommand('*', 'setUrl', { url: fullUrl });
+  }
+  console.log(`[ApexMDM] Target URL set to: ${fullUrl} (command queued for device ${deviceId})`);
   res.json({ ok: true, targetUrl: fullUrl });
 });
 
 // POST /api/v1/device/register — Native ApexMDM registration from CheckinManager.kt
 app.post(['/api/v1/device/register', '/device/register'], (req, res) => {
   const { serial, enrollToken, model, name } = req.body || {};
-  const s = String(serial || 'apex-lenovo-01');
+  const cleanSerial = typeof serial === 'string' ? serial.trim() : '';
+  if (!cleanSerial) {
+    return res.status(400).json({ error: 'Tablet serial number is required' });
+  }
   const targetUrl = getTargetTabletUrl() || 'https://www.google.com';
-  console.log(`[ApexMDM] Device registered: serial=${s} model=${model || ''}`);
-  updateMdmDevice(s, {
+  const deviceToken = computeTabletAuthToken(cleanSerial);
+  console.log(`[ApexMDM] Device registered: serial=${cleanSerial} model=${model || ''}`);
+  updateMdmDevice(cleanSerial, {
     model: model || 'Lenovo Tablet',
     name: name || 'Lenovo Tablet',
     online: true,
     lastUpdate: Date.now(),
     targetUrl
   });
+  const hasValidEnroll = Boolean(enrollToken && store.enrollmentTokens.has(String(enrollToken).trim()));
+  const isKnownSerial = Boolean(getMdmDevice(cleanSerial) || store.mdmClients.has(cleanSerial) || cleanSerial === 'apex-lenovo-01');
   res.json({
     ok: true,
     profileId: 1,
+    deviceToken,
     policy: {
       kiosk: true,
       kioskUrl: targetUrl,
-      adminPin: '1024',
+      ...(hasValidEnroll || isKnownSerial ? { adminPin: process.env.MDM_ADMIN_PIN || '1024' } : {}),
       screenAlwaysOn: true,
       allowedApps: [],
       kioskPackage: 'app.apexmsp.kiosk'
@@ -118,10 +136,19 @@ app.post(['/api/v1/device/register', '/device/register'], (req, res) => {
 
 // POST /api/v1/device/checkin — Native ApexMDM 60-second periodic check-in from CheckinManager.kt
 app.post(['/api/v1/device/checkin', '/device/checkin'], (req, res) => {
-  const { serial, model, name, battery } = req.body || {};
-  const s = String(serial || 'apex-lenovo-01');
+  const { serial, deviceToken, model, name, battery } = req.body || {};
+  const cleanSerial = typeof serial === 'string' ? serial.trim() : '';
+  if (!cleanSerial) {
+    return res.status(400).json({ error: 'Tablet serial number is required' });
+  }
+  const expectedToken = computeTabletAuthToken(cleanSerial);
+  const tokenVerified = typeof deviceToken === 'string' && deviceToken === expectedToken;
+  const isKnownSerial = Boolean(getMdmDevice(cleanSerial) || store.mdmClients.has(cleanSerial) || cleanSerial === 'apex-lenovo-01');
+  if (!tokenVerified && !isKnownSerial) {
+    return res.status(401).json({ error: 'Unregistered tablet serial' });
+  }
   const targetUrl = getTargetTabletUrl() || 'https://www.google.com';
-  updateMdmDevice(s, {
+  updateMdmDevice(cleanSerial, {
     model: model || undefined,
     name: name || undefined,
     battery: typeof battery === 'number' ? battery : undefined,
@@ -129,17 +156,18 @@ app.post(['/api/v1/device/checkin', '/device/checkin'], (req, res) => {
     lastUpdate: Date.now(),
     targetUrl
   });
-  const commands = drainTabletCommands(s);
+  const commands = drainTabletCommands(cleanSerial);
   if (commands.length > 0) {
-    console.log(`[ApexMDM] Delivering ${commands.length} queued command(s) to tablet ${s}:`, commands);
+    console.log(`[ApexMDM] Delivering ${commands.length} queued command(s) to tablet ${cleanSerial}:`, commands);
   }
   res.json({
     ok: true,
     serverTime: Date.now(),
+    deviceToken: expectedToken,
     policy: {
       kiosk: true,
       kioskUrl: targetUrl,
-      adminPin: '1024',
+      ...(tokenVerified || isKnownSerial ? { adminPin: process.env.MDM_ADMIN_PIN || '1024' } : {}),
       screenAlwaysOn: true,
       allowedApps: [],
       kioskPackage: 'app.apexmsp.kiosk'
@@ -148,14 +176,14 @@ app.post(['/api/v1/device/checkin', '/device/checkin'], (req, res) => {
   });
 });
 
-// POST /api/v1/mdm/heartbeat — unauthenticated check-in from enrolled tablet
+// POST /api/v1/mdm/heartbeat — check-in from enrolled tablet
 app.post('/api/v1/mdm/heartbeat', (req, res) => {
   const result = recordTabletHeartbeat(req.body, req.ip);
   res.json(result);
 });
 
-// GET /api/v1/mdm/devices/status — live tablet telemetry for console
-app.get('/api/v1/mdm/devices/status', (_req, res) => {
+// GET /api/v1/mdm/devices/status — live tablet telemetry for console (requires operator auth)
+app.get('/api/v1/mdm/devices/status', authenticate, (_req, res) => {
   const dev = getMdmDevice('apex-lenovo-01');
   res.json({
     ok: true,

@@ -25,13 +25,17 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"openmsp/agent/internal/e2ee"
 )
 
 // Update is the control plane's update directive.
 type Update struct {
-	Version string
-	URL     string
-	SHA256  string
+	Version       string
+	URL           string
+	SHA256        string
+	Ed25519Sig    string
+	ServerSignPub string
 }
 
 var inFlight sync.Mutex
@@ -82,6 +86,12 @@ func Apply(u Update) error {
 	got := hex.EncodeToString(h.Sum(nil))
 	if u.SHA256 != "" && !equalFold(got, u.SHA256) {
 		return fmt.Errorf("checksum mismatch: got %s want %s", got, u.SHA256)
+	}
+	if u.Ed25519Sig != "" && u.ServerSignPub != "" {
+		osArch := runtime.GOOS + "/" + runtime.GOARCH
+		if err := e2ee.VerifyReleaseSignature(u.ServerSignPub, u.Version, osArch, got, u.Ed25519Sig); err != nil {
+			return fmt.Errorf("ed25519 signature verification failed: %w", err)
+		}
 	}
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		return fmt.Errorf("chmod: %w", err)

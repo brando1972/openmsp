@@ -21,29 +21,48 @@ function secretsMatch(expected: string, given: string): boolean {
 }
 
 /**
- * Authenticates an endpoint agent by deviceId + deviceSecret. A device with no
- * stored secret never authenticates: it must enroll to get one.
+ * Authenticates an endpoint agent by deviceId + deviceSecret (or pre-verified E2EE envelope).
+ * Only secrets explicitly minted by the control plane during enrollment are accepted.
  */
-export function authenticateDevice(deviceId: unknown, deviceSecret: unknown): DeviceAuthResult {
-  if (typeof deviceId !== 'string' || !deviceId || typeof deviceSecret !== 'string' || !deviceSecret) {
-    return { ok: false, status: 401, code: 'missing_credentials', error: 'Device ID and secret are required' };
+export function authenticateDevice(
+  deviceId: unknown,
+  deviceSecret: unknown,
+  e2eeVerifiedDeviceId?: string
+): DeviceAuthResult {
+  if (typeof deviceId !== 'string' || !deviceId) {
+    return { ok: false, status: 401, code: 'missing_credentials', error: 'Device ID is required' };
   }
   const device = store.devices.get(deviceId);
   if (!device) {
     return { ok: false, status: 401, code: 'device_unknown', error: 'Unknown device; re-enroll required' };
   }
+
+  // If the request was already authenticated via Ed25519 + X25519 E2EE envelope for this exact deviceId
+  if (e2eeVerifiedDeviceId && e2eeVerifiedDeviceId === deviceId && (device as any).deviceSignPub) {
+    return { ok: true, device };
+  }
+
+  if (typeof deviceSecret !== 'string' || !deviceSecret) {
+    return { ok: false, status: 401, code: 'missing_credentials', error: 'Device ID and secret are required' };
+  }
+
   const stored = (device as any).deviceSecret;
-  if (typeof stored !== 'string' || !stored || !secretsMatch(stored, deviceSecret)) {
-    // If the PowerShell installer's final enrollment call rotated deviceSecret after openmsp-agent
-    // already enrolled with its own `sec-...` secret, adopt the agent's active secret so heartbeats succeed.
-    if (typeof deviceSecret === 'string' && /^sec-[0-9a-f-]{20,}$/i.test(deviceSecret)) {
+  if (typeof stored === 'string' && stored && secretsMatch(stored, deviceSecret)) {
+    return { ok: true, device };
+  }
+
+  // Check bounded ring buffer of prior server-issued secrets for this device (e.g. when a
+  // PowerShell bootstrapper and openmsp-agent.exe both called /enroll within seconds).
+  const issuedList: string[] = Array.isArray((device as any).issuedSecrets) ? (device as any).issuedSecrets : [];
+  for (const prev of issuedList) {
+    if (typeof prev === 'string' && prev && secretsMatch(prev, deviceSecret)) {
       (device as any).deviceSecret = deviceSecret;
       store.devices.set(device.id, device);
       return { ok: true, device };
     }
-    return { ok: false, status: 401, code: 'device_unknown', error: 'Invalid device secret; re-enroll required' };
   }
-  return { ok: true, device };
+
+  return { ok: false, status: 401, code: 'invalid_secret', error: 'Invalid device secret; re-enroll required' };
 }
 
 /**
